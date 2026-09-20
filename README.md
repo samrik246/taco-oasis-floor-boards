@@ -4,7 +4,7 @@ Live **Cashiers** + **Kitchen** station boards for Android tablet / iPad / monit
 
 **Repo:** https://github.com/samrik246/taco-oasis-floor-boards
 
-Upload a When I Work–style Restaurant schedule `.xlsx`, split **Caja** vs **Cocina**, assign people to stations inside their shift windows, track hours by position. Auto-fill algorithm comes later (stub only in beta). Optimized for **Android tablet Chrome** (touch ≥44px, no hover-only). Manager day notes arrive in Stage 3.
+Upload a When I Work–style Restaurant schedule `.xlsx`, split **Caja** vs **Cocina**, assign people to stations inside their shift windows, track hours by position. Auto-fill algorithm comes later (stub only in beta). Optimized for **Android tablet Chrome** (touch ≥44px, no hover-only). Manager day notes, hours ledger, violations banner, and `?readonly=1` are in Stage 3.
 
 ## For Cursor
 1. Clone this repo
@@ -39,6 +39,7 @@ pnpm dev
 | `pnpm dev` | Next.js dev server (port 3000) |
 | `pnpm build` | Prisma generate + Next production build |
 | `pnpm test` | Vitest unit/integration tests |
+| `pnpm test:e2e` | Playwright smoke (fresh `prisma/e2e.db`) |
 | `pnpm db:setup` | `prisma db push` + seed stations |
 | `pnpm tsx scripts/build-sample-xlsx.ts` | Rebuild sample xlsx from CSV |
 
@@ -52,3 +53,16 @@ pnpm dev
 - `PUT /api/assignments` — `{ shiftId, stationId, date, hour }` with server-side rules (422 + violation codes)
 - `DELETE /api/assignments/:id` — clear
 - `POST /api/assignments/swap` — `{ assignmentIdA, assignmentIdB }`
+
+## Stage 3 APIs
+- `GET /api/employees/:id/hours?weekOf=YYYY-MM-DD` — hours ledger (person × station minutes, Sunday–Saturday Chicago week)
+- `GET /api/notes?board=caja|cocina&date=YYYY-MM-DD` — list day notes
+- `POST /api/notes` — `{ board, date, body }` (author `Manager`)
+- `PUT /api/notes/:id` — `{ body }`
+- `DELETE /api/notes/:id`
+
+## Stage 3 UI
+- Hours this week panel (select a person)
+- Violations banner (slipped-in rule breaks)
+- Manager notes in `#manager-notes-slot`
+- `?readonly=1` — browse board; mutations blocked (including notes)

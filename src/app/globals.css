@@ -43,8 +43,35 @@ textarea {
   min-width: var(--touch-min);
 }
 
+/* Android tablet landscape: comfortable scroll + safe padding */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Prefer larger tap areas on coarse pointers (tablets) */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: max(var(--touch-min), 48px);
+    min-width: max(var(--touch-min), 48px);
+  }
+}
+
 /* High-contrast focus for keyboard / TalkBack; not hover-only */
 :focus-visible {
   outline: 3px solid #171717;
   outline-offset: 2px;
+}
+
+/* Empty / dashed panels share a consistent tablet-friendly rhythm */
+.empty-panel {
+  border: 2px dashed #737373;
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  text-align: center;
+  font-weight: 500;
+  color: #404040;
 }

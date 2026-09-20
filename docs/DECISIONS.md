@@ -69,3 +69,35 @@ On import, each employee gets `EmployeeStationAbility` rows:
 - Notes scoped to **board + date**; author `Manager` + Chicago timestamp (see project context).
 - Stage 2 leaves `#manager-notes-slot` on the day board shell (`data-board` / `data-date`) for Stage 3 CRUD under `/api/notes`.
 - No notes schema/API in Stage 2.
+
+---
+
+# Stage 3 defaults (ledger, violations, readonly, notes, e2e)
+
+## Hours ledger
+- **Week:** Sunday–Saturday in America/Chicago containing the selected board date (US restaurant convention).
+- **Aggregation:** sum assignment `(hourEnd - hourStart)` minutes grouped by employee × station for that week.
+- **API:** `GET /api/employees/:id/hours?weekOf=YYYY-MM-DD`.
+- **UI:** right column “Hours this week” panel; selecting a person (available list or station assignee) loads their ledger. No pay columns.
+
+## Violations banner
+- Client scans current day-board assignments with the same pure `validateAssignment` rules used on write.
+- Red alert banner lists machine-readable codes (`OUT_OF_SHIFT`, `STATION_FULL`, etc.) when any slipped in.
+
+## Readonly mode
+- Query `?readonly=1` (also accepts `true`).
+- Board remains browsable (board toggle, date, hour, ledger, notes list).
+- UI blocks Load sample, Upload, assign, swap, clear, and note add/edit/delete.
+- Auto-fill remains the NoOp stub (disabled button).
+
+## Manager notes
+- Model `ManagerNote`: many notes per `(board, date)`; free-text body; author always `Manager`.
+- Timestamps stored UTC; display label formatted America/Chicago (`Manager · Sep 20, 2026, 10:15 AM CT`).
+- API: `GET/POST /api/notes`, `PUT/DELETE /api/notes/:id`.
+- UI fills `#manager-notes-slot` via `ManagerNotesPanel`.
+- Mutations blocked when `?readonly=1`.
+
+## Playwright smoke
+- `pnpm test:e2e` uses a **fresh disposable** SQLite file (`prisma/e2e.db`) via `DATABASE_URL=file:./e2e.db`.
+- Flow: Load sample → Cashiers → date with shifts → assign → ledger minutes bump.
+- Chromium only for beta CI.

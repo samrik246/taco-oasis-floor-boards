@@ -81,3 +81,16 @@ model ImportBatch {
   rowCount   Int
   shifts     Shift[]
 }
+
+/// Day notes scoped to board + date (Stage 3). Author label is always "Manager".
+model ManagerNote {
+  id        String   @id @default(cuid())
+  board     String // caja | cocina
+  date      String // YYYY-MM-DD America/Chicago
+  body      String
+  author    String   @default("Manager")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([board, date])
+}
