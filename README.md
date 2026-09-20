@@ -14,17 +14,35 @@ Upload a When I Work–style Restaurant schedule `.xlsx`, split **Caja** vs **Co
 
 ## Docs
 - [`docs/SPEC.md`](docs/SPEC.md) — full product, data model, rules, MVP, test slices
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — defaults chosen during build
 - [`prompts/CURSOR_BUILD_BETA.md`](prompts/CURSOR_BUILD_BETA.md) — short build brief
 - [`prompts/PASTE_INTO_CURSOR.md`](prompts/PASTE_INTO_CURSOR.md) — **long copy-paste prompt**
 
 ## Sample fixture
-`fixtures/wheniwork-restaurant-export-sample.xlsx`
-- Sheet `Schedules - Restaurant` (required shifts)
-- Sheet `Hourly - Restaurant` (optional; ignore in v1)
+- `fixtures/schedules-restaurant.csv` — preferred ingest source (CI-friendly)
+- `fixtures/hourly-restaurant.csv` — optional; ignored in v1
+- `fixtures/wheniwork-restaurant-export-sample.xlsx` — Excel workbook (regenerate via `pnpm tsx scripts/build-sample-xlsx.ts`)
 
-## Quick start (after agent scaffolds the app)
+Sheets: `Schedules - Restaurant` (required), `Hourly - Restaurant` (optional)
+
+## Quick start
 ```bash
 pnpm i
+pnpm db:setup
 pnpm dev
-# http://localhost:3000 → Load sample
+# http://localhost:3000
 ```
+
+## Scripts
+| Command | Purpose |
+|---------|---------|
+| `pnpm dev` | Next.js dev server (port 3000) |
+| `pnpm build` | Prisma generate + Next production build |
+| `pnpm test` | Vitest unit/integration tests |
+| `pnpm db:setup` | `prisma db push` + seed stations |
+| `pnpm tsx scripts/build-sample-xlsx.ts` | Rebuild sample xlsx from CSV |
+
+## Stage 1 APIs
+- `POST /api/imports` — multipart field `file` (xlsx or schedules csv)
+- `GET /api/days` — dates present after import
+- `GET /api/boards/:board/days/:date` — stations + shifts (+ assignments) for `caja` or `cocina`

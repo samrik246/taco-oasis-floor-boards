@@ -1,0 +1,83 @@
+// Taco Oasis Floor Boards — SQLite schema (SPEC §6)
+// Note: SQLite has no native enums; board/ability stored as strings.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Employee {
+  id         String                   @id @default(cuid())
+  externalId String                   @unique
+  firstName  String
+  lastName   String
+  email      String?
+  shifts     Shift[]
+  abilities  EmployeeStationAbility[]
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+}
+
+model Station {
+  id            String                   @id
+  board         String // caja | cocina
+  label         String
+  color         String
+  maxConcurrent Int // -1 = unlimited
+  sortOrder     Int
+  priority      Int?
+  abilities     EmployeeStationAbility[]
+  assignments   Assignment[]
+}
+
+model Shift {
+  id             String       @id @default(cuid())
+  employeeId     String
+  employee       Employee     @relation(fields: [employeeId], references: [id])
+  date           String // YYYY-MM-DD in America/Chicago
+  startAt        DateTime
+  endAt          DateTime
+  sourcePosition String
+  board          String // caja | cocina | other
+  importBatchId  String?
+  importBatch    ImportBatch? @relation(fields: [importBatchId], references: [id])
+  assignments    Assignment[]
+
+  @@index([date, board])
+  @@index([employeeId, date])
+}
+
+model Assignment {
+  id        String   @id @default(cuid())
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  stationId String
+  station   Station  @relation(fields: [stationId], references: [id])
+  hourStart DateTime
+  hourEnd   DateTime
+
+  @@index([stationId, hourStart])
+  @@index([shiftId])
+}
+
+model EmployeeStationAbility {
+  employeeId String
+  stationId  String
+  level      String // forbidden | training | ok | preferred
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  station    Station  @relation(fields: [stationId], references: [id])
+
+  @@id([employeeId, stationId])
+}
+
+model ImportBatch {
+  id         String   @id @default(cuid())
+  filename   String
+  importedAt DateTime @default(now())
+  rowCount   Int
+  shifts     Shift[]
+}
