@@ -14,6 +14,7 @@ export type AbilitySeed = {
  * - Same-board stations default to `ok`, then position overlays apply.
  * - Position overlays: preferred for role home station; training for Prueba on green1;
  *   Limpieza prefers clean and forbids primary cashier lanes.
+ * - Kitchen overlays: fryer/tortilla/birria/taquero/carne/prepa from position text.
  */
 export function seedAbilitiesFromPositions(positions: string[]): AbilitySeed[] {
   const norms = positions.map((p) => p.trim().toLowerCase());
@@ -33,13 +34,11 @@ export function seedAbilitiesFromPositions(positions: string[]): AbilitySeed[] {
   }
 
   if (hasCocina) {
-    // Cocina board stations ok (unless already preferred from dual roles)
     for (const s of COCINA_STATIONS) {
       if (!byStation.has(s.id) || byStation.get(s.id) === "forbidden") {
         byStation.set(s.id, "ok");
       }
     }
-    // Caja stations forbidden unless employee also has caja (already set)
     if (!hasCaja) {
       for (const s of CAJA_STATIONS) {
         byStation.set(s.id, "forbidden");
@@ -48,7 +47,6 @@ export function seedAbilitiesFromPositions(positions: string[]): AbilitySeed[] {
     applyCocinaOverlays(norms, byStation);
   }
 
-  // Employees with only "other" positions: no floor abilities seeded
   return [...byStation.entries()].map(([stationId, level]) => ({
     stationId,
     level,
@@ -70,7 +68,6 @@ function applyCajaOverlays(
   }
   if (norms.some((p) => p.includes("limpieza"))) {
     byStation.set("clean", "preferred");
-    // Limited stations — primary lanes forbidden for limpieza-only hint
     for (const id of [
       "green1",
       "yellow",
@@ -81,7 +78,6 @@ function applyCajaOverlays(
       "multi",
       "mana",
     ]) {
-      // Don't overwrite preferred if somehow set
       if (byStation.get(id) !== "preferred") {
         byStation.set(id, "forbidden");
       }
@@ -97,11 +93,30 @@ function applyCocinaOverlays(
   norms: string[],
   byStation: Map<string, AbilityLevel>,
 ): void {
-  if (norms.some((p) => p.includes("guia abrir"))) {
-    byStation.set("guia_abrir", "preferred");
+  if (norms.some((p) => p.includes("fryer") || p.includes("freidor"))) {
+    byStation.set("fryer", "preferred");
   }
-  if (norms.some((p) => p.includes("guia cerrar") || p.includes("cerrar"))) {
-    byStation.set("cerrar", "preferred");
+  if (norms.some((p) => p.includes("tortilla"))) {
+    byStation.set("tortilla", "preferred");
+  }
+  if (norms.some((p) => p.includes("birria"))) {
+    byStation.set("birria", "preferred");
+  }
+  if (norms.some((p) => p.includes("taquero"))) {
+    byStation.set("taquero", "preferred");
+  }
+  if (
+    norms.some(
+      (p) =>
+        p.includes("carne") ||
+        p.includes("picar") ||
+        p === "produccion",
+    )
+  ) {
+    byStation.set("carne", "preferred");
+  }
+  if (norms.some((p) => p.includes("prepa") || p.includes("prep"))) {
+    byStation.set("prepa", "preferred");
   }
 }
 

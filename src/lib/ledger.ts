@@ -1,8 +1,12 @@
 import { TIMEZONE } from "@/lib/constants";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import type { EmployeeHoursLedger, LedgerStationRow } from "@/lib/ledger-types";
+import type {
+  EmployeeHoursLedger,
+  LedgerStationRow,
+  LedgerTareaRow,
+} from "@/lib/ledger-types";
 
-export type { EmployeeHoursLedger, LedgerStationRow };
+export type { EmployeeHoursLedger, LedgerStationRow, LedgerTareaRow };
 
 /** Format local Chicago calendar components as YYYY-MM-DD. */
 function ymdFromLocalParts(y: number, monthIndex: number, day: number): string {
@@ -54,7 +58,7 @@ export function assignmentMinutes(hourStart: Date, hourEnd: Date): number {
 
 /**
  * Aggregate assignment minutes for an employee in the Chicago week
- * containing `weekOfDate` (YYYY-MM-DD).
+ * containing `weekOfDate` (YYYY-MM-DD). Includes station + tarea minutes.
  */
 export async function getEmployeeWeekHours(
   employeeId: string,
@@ -109,6 +113,50 @@ export async function getEmployeeWeekHours(
 
   const totalMinutes = byStation.reduce((s, r) => s + r.minutes, 0);
 
+  // Tarea minutes: Chicago date strings in week (YYYY-MM-DD lexicographic)
+  const tareas = await prisma.tareaAssignment.findMany({
+    where: {
+      employeeId,
+      date: { gte: weekStart, lte: weekEnd },
+    },
+    include: { template: true },
+  });
+
+  const byTareaMap = new Map<
+    string,
+    { templateId: string; templateLabel: string; minutes: number }
+  >();
+
+  for (const t of tareas) {
+    const end = t.completedAt ?? t.unassignedAt;
+    if (!end) continue; // still working — don't count open duration in ledger yet
+    const mins = assignmentMinutes(t.assignedAt, end);
+    if (mins <= 0) continue;
+    const prev = byTareaMap.get(t.templateId);
+    if (prev) {
+      prev.minutes += mins;
+    } else {
+      byTareaMap.set(t.templateId, {
+        templateId: t.templateId,
+        templateLabel: t.template.label,
+        minutes: mins,
+      });
+    }
+  }
+
+  const byTarea: LedgerTareaRow[] = [...byTareaMap.values()]
+    .map((r) => ({
+      ...r,
+      hours: Math.round((r.minutes / 60) * 100) / 100,
+    }))
+    .sort(
+      (a, b) =>
+        b.minutes - a.minutes ||
+        a.templateLabel.localeCompare(b.templateLabel),
+    );
+
+  const totalTareaMinutes = byTarea.reduce((s, r) => s + r.minutes, 0);
+
   return {
     employeeId: employee.id,
     firstName: employee.firstName,
@@ -118,5 +166,8 @@ export async function getEmployeeWeekHours(
     totalMinutes,
     totalHours: Math.round((totalMinutes / 60) * 100) / 100,
     byStation,
+    byTarea,
+    totalTareaMinutes,
+    totalTareaHours: Math.round((totalTareaMinutes / 60) * 100) / 100,
   };
 }

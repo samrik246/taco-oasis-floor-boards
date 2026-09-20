@@ -36,6 +36,8 @@ import {
   type TareaTemplateDto,
 } from "./TareasPanel";
 import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
+import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
+import { EmployeesPanel } from "./EmployeesPanel";
 import type { MoveReason } from "@/lib/position-moves";
 import { cn } from "@/lib/utils";
 import { TRAFFIC_TICK_MS } from "@/lib/traffic/simulator";
@@ -193,7 +195,7 @@ export function FloorBoard() {
     if (!date) return;
     try {
       const res = await fetch(
-        `/api/traffic?date=${encodeURIComponent(date)}&hour=${hour}`,
+        `/api/traffic?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}`,
       );
       if (!res.ok) return;
       const data = (await res.json()) as TrafficStateDto;
@@ -201,7 +203,7 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date, hour]);
+  }, [date, hour, board]);
 
   const refreshReturnPrompts = useCallback(async () => {
     if (!date) return;
@@ -226,7 +228,9 @@ export function FloorBoard() {
   const refreshTareas = useCallback(async () => {
     if (!date) return;
     try {
-      const res = await fetch(`/api/tareas?date=${encodeURIComponent(date)}`);
+      const res = await fetch(
+        `/api/tareas?date=${encodeURIComponent(date)}&board=${board}`,
+      );
       if (!res.ok) return;
       const data = (await res.json()) as {
         templates: TareaTemplateDto[];
@@ -237,7 +241,7 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date]);
+  }, [date, board]);
 
   const refreshSuggestions = useCallback(async () => {
     if (!date || !selectedTareaTemplateId) {
@@ -246,7 +250,7 @@ export function FloorBoard() {
     }
     try {
       const res = await fetch(
-        `/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
+        `/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
       );
       if (!res.ok) return;
       const data = (await res.json()) as { suggestions: SuggestionDto[] };
@@ -254,7 +258,7 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date, hour, selectedTareaTemplateId]);
+  }, [date, hour, selectedTareaTemplateId, board]);
 
   const refreshPhase1 = useCallback(async () => {
     await Promise.all([
@@ -281,10 +285,10 @@ export function FloorBoard() {
   }, [refreshBoard]);
 
   useEffect(() => {
-    if (board !== "caja") return;
     void refreshTraffic();
     void refreshReturnPrompts();
     void refreshTareas();
+    setSelectedTareaTemplateId(null);
   }, [board, refreshTraffic, refreshReturnPrompts, refreshTareas]);
 
   useEffect(() => {
@@ -519,7 +523,7 @@ export function FloorBoard() {
     const res = await fetch("/api/traffic", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled, date, hour }),
+      body: JSON.stringify({ enabled, date, hour, board }),
     });
     if (!res.ok) {
       setTraffic((prev) => (prev ? { ...prev, enabled: !enabled } : prev));
@@ -591,7 +595,7 @@ export function FloorBoard() {
   const hours = hourGridHours();
   const hasStations = (day?.stations.length ?? 0) > 0;
   const emptyBoard = Boolean(date && day && day.shifts.length === 0);
-  const showCashiersExtras = board === "caja";
+  const showBoardExtras = board === "caja" || board === "cocina";
 
   return (
     <div
@@ -765,7 +769,7 @@ export function FloorBoard() {
         </div>
       )}
 
-      {showCashiersExtras && (
+      {showBoardExtras && (
         <ReturnPromptBanner
           prompts={returnPrompts}
           mute={chimeMute}
@@ -777,7 +781,7 @@ export function FloorBoard() {
 
       <ViolationsBanner violations={violations} />
 
-      {showCashiersExtras && (
+      {showBoardExtras && (
         <div className="px-3 pt-3 sm:px-4">
           <TrafficMetersPanel
             traffic={traffic}
@@ -1033,7 +1037,7 @@ export function FloorBoard() {
           )}
 
           {/* Compact tablets: tareas under stations so assign+checkoff stays reachable */}
-          {showCashiersExtras && !isLargeUi && (
+          {showBoardExtras && !isLargeUi && (
             <TareasPanel
               templates={tareaTemplates}
               assignments={tareaAssignments}
@@ -1050,7 +1054,7 @@ export function FloorBoard() {
         </section>
 
         <div className="flex flex-col gap-3">
-          {showCashiersExtras && isLargeUi && (
+          {showBoardExtras && isLargeUi && (
             <TareasPanel
               templates={tareaTemplates}
               assignments={tareaAssignments}
@@ -1069,6 +1073,18 @@ export function FloorBoard() {
             weekOf={date}
             refreshKey={ledgerRefreshKey}
           />
+          {showBoardExtras && (
+            <PerformanceSurveyPanel
+              date={date}
+              board={board}
+              employeeId={ledgerEmployeeId}
+              employeeName={ledgerEmployeeName}
+              readonly={readonly}
+            />
+          )}
+          {showBoardExtras && (
+            <EmployeesPanel readonly={readonly} board={board} />
+          )}
           <ManagerNotesPanel
             board={board}
             date={date}

@@ -1,14 +1,18 @@
 /**
- * Return-to-station: when a load station is Slammed and the assignee (or MULTI)
- * is on a working tarea → auto-unassign + prompt.
+ * Return-to-station: when a load station is Spammed/Slammed and the assignee
+ * (or floater seats like MULTI) is on a working tarea → auto-unassign + prompt.
+ * Board-aware via load maps + floaterSeatIds from board-config.
  */
 
 import type { BusynessLevel } from "@/lib/load-stations";
 import {
-  CASHIER_LOAD_STATIONS,
+  allLoadStationDefs,
   loadStationForSeat,
-  type LoadStationId,
 } from "@/lib/load-stations";
+import {
+  BOARD_CONFIGS,
+  type FloorBoardId,
+} from "@/lib/board-config";
 
 export type ActiveTareaRef = {
   id: string;
@@ -25,26 +29,40 @@ export type SeatAssignee = {
 export type ReturnPromptDraft = {
   employeeId: string;
   displayName: string;
-  loadStationId: LoadStationId;
+  loadStationId: string;
   seatId: string;
   tareaIds: string[];
   message: string;
 };
 
+function floaterSeatIdsFor(seatId: string): boolean {
+  return Object.values(BOARD_CONFIGS).some((c) =>
+    c.rules.floaterSeatIds.includes(seatId),
+  );
+}
+
 /**
  * Who should be prompted back when a load station is slammed:
  * - Anyone currently seated on that load station's seats who has working tareas
- * - Anyone on MULTI (floater) who has working tareas (helps everywhere)
+ * - Anyone on a floater seat (e.g. MULTI) who has working tareas
  */
 export function draftReturnPrompts(args: {
-  meters: { loadStationId: LoadStationId; level: BusynessLevel }[];
+  meters: { loadStationId: string; level: BusynessLevel }[];
   seatAssignees: SeatAssignee[];
   workingTareas: ActiveTareaRef[];
+  /** Optional: only consider floater rules for this board */
+  board?: FloorBoardId;
 }): ReturnPromptDraft[] {
   const slammed = new Set(
     args.meters.filter((m) => m.level === "slammed").map((m) => m.loadStationId),
   );
   if (slammed.size === 0) return [];
+
+  const floaterIds = args.board
+    ? new Set(BOARD_CONFIGS[args.board].rules.floaterSeatIds)
+    : new Set(
+        Object.values(BOARD_CONFIGS).flatMap((c) => [...c.rules.floaterSeatIds]),
+      );
 
   const tareasByEmployee = new Map<string, ActiveTareaRef[]>();
   for (const t of args.workingTareas) {
@@ -60,32 +78,28 @@ export function draftReturnPrompts(args: {
     const tareas = tareasByEmployee.get(assignee.employeeId);
     if (!tareas || tareas.length === 0) continue;
 
-    const onMulti = assignee.seatId === "multi";
+    const onFloater =
+      floaterIds.has(assignee.seatId) || floaterSeatIdsFor(assignee.seatId);
     const load = loadStationForSeat(assignee.seatId);
-    const relevantLoad = onMulti
+    const relevantLoad = onFloater
       ? [...slammed][0]
       : load && slammed.has(load.id)
         ? load.id
         : null;
 
-    if (!relevantLoad && !onMulti) continue;
-    if (onMulti && slammed.size === 0) continue;
+    if (!relevantLoad && !onFloater) continue;
+    if (onFloater && slammed.size === 0) continue;
 
-    const loadId: LoadStationId = onMulti
-      ? ([...slammed][0] as LoadStationId)
-      : (relevantLoad as LoadStationId);
+    const loadId = onFloater ? ([...slammed][0] as string) : (relevantLoad as string);
 
-    if (!slammed.has(loadId) && !onMulti) continue;
-    if (onMulti && !slammed.has(loadId)) {
-      // MULTI: prompt for any slammed station
-    }
+    if (!slammed.has(loadId) && !onFloater) continue;
 
     const key = `${assignee.employeeId}:${loadId}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     const loadLabel =
-      CASHIER_LOAD_STATIONS.find((s) => s.id === loadId)?.label ?? loadId;
+      allLoadStationDefs().find((s) => s.id === loadId)?.label ?? loadId;
 
     drafts.push({
       employeeId: assignee.employeeId,
@@ -93,8 +107,8 @@ export function draftReturnPrompts(args: {
       loadStationId: loadId,
       seatId: assignee.seatId,
       tareaIds: tareas.map((t) => t.id),
-      message: onMulti
-        ? `${assignee.displayName} (MULTI): ${loadLabel} is Slammed — return to help; tareas unassigned.`
+      message: onFloater
+        ? `${assignee.displayName} (floater): ${loadLabel} is Slammed — return to help; tareas unassigned.`
         : `${assignee.displayName}: ${loadLabel} is Slammed — return to ${assignee.seatId}; tareas unassigned.`,
     });
   }

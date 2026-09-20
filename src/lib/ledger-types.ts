@@ -7,6 +7,13 @@ export type LedgerStationRow = {
   hours: number;
 };
 
+export type LedgerTareaRow = {
+  templateId: string;
+  templateLabel: string;
+  minutes: number;
+  hours: number;
+};
+
 export type EmployeeHoursLedger = {
   employeeId: string;
   firstName: string;
@@ -17,4 +24,8 @@ export type EmployeeHoursLedger = {
   totalMinutes: number;
   totalHours: number;
   byStation: LedgerStationRow[];
+  /** Tarea minutes (assignedAt → completedAt / unassignedAt) for the week */
+  byTarea: LedgerTareaRow[];
+  totalTareaMinutes: number;
+  totalTareaHours: number;
 };

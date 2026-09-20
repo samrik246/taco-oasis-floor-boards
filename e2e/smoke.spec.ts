@@ -3,13 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Phase 1 smoke: Load sample → Cashiers → traffic + tareas + assign + clear with reason.
+ * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/traffic/tareas.
  * Uses fresh disposable DB (prisma/e2e.db) via playwright webServer.
  */
-test.describe("phase 1 cashiers smoke", () => {
-  test("load sample, traffic, tarea, assign, ledger, move reason", async ({
-    page,
-  }) => {
+test.describe("phase 1 cashiers + kitchen smoke", () => {
+  test("load sample, cashiers flow, kitchen board extras", async ({ page }) => {
     const e2eDb = path.resolve(process.cwd(), "prisma/e2e.db");
     expect(fs.existsSync(e2eDb)).toBe(true);
 
@@ -29,7 +27,6 @@ test.describe("phase 1 cashiers smoke", () => {
     await expect(page.getByTestId("traffic-meters")).toBeVisible();
     await expect(page.getByTestId("tareas-panel")).toBeVisible();
 
-    // Enable fake order simulator (scroll past sticky header)
     const trafficToggle = page.getByTestId("traffic-toggle");
     await trafficToggle.scrollIntoViewIfNeeded();
     await expect(trafficToggle).toBeEnabled({ timeout: 15_000 });
@@ -52,7 +49,6 @@ test.describe("phase 1 cashiers smoke", () => {
       timeout: 15_000,
     });
 
-    // Assign a tarea via suggestions
     await page.getByTestId("tarea-template-select").selectOption("salsa");
     const suggestBtn = page.locator("[data-testid^='suggest-']").first();
     await expect(suggestBtn).toBeVisible({ timeout: 15_000 });
@@ -64,7 +60,6 @@ test.describe("phase 1 cashiers smoke", () => {
       0,
     );
 
-    // Clear yellow with move reason
     await page.getByTestId("clear-yellow").click();
     await expect(page.getByTestId("move-reason-modal")).toBeVisible();
     await page.getByTestId("move-reason-select").selectOption("Break");
@@ -73,9 +68,24 @@ test.describe("phase 1 cashiers smoke", () => {
       timeout: 15_000,
     });
 
-    // Ledger still works after earlier assign
-    const ledger = page.getByTestId("hours-ledger");
-    await expect(ledger).toBeVisible();
+    await expect(page.getByTestId("hours-ledger")).toBeVisible();
+
+    // Kitchen board: stations + traffic + tareas
+    await page.getByTestId("board-toggle-cocina").click();
+    await expect(page.getByTestId("station-fryer")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("station-tortilla")).toBeVisible();
+    await expect(page.getByTestId("station-birria")).toBeVisible();
+    await expect(page.getByTestId("station-taquero")).toBeVisible();
+    await expect(page.getByTestId("station-carne")).toBeVisible();
+    await expect(page.getByTestId("station-prepa")).toBeVisible();
+    await expect(page.getByTestId("traffic-meters")).toBeVisible();
+    await expect(page.getByTestId("meter-fryer")).toBeVisible();
+    await expect(page.getByTestId("tareas-panel")).toBeVisible();
+    await expect(page.getByTestId("tarea-template-select")).toContainText(
+      /Restock tortillas|Prep salsa/i,
+    );
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");

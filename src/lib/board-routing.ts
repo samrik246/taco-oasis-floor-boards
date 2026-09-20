@@ -5,8 +5,8 @@ import type { BoardKind } from "./constants";
  *
  * DECISION: Cocina board = Position contains "Cocina" (case-insensitive).
  * `Produccion` and `Picar Carne` are imported as `other` so bucket counts match
- * SPEC §10 acceptance (~109 / ~105 / ~19). Cocina station seeds still include
- * `produccion` / `picar` for a later mapping UI.
+ * SPEC §10 acceptance (~109 / ~105 / ~19). Kitchen phase seats are
+ * fryer/tortilla/birria/taquero/carne/prepa — position hints map onto those.
  */
 export function routePositionToBoard(position: string): BoardKind {
   const p = position.trim();
@@ -29,19 +29,22 @@ export function routePositionToBoard(position: string): BoardKind {
   return "other";
 }
 
-/** Hint station id from schedule Position (SPEC §4.3 / §10) */
+/** Hint station id from schedule Position (SPEC §4.3 / §10 + Kitchen phase) */
 export function positionStationHint(position: string): string | null {
   const lower = position.trim().toLowerCase();
   if (lower === "caja manager") return "mana";
   if (lower.includes("nieves")) return "nieves";
   if (lower.includes("meser")) return "mesero";
   if (lower.includes("limpieza")) return "clean";
-  if (lower.includes("prueba")) return "green1"; // training / new hire preference
-  if (lower === "produccion") return "produccion";
-  if (lower === "picar carne") return "picar";
-  if (lower.includes("guia abrir")) return "guia_abrir";
-  if (lower.includes("guia cerrar") || lower.includes("cerrar")) return "cerrar";
-  if (lower.includes("cocina")) return "linea";
-  if (lower.includes("caja")) return null; // regular cashier — no single default
+  if (lower.includes("prueba")) return "green1";
+  if (lower.includes("fryer") || lower.includes("freidor")) return "fryer";
+  if (lower.includes("tortilla")) return "tortilla";
+  if (lower.includes("birria")) return "birria";
+  if (lower.includes("taquero")) return "taquero";
+  if (lower === "produccion" || lower.includes("carne") || lower.includes("picar"))
+    return "carne";
+  if (lower.includes("prepa") || lower.includes("prep")) return "prepa";
+  if (lower.includes("cocina")) return "taquero";
+  if (lower.includes("caja")) return null;
   return null;
 }

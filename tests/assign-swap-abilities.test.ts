@@ -69,7 +69,7 @@ describe("assign / swap / clear + abilities enforcement", () => {
     expect(manager).toBeTruthy();
     const mana = manager!.abilities.find((a) => a.stationId === "mana");
     expect(mana?.level).toBe("preferred");
-    const cocina = manager!.abilities.find((a) => a.stationId === "linea");
+    const cocina = manager!.abilities.find((a) => a.stationId === "fryer");
     expect(cocina?.level).toBe("forbidden");
   });
 

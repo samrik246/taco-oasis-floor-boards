@@ -1,15 +1,18 @@
 import { prisma } from "@/lib/db";
 import { draftReturnPrompts } from "@/lib/return-to-station";
-import type { LoadStationId } from "@/lib/load-stations";
 import { chicagoHourStart } from "@/lib/hour-grid";
+import type { FloorBoardId } from "@/lib/board-config";
+import { isFloorBoardId } from "@/lib/board-config";
+import { tareaTemplateById } from "@/lib/tareas/catalog";
 
 /**
  * When load stations are Slammed: auto-unassign working tareas for seat
- * assignees + MULTI, and create return prompts.
+ * assignees + floaters, and create return prompts.
  */
 export async function processReturnToStation(args: {
   date: string;
   hour: number;
+  board?: FloorBoardId;
 }): Promise<{ created: number; unassigned: number }> {
   const meters = await prisma.loadStationMeter.findMany();
   const hourStart = chicagoHourStart(args.date, args.hour);
@@ -23,7 +26,12 @@ export async function processReturnToStation(args: {
   });
 
   const seatAssignees = assignments
-    .filter((a) => a.shift.date === args.date && a.shift.board === "caja")
+    .filter((a) => {
+      if (a.shift.date !== args.date) return false;
+      if (!isFloorBoardId(a.shift.board)) return false;
+      if (args.board && a.shift.board !== args.board) return false;
+      return true;
+    })
     .map((a) => ({
       employeeId: a.shift.employeeId,
       seatId: a.stationId,
@@ -35,17 +43,25 @@ export async function processReturnToStation(args: {
     include: { template: true },
   });
 
+  const workingFiltered = args.board
+    ? working.filter((t) => {
+        const seed = tareaTemplateById(t.templateId);
+        return (seed?.board ?? t.template.board) === args.board;
+      })
+    : working;
+
   const drafts = draftReturnPrompts({
     meters: meters.map((m) => ({
-      loadStationId: m.loadStationId as LoadStationId,
+      loadStationId: m.loadStationId,
       level: m.level as "quiet" | "busy" | "slammed",
     })),
     seatAssignees,
-    workingTareas: working.map((t) => ({
+    workingTareas: workingFiltered.map((t) => ({
       id: t.id,
       employeeId: t.employeeId,
       templateLabel: t.template.label,
     })),
+    board: args.board,
   });
 
   let unassigned = 0;
@@ -68,7 +84,6 @@ export async function processReturnToStation(args: {
       unassigned += result.count;
     }
 
-    // Avoid duplicate open prompts for same employee+load today
     const existing = await prisma.returnPrompt.findFirst({
       where: {
         date: args.date,

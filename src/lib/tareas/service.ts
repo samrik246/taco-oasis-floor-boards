@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
-import { CASHIER_TAREA_TEMPLATES, isLemonWarnTemplate } from "@/lib/tareas/catalog";
-import { GREEN_SEAT_IDS } from "@/lib/tareas/catalog";
+import {
+  isLemonWarnTemplate,
+  GREEN_SEAT_IDS,
+} from "@/lib/tareas/catalog";
+import { allTareaTemplates, type FloorBoardId } from "@/lib/board-config";
+import { getBoardConfig } from "@/lib/board-config";
 import {
   positionFitFromSource,
   suggestAssignees,
@@ -11,7 +15,7 @@ import { chicagoHourStart } from "@/lib/hour-grid";
 import type { AbilityLevel } from "@/lib/rules/types";
 
 export async function ensureTareaTemplates() {
-  for (const t of CASHIER_TAREA_TEMPLATES) {
+  for (const t of allTareaTemplates()) {
     await prisma.tareaTemplate.upsert({
       where: { id: t.id },
       create: {
@@ -20,6 +24,7 @@ export async function ensureTareaTemplates() {
         label: t.label,
         mode: t.mode,
         sortOrder: t.sortOrder,
+        board: t.board,
         lemonWarnOnGreens: t.lemonWarnOnGreens === true,
       },
       update: {
@@ -27,21 +32,32 @@ export async function ensureTareaTemplates() {
         label: t.label,
         mode: t.mode,
         sortOrder: t.sortOrder,
+        board: t.board,
         lemonWarnOnGreens: t.lemonWarnOnGreens === true,
       },
     });
   }
 }
 
-export async function listTareaTemplates() {
+export async function listTareaTemplates(board?: FloorBoardId) {
   await ensureTareaTemplates();
-  return prisma.tareaTemplate.findMany({ orderBy: { sortOrder: "asc" } });
+  return prisma.tareaTemplate.findMany({
+    where: board ? { board } : undefined,
+    orderBy: { sortOrder: "asc" },
+  });
 }
 
-export async function listTareaAssignments(date: string) {
+export async function listTareaAssignments(
+  date: string,
+  board?: FloorBoardId,
+) {
   await ensureTareaTemplates();
   return prisma.tareaAssignment.findMany({
-    where: { date, unassignedAt: null },
+    where: {
+      date,
+      unassignedAt: null,
+      ...(board ? { template: { board } } : {}),
+    },
     include: {
       template: true,
       employee: {
@@ -98,10 +114,17 @@ export async function assignTarea(args: {
   });
 
   let lemonWarning: string | undefined;
+  const lemonSeats =
+    template.board === "caja"
+      ? getBoardConfig("caja").rules.lemonWarnSeatIds
+      : [];
   if (
     isLemonWarnTemplate(args.templateId) &&
     seat &&
-    GREEN_SEAT_IDS.includes(seat.stationId as (typeof GREEN_SEAT_IDS)[number])
+    (lemonSeats.includes(seat.stationId) ||
+      GREEN_SEAT_IDS.includes(
+        seat.stationId as (typeof GREEN_SEAT_IDS)[number],
+      ))
   ) {
     lemonWarning =
       "LEMON on Green/cliente — usually keep greens on customers. Manager can force.";
@@ -163,13 +186,21 @@ export async function buildTareaSuggestions(args: {
   hour: number;
   templateId: string;
   forceLemon?: boolean;
+  board?: FloorBoardId;
 }): Promise<SuggestionSlot[]> {
   await ensureTareaTemplates();
   const hourStart = chicagoHourStart(args.date, args.hour);
 
+  const template = await prisma.tareaTemplate.findUnique({
+    where: { id: args.templateId },
+  });
+  const board: FloorBoardId =
+    args.board ??
+    (template?.board === "cocina" ? "cocina" : "caja");
+
   const shifts = await prisma.shift.findMany({
     where: {
-      board: "caja",
+      board,
       date: args.date,
       startAt: { lte: hourStart },
       endAt: { gt: hourStart },
@@ -182,17 +213,25 @@ export async function buildTareaSuggestions(args: {
 
   const workingCounts = await prisma.tareaAssignment.groupBy({
     by: ["employeeId"],
-    where: { date: args.date, status: "working", unassignedAt: null },
+    where: {
+      date: args.date,
+      status: "working",
+      unassignedAt: null,
+      template: { board },
+    },
     _count: { _all: true },
   });
   const countMap = Object.fromEntries(
     workingCounts.map((w) => [w.employeeId, w._count._all]),
   );
 
+  const defaultSeat =
+    board === "cocina" ? "taquero" : "green1";
+
   const candidates: SuggestionCandidate[] = shifts.map((sh) => {
     const seatId = sh.assignments[0]?.stationId ?? null;
     const ability =
-      sh.employee.abilities.find((a) => a.stationId === (seatId ?? "green1"))
+      sh.employee.abilities.find((a) => a.stationId === (seatId ?? defaultSeat))
         ?.level ?? null;
     return {
       employeeId: sh.employee.id,

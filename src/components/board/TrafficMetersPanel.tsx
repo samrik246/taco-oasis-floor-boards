@@ -1,14 +1,15 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { BusynessLevel, LoadStationId } from "@/lib/load-stations";
+import type { BusynessLevel } from "@/lib/load-stations";
 
 export type TrafficMeterDto = {
-  loadStationId: LoadStationId;
+  loadStationId: string;
   label: string;
   level: BusynessLevel;
   orderCount: number;
   seatIds: readonly string[];
+  board?: string;
 };
 
 export type TrafficStateDto = {

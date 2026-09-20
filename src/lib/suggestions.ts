@@ -5,7 +5,11 @@
 
 import type { AbilityLevel } from "@/lib/rules/types";
 import { abilitySortRank } from "@/lib/rules/abilities";
-import { GREEN_SEAT_IDS, isLemonWarnTemplate } from "@/lib/tareas/catalog";
+import {
+  GREEN_SEAT_IDS,
+  isLemonWarnTemplate,
+  tareaTemplateById,
+} from "@/lib/tareas/catalog";
 
 export type SuggestionCandidate = {
   employeeId: string;
@@ -46,12 +50,24 @@ function scoreCandidate(
   score -= abilitySortRank(c.abilityLevel) * 8;
   score += c.positionFit;
 
+  const seed = tareaTemplateById(templateId);
+
   // Prefer MULTI / floaters for backlog chiles (when-slow work)
   if (templateId === "desvenar_chiles") {
     if (c.seatId === "multi" || c.seatId === null) score += 15;
     if (c.seatId && GREEN_SEAT_IDS.includes(c.seatId as (typeof GREEN_SEAT_IDS)[number])) {
       score -= 10;
     }
+  }
+
+  // Kitchen: prefer seated person on matching station (e.g. restock_tortillas → tortilla)
+  if (seed?.preferSeatId && c.seatId === seed.preferSeatId) {
+    score += 18;
+  }
+
+  // Trash runs: floaters / unseated OK
+  if (templateId === "trash_runs" && (c.seatId === "multi" || c.seatId === null)) {
+    score += 12;
   }
 
   // Lemon on greens: still suggestable, but deprioritize unless force
@@ -93,7 +109,7 @@ export function suggestAssignees(input: SuggestInput): SuggestionSlot[] {
   }));
 }
 
-/** Position-string soft fit for cashiers homework tareas */
+/** Position-string soft fit for homework tareas (caja + cocina). */
 export function positionFitFromSource(sourcePosition: string): number {
   const p = sourcePosition.toLowerCase();
   if (p.includes("manager")) return 5;
@@ -102,5 +118,12 @@ export function positionFitFromSource(sourcePosition: string): number {
   if (p.includes("nieves")) return 4;
   if (p.includes("meser")) return 3;
   if (p.includes("limpieza")) return 2;
+  if (p.includes("taquero")) return 10;
+  if (p.includes("fryer") || p.includes("freidor")) return 9;
+  if (p.includes("tortilla")) return 9;
+  if (p.includes("birria")) return 8;
+  if (p.includes("carne") || p.includes("picar")) return 8;
+  if (p.includes("prepa") || p.includes("prep")) return 7;
+  if (p.includes("cocina")) return 6;
   return 5;
 }

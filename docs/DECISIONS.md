@@ -151,3 +151,44 @@ MULTI gets return-to-station prompts when helping; MANA/mesero/CLEAN as assigned
 ## Tablets
 - Large tablet = fullest UI; small can still **assign + check off** (no hard station lock yet).
 - Android tablet touch targets preserved (`--touch-min` / `.touch-target`).
+
+---
+
+# Kitchen phase + template foundation — provisional defaults 2026-09-20
+
+Synced from store plan + `kitchen-seed-content.md`. Cashiers Phase 1 must not regress.
+
+## Template foundation
+- **Board config:** `src/lib/board-config.ts` — each floor board (`caja` | `cocina`) owns stations, load-station map, tarea catalog, and rules flags (`noDoubles`, `multiActiveTareas`, `returnOnSlammed`, `floaterSeatIds`, `lemonWarnSeatIds`).
+- **Users:** schedule import kept; **add/edit employee + abilities** via `/api/employees` (+ UI People panel).
+- **Hours:** station minutes (assignments) **and** tarea minutes (`assignedAt` → `completedAt`/`unassignedAt`) on the week ledger.
+- **Performance:** end-of-shift / close-day survey with default questions; answers stored per employee + date + board (`PerformanceQuestion` / `PerformanceAnswer`).
+
+## Kitchen stations + load
+| key | label |
+|-----|--------|
+| fryer | Fryer |
+| tortilla | Tortilla |
+| birria | Birria |
+| taquero | Taquero |
+| carne | Carne |
+| prepa | Prepa |
+
+- All `maxConcurrent = 1` (no doubles). Legacy cocina seeds (`guia_abrir`, `linea`, …) removed when unused.
+- Load stations = **same six** (1:1 seat map). Quiet / Busy / Slammed + 15s simulator (shared toggle; meters filtered by board).
+
+## Kitchen tareas (starter)
+`prep_salsa_bar`, `wipe_line` (when slow), `restock_tortillas`, `restock_gloves`, `deep_clean_fryer`, `prep_birria`, `stock_carne`, `trash_runs`, `dish_assist` (when slow). Multi active OK; suggestions top/next.
+
+## Return-to-station
+Same rules as caja: slammed load → auto-unassign working tareas + prompt for seat assignees (kitchen has no MULTI floater).
+
+## Performance default questions
+1. Stay on station when Busy/Slammed? (yes/no/na)
+2. Finish assigned tareas? (finished/partial/none)
+3. Seat same position tomorrow? (yes/no/maybe)
+4. Free note (optional)
+
+## Cashiers pilot
+- Caja stations, load map, tareas, lemon warn, MULTI floater unchanged.
+- Board toggle Cashiers | Kitchen fully wired for both boards' traffic/tareas/return.

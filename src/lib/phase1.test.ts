@@ -14,6 +14,10 @@ import {
 import { metersFromCounts, simulateTick } from "@/lib/traffic/simulator";
 import { isValidMoveReason, MOVE_REASONS } from "@/lib/position-moves";
 import { CAJA_STATIONS } from "@/lib/stations";
+import { KITCHEN_LOAD_STATIONS } from "@/lib/load-stations";
+import { KITCHEN_TAREA_TEMPLATES } from "@/lib/tareas/catalog";
+import { getBoardConfig } from "@/lib/board-config";
+import { DEFAULT_PERFORMANCE_QUESTIONS } from "@/lib/performance/questions";
 
 describe("Phase 1: Nieves one-per-station", () => {
   it("nieves maxConcurrent is 1", () => {
@@ -42,9 +46,12 @@ describe("Phase 1: load-station map", () => {
 });
 
 describe("Phase 1: traffic simulator", () => {
-  it("produces meters for all load stations", () => {
-    const counts = simulateTick({ now: new Date("2026-09-20T16:00:00Z") });
-    const meters = metersFromCounts(counts);
+  it("produces meters for all cashier load stations", () => {
+    const counts = simulateTick({
+      now: new Date("2026-09-20T16:00:00Z"),
+      stations: CASHIER_LOAD_STATIONS,
+    });
+    const meters = metersFromCounts(counts, CASHIER_LOAD_STATIONS);
     expect(meters.map((m) => m.loadStationId).sort()).toEqual([
       "carro",
       "cliente",
@@ -132,5 +139,83 @@ describe("Phase 1: move reasons", () => {
     ]);
     expect(isValidMoveReason("Break")).toBe(true);
     expect(isValidMoveReason("Vacation")).toBe(false);
+  });
+});
+
+describe("Kitchen phase: board template + seed", () => {
+  it("uses exact station keys fryer/tortilla/birria/taquero/carne/prepa", () => {
+    const cocina = getBoardConfig("cocina");
+    expect(cocina.stations.map((s) => s.id)).toEqual([
+      "fryer",
+      "tortilla",
+      "birria",
+      "taquero",
+      "carne",
+      "prepa",
+    ]);
+    expect(KITCHEN_LOAD_STATIONS.map((s) => s.id)).toEqual([
+      "fryer",
+      "tortilla",
+      "birria",
+      "taquero",
+      "carne",
+      "prepa",
+    ]);
+  });
+
+  it("has starter kitchen tareas from seed content", () => {
+    expect(KITCHEN_TAREA_TEMPLATES.map((t) => t.id)).toEqual([
+      "prep_salsa_bar",
+      "wipe_line",
+      "restock_tortillas",
+      "restock_gloves",
+      "deep_clean_fryer",
+      "prep_birria",
+      "stock_carne",
+      "trash_runs",
+      "dish_assist",
+    ]);
+    expect(isBacklogWhenSlow("wipe_line")).toBe(true);
+    expect(isBacklogWhenSlow("dish_assist")).toBe(true);
+  });
+
+  it("simulates kitchen load meters Quiet/Busy/Slammed", () => {
+    const counts = simulateTick({
+      now: new Date("2026-09-20T16:00:00Z"),
+      stations: KITCHEN_LOAD_STATIONS,
+    });
+    const meters = metersFromCounts(counts, KITCHEN_LOAD_STATIONS);
+    expect(meters).toHaveLength(6);
+    for (const m of meters) {
+      expect(["quiet", "busy", "slammed"]).toContain(m.level);
+    }
+  });
+
+  it("drafts kitchen return prompts when fryer slammed", () => {
+    const drafts = draftReturnPrompts({
+      meters: [
+        { loadStationId: "fryer", level: "slammed" },
+        { loadStationId: "tortilla", level: "quiet" },
+      ],
+      seatAssignees: [
+        { employeeId: "k1", seatId: "fryer", displayName: "Kim" },
+        { employeeId: "k2", seatId: "tortilla", displayName: "Tom" },
+      ],
+      workingTareas: [
+        { id: "t1", employeeId: "k1", templateLabel: "Deep clean" },
+        { id: "t2", employeeId: "k2", templateLabel: "Restock" },
+      ],
+      board: "cocina",
+    });
+    expect(drafts.map((d) => d.employeeId)).toEqual(["k1"]);
+  });
+
+  it("ships default performance questions", () => {
+    expect(DEFAULT_PERFORMANCE_QUESTIONS.map((q) => q.id)).toEqual([
+      "pq_stayed_on_station",
+      "pq_tareas_finished",
+      "pq_seat_tomorrow",
+      "pq_free_note",
+    ]);
   });
 });

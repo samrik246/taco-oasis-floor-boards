@@ -13,7 +13,7 @@ type Props = {
 };
 
 /**
- * Hours this week by station for the selected employee (SPEC slice 11).
+ * Hours this week by station + tarea for the selected employee.
  */
 export function HoursLedgerPanel({
   employeeId,
@@ -73,7 +73,7 @@ export function HoursLedgerPanel({
         <h2 className="text-lg font-bold">Hours this week</h2>
         <p className="text-sm font-medium text-neutral-700">
           Select a person (tap their name on a station, or pick from Available)
-          to see minutes by station.
+          to see minutes by station and tarea.
         </p>
       </div>
     );
@@ -91,7 +91,8 @@ export function HoursLedgerPanel({
       </p>
       {ledger && (
         <p className="text-xs font-medium text-neutral-600">
-          {ledger.weekStart} → {ledger.weekEnd} · {ledger.totalHours}h total
+          {ledger.weekStart} → {ledger.weekEnd} · {ledger.totalHours}h stations
+          · {ledger.totalTareaHours ?? 0}h tareas
         </p>
       )}
       {loading && (
@@ -111,26 +112,56 @@ export function HoursLedgerPanel({
         </p>
       )}
       {!loading && ledger && ledger.byStation.length > 0 && (
-        <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-rows">
-          {ledger.byStation.map((row) => (
-            <li
-              key={row.stationId}
-              className={cn(
-                "flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm",
-              )}
-              data-station-id={row.stationId}
-              data-minutes={row.minutes}
-            >
-              <span className="font-semibold">{row.stationLabel}</span>
-              <span className="font-bold tabular-nums">
-                {row.minutes} min
-                <span className="ml-1 font-medium text-neutral-600">
-                  ({row.hours}h)
+        <>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-neutral-700">
+            Stations
+          </h3>
+          <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-rows">
+            {ledger.byStation.map((row) => (
+              <li
+                key={row.stationId}
+                className={cn(
+                  "flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm",
+                )}
+                data-station-id={row.stationId}
+                data-minutes={row.minutes}
+              >
+                <span className="font-semibold">{row.stationLabel}</span>
+                <span className="font-bold tabular-nums">
+                  {row.minutes} min
+                  <span className="ml-1 font-medium text-neutral-600">
+                    ({row.hours}h)
+                  </span>
                 </span>
-              </span>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {!loading && ledger && (ledger.byTarea?.length ?? 0) > 0 && (
+        <>
+          <h3 className="mt-1 text-xs font-bold uppercase tracking-wide text-neutral-700">
+            Tareas
+          </h3>
+          <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-tarea-rows">
+            {ledger.byTarea.map((row) => (
+              <li
+                key={row.templateId}
+                className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm"
+                data-template-id={row.templateId}
+                data-minutes={row.minutes}
+              >
+                <span className="font-semibold">{row.templateLabel}</span>
+                <span className="font-bold tabular-nums">
+                  {row.minutes} min
+                  <span className="ml-1 font-medium text-neutral-600">
+                    ({row.hours}h)
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
