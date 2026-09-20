@@ -113,6 +113,8 @@ export function FloorBoard() {
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
+  const trafficReqId = useRef(0);
+  const tareasReqId = useRef(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
@@ -192,12 +194,14 @@ export function FloorBoard() {
 
   const refreshTraffic = useCallback(async () => {
     if (!date) return;
+    const req = ++trafficReqId.current;
     try {
       const res = await fetch(
         `/api/traffic?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}`,
       );
       if (!res.ok) return;
       const data = (await res.json()) as TrafficStateDto;
+      if (req !== trafficReqId.current) return;
       setTraffic(data);
     } catch {
       /* soft fail */
@@ -226,6 +230,7 @@ export function FloorBoard() {
 
   const refreshTareas = useCallback(async () => {
     if (!date) return;
+    const req = ++tareasReqId.current;
     try {
       const res = await fetch(
         `/api/tareas?date=${encodeURIComponent(date)}&board=${board}`,
@@ -235,6 +240,7 @@ export function FloorBoard() {
         templates: TareaTemplateDto[];
         assignments: TareaAssignmentDto[];
       };
+      if (req !== tareasReqId.current) return;
       setTareaTemplates(data.templates ?? []);
       setTareaAssignments(data.assignments ?? []);
     } catch {
@@ -594,6 +600,8 @@ export function FloorBoard() {
     await refreshTareas();
     bumpLedger();
   }
+
+  const hours = hourGridHours();
   const hasStations = (day?.stations.length ?? 0) > 0;
   const emptyBoard = Boolean(date && day && day.shifts.length === 0);
   const showBoardExtras = board === "caja" || board === "cocina";
@@ -648,6 +656,11 @@ export function FloorBoard() {
                   setSelectedStationId(null);
                   setSelectedShiftId(null);
                   setSwapFirstId(null);
+                  setTraffic(null);
+                  setTareaTemplates([]);
+                  setTareaAssignments([]);
+                  setSuggestions([]);
+                  setSelectedTareaTemplateId(null);
                 }}
                 data-testid={`board-toggle-${b}`}
               >

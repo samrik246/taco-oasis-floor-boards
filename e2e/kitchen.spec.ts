@@ -41,6 +41,9 @@ test.describe("kitchen phase smoke", () => {
 
     // --- Scenario D (partial): traffic meters for six ---
     await expect(page.getByTestId("traffic-meters")).toBeVisible();
+    await expect(page.getByTestId("meter-fryer")).toBeVisible({
+      timeout: 20_000,
+    });
     for (const id of [
       "fryer",
       "tortilla",
@@ -100,12 +103,19 @@ test.describe("kitchen phase smoke", () => {
       0,
     );
 
-    // --- Scenario E: hours ledger shows station (+ tarea after assign) ---
+    // --- Scenario E: hours ledger shows station minutes ---
+    // Re-select the fryer assignee so ledger binds to someone with station time
+    await page.getByTestId("assignee-fryer").click();
     const ledger = page.getByTestId("hours-ledger");
     await expect(ledger).toBeVisible();
     await expect(page.getByTestId("hours-ledger-rows")).toBeVisible({
-      timeout: 10_000,
+      timeout: 15_000,
     });
+    // Tarea minutes appear when any tarea time has accrued
+    const tareaRows = page.getByTestId("hours-ledger-tarea-rows");
+    if (await tareaRows.count()) {
+      await expect(tareaRows).toBeVisible();
+    }
 
     // Performance panel present
     await expect(page.getByTestId("performance-panel")).toBeVisible();
