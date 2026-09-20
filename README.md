@@ -1,10 +1,10 @@
 # Taco Oasis Floor Boards (Beta Spec)
 
-Live **Cashiers** + **Kitchen** station boards for iPad/monitor.
+Live **Cashiers** + **Kitchen** station boards for Android tablet / iPad / monitor (Chrome landscape).
 
 **Repo:** https://github.com/samrik246/taco-oasis-floor-boards
 
-Upload a When I Work–style Restaurant schedule `.xlsx`, split **Caja** vs **Cocina**, assign people to stations inside their shift windows, track hours by position. Auto-fill algorithm comes later (stub only in beta).
+Upload a When I Work–style Restaurant schedule `.xlsx`, split **Caja** vs **Cocina**, assign people to stations inside their shift windows, track hours by position. Auto-fill algorithm comes later (stub only in beta). Optimized for **Android tablet Chrome** (touch ≥44px, no hover-only). Manager day notes arrive in Stage 3.
 
 ## For Cursor
 1. Clone this repo

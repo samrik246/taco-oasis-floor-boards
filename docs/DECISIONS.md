@@ -57,3 +57,15 @@ On import, each employee gets `EmployeeStationAbility` rows:
 ## UI
 - Board labels: Cashiers | Kitchen; hour scrubber 7:00–22:00; touch targets ≥44px; high-contrast station colors.
 - Auto-fill button disabled / NoOp stub only.
+
+## Android tablet (Stage 2 UX)
+- Primary target: Android Chrome tablet, landscape ~1280×800+.
+- Viewport via Next `export const viewport` (`device-width`, initialScale 1, viewportFit cover).
+- `public/manifest.webmanifest` for Add-to-Home-Screen (standalone, landscape).
+- All floor actions are tap/click; `active:` press feedback; no hover-only controls.
+- CSS `--touch-min: 44px` + `.touch-target`; `touch-action: manipulation`.
+
+## Manager notes (Stage 3 — not in Stage 2)
+- Notes scoped to **board + date**; author `Manager` + Chicago timestamp (see project context).
+- Stage 2 leaves `#manager-notes-slot` on the day board shell (`data-board` / `data-date`) for Stage 3 CRUD under `/api/notes`.
+- No notes schema/API in Stage 2.

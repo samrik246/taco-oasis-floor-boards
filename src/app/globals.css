@@ -1,9 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafafa;
+  --foreground: #0a0a0a;
   --radius: 0.5rem;
+  /* Android tablet touch budget */
+  --touch-min: 44px;
 }
 
 @theme inline {
@@ -20,12 +22,29 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Prefer readable text on Android Chrome */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
-/* Touch-friendly: avoid 300ms tap delay feel + larger hit areas on iPad */
+/* Touch-first: no 300ms delay; actions must work without hover */
 button,
 [role="button"],
 select,
-label {
+label,
+a,
+input,
+textarea {
   touch-action: manipulation;
+}
+
+.touch-target {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+}
+
+/* High-contrast focus for keyboard / TalkBack; not hover-only */
+:focus-visible {
+  outline: 3px solid #171717;
+  outline-offset: 2px;
 }
