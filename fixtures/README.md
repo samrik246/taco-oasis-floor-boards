@@ -2,22 +2,27 @@
 
 ## wheniwork-restaurant-export-sample.xlsx
 
-This directory should contain a sample When I Work Restaurant export used by parser tests and the app **Load sample** button.
+**Status:** The binary `.xlsx` could not be committed via GitHub MCP `create_or_update_file` / `push_files` (those tools treat `content` as UTF-8 text; a base64 probe produced a corrupt 72-byte file and was removed).
 
-**Expected filename:** `wheniwork-restaurant-export-sample.xlsx`
+### Add the sample locally / via git CLI
 
-If the binary `.xlsx` is missing from this repo (GitHub MCP/API binary upload limitations from this agent), add it locally:
+The real sample lives on the agent box at:
 
-1. Place the real When I Work Restaurant export at:
-   `fixtures/wheniwork-restaurant-export-sample.xlsx`
-2. It must include sheets:
-   - `Schedules - Restaurant` (required)
-   - `Hourly - Restaurant` (optional)
-3. Sample week dates used in SPEC: **2026-09-18 … 2026-09-24**
+`/workspace/taco-oasis-floor-boards/fixtures/wheniwork-restaurant-export-sample.xlsx`
 
-A base64-encoded copy may also be present as
-`fixtures/wheniwork-restaurant-export-sample.xlsx.b64`.
-Decode with:
+(36,734 bytes; sheets `Schedules - Restaurant` + `Hourly - Restaurant`; week **2026-09-18 … 2026-09-24**).
+
+From a machine with `gh` auth or a GitHub token:
+
+```bash
+git clone https://github.com/samrik246/taco-oasis-floor-boards.git
+cp /path/to/wheniwork-restaurant-export-sample.xlsx fixtures/
+git add fixtures/wheniwork-restaurant-export-sample.xlsx
+git commit -m "Add When I Work sample xlsx fixture"
+git push origin main
+```
+
+Or decode if you have a base64 companion:
 
 ```bash
 base64 -d fixtures/wheniwork-restaurant-export-sample.xlsx.b64 > fixtures/wheniwork-restaurant-export-sample.xlsx
