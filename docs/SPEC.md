@@ -49,7 +49,9 @@ We need a **web app on iPad/monitor** that:
 
 ## 3. Schedule export contract (source of truth for beta)
 
-Sample: `fixtures/wheniwork-restaurant-export-sample.xlsx`
+> **In-repo fixture (preferred for CI/Cursor):** `fixtures/schedules-restaurant.csv` is CSV-equivalent to sheet `Schedules - Restaurant`. Optional companion: `fixtures/hourly-restaurant.csv` (`Hourly - Restaurant`). The `.xlsx` sample is optional and may be omitted from the repo (GitHub API cannot push binary); parsers should accept either CSV or xlsx. See `fixtures/README.md` and `docs/FIXTURES.md`.
+
+Sample (optional binary): `fixtures/wheniwork-restaurant-export-sample.xlsx`
 
 ### Sheet: `Schedules - Restaurant` (REQUIRED)
 | Column | Use |
