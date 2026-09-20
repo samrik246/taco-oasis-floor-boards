@@ -1,0 +1,29 @@
+name: Assemble schedule fixtures
+on:
+  push:
+    paths:
+      - 'fixtures/.schedules-part2.txt'
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Append part2 if needed
+        run: |
+          set -euo pipefail
+          if [[ -f fixtures/.schedules-part2.txt ]]; then
+            if ! tail -c 80 fixtures/schedules-restaurant.csv | grep -q 'mike5mg4m@gmail.com,2026-09-24,5:00 pm,9:15 pm'; then
+              cat fixtures/.schedules-part2.txt >> fixtures/schedules-restaurant.csv
+            fi
+            rm -f fixtures/.schedules-part2.txt fixtures/.part2-append-marker.txt
+          fi
+          wc -c fixtures/schedules-restaurant.csv
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "No changes"; else git commit -m "Add CSV schedule fixtures for Cursor tests (xlsx binary not supported via API)" && git push; fi
