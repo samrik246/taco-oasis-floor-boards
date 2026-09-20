@@ -7,8 +7,14 @@ import {
   listTareaTemplates,
   setTareaStatus,
 } from "@/lib/tareas/service";
+import type { FloorBoardId } from "@/lib/board-config";
 
 export const dynamic = "force-dynamic";
+
+function parseBoard(raw: string | null): FloorBoardId | undefined {
+  if (raw === "caja" || raw === "cocina") return raw;
+  return undefined;
+}
 
 export async function GET(req: Request) {
   try {
@@ -17,8 +23,9 @@ export async function GET(req: Request) {
     const suggest = url.searchParams.get("suggest");
     const hourRaw = url.searchParams.get("hour");
     const forceLemon = url.searchParams.get("forceLemon") === "1";
+    const board = parseBoard(url.searchParams.get("board"));
 
-    const templates = await listTareaTemplates();
+    const templates = await listTareaTemplates(board);
 
     if (suggest && date && hourRaw != null) {
       const hour = Number(hourRaw);
@@ -27,6 +34,7 @@ export async function GET(req: Request) {
         hour,
         templateId: suggest,
         forceLemon,
+        board,
       });
       return NextResponse.json({ templates, suggestions });
     }
@@ -35,7 +43,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ templates, assignments: [] });
     }
 
-    const assignments = await listTareaAssignments(date);
+    const assignments = await listTareaAssignments(date, board);
     return NextResponse.json({ templates, assignments });
   } catch (e) {
     console.error(e);
@@ -49,6 +57,7 @@ const postSchema = z.object({
   templateId: z.string().min(1),
   hour: z.number().int(),
   forceLemon: z.boolean().optional(),
+  forceSlammed: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -61,6 +70,7 @@ export async function POST(req: Request) {
           error: result.error,
           code: result.code,
           lemonWarning: result.lemonWarning,
+          slammedWarning: result.slammedWarning,
         },
         { status: result.status },
       );
@@ -68,6 +78,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       assignment: result.assignment,
       lemonWarning: result.lemonWarning,
+      slammedWarning: result.slammedWarning,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

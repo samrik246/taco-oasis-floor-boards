@@ -4,7 +4,7 @@ import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
 import { persistImport } from "@/lib/import/persist-import";
-import { ALL_STATIONS } from "@/lib/stations";
+import { ALL_STATIONS, LEGACY_COCINA_STATION_IDS } from "@/lib/stations";
 import {
   createAssignment,
   deleteAssignment,
@@ -25,6 +25,9 @@ describe("assign / swap / clear + abilities enforcement", () => {
     await prisma.importBatch.deleteMany();
     await prisma.employeeStationAbility.deleteMany();
     await prisma.employee.deleteMany();
+    for (const id of LEGACY_COCINA_STATION_IDS) {
+      await prisma.station.deleteMany({ where: { id } });
+    }
     for (const s of ALL_STATIONS) {
       await prisma.station.upsert({
         where: { id: s.id },
@@ -69,7 +72,7 @@ describe("assign / swap / clear + abilities enforcement", () => {
     expect(manager).toBeTruthy();
     const mana = manager!.abilities.find((a) => a.stationId === "mana");
     expect(mana?.level).toBe("preferred");
-    const cocina = manager!.abilities.find((a) => a.stationId === "linea");
+    const cocina = manager!.abilities.find((a) => a.stationId === "fryer");
     expect(cocina?.level).toBe("forbidden");
   });
 

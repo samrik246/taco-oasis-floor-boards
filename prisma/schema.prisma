@@ -11,18 +11,19 @@ datasource db {
 }
 
 model Employee {
-  id              String                   @id @default(cuid())
-  externalId      String                   @unique
-  firstName       String
-  lastName        String
-  email           String?
-  shifts          Shift[]
-  abilities       EmployeeStationAbility[]
+  id               String                   @id @default(cuid())
+  externalId       String                   @unique
+  firstName        String
+  lastName         String
+  email            String?
+  shifts           Shift[]
+  abilities        EmployeeStationAbility[]
   tareaAssignments TareaAssignment[]
-  returnPrompts   ReturnPrompt[]
-  positionMoves   PositionMoveLog[]
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
+  returnPrompts    ReturnPrompt[]
+  positionMoves    PositionMoveLog[]
+  performanceAnswers PerformanceAnswer[]
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 }
 
 model Station {
@@ -106,23 +107,26 @@ model TrafficSimulatorConfig {
   updatedAt  DateTime  @updatedAt
 }
 
-/// Per cashiers load-station busyness from the fake simulator.
+/// Per load-station busyness from the fake simulator (caja + cocina ids).
 model LoadStationMeter {
-  loadStationId String   @id // nieves | cliente | carro | expo
+  loadStationId String   @id // nieves|cliente|carro|expo|fryer|tortilla|…
   level         String   @default("quiet") // quiet | busy | slammed
   orderCount    Int      @default(0)
   updatedAt     DateTime @updatedAt
 }
 
-/// Homework-style cashiers tarea template (one simplified daily list).
+/// Homework-style tarea template (Cashiers + Kitchen catalogs).
 model TareaTemplate {
-  id               String            @id
-  code             String            @unique
-  label            String
-  mode             String // normal | backlog_when_slow
-  sortOrder        Int
-  lemonWarnOnGreens Boolean          @default(false)
-  assignments      TareaAssignment[]
+  id                        String            @id
+  code                      String            @unique
+  label                     String
+  mode                      String // normal | backlog_when_slow
+  sortOrder                 Int
+  board                     String            @default("caja") // caja | cocina
+  lemonWarnOnGreens         Boolean           @default(false)
+  preferSeatId              String?
+  warnOnSlammedLoadStationId String?
+  assignments               TareaAssignment[]
 }
 
 /// Multi active OK; status working | done.
@@ -173,4 +177,20 @@ model PositionMoveLog {
   createdAt     DateTime @default(now())
 
   @@index([date, employeeId])
+}
+
+/// Close-day / end-of-shift performance answers (per employee + date + board).
+model PerformanceAnswer {
+  id         String   @id @default(cuid())
+  date       String // YYYY-MM-DD America/Chicago
+  board      String // caja | cocina
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// JSON object: { [questionId]: string }
+  answersJson String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([date, board, employeeId])
+  @@index([date, board])
 }

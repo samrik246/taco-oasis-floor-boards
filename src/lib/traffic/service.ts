@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/db";
 import {
+  allLoadStationDefs,
   CASHIER_LOAD_STATIONS,
-  type LoadStationId,
+  KITCHEN_LOAD_STATIONS,
 } from "@/lib/load-stations";
+import type { FloorBoardId } from "@/lib/board-config";
 import {
   emptyMeters,
   metersFromCounts,
@@ -21,7 +23,7 @@ async function ensureConfig() {
 }
 
 async function ensureMeters() {
-  for (const s of CASHIER_LOAD_STATIONS) {
+  for (const s of allLoadStationDefs()) {
     await prisma.loadStationMeter.upsert({
       where: { loadStationId: s.id },
       create: {
@@ -34,7 +36,15 @@ async function ensureMeters() {
   }
 }
 
-export async function getTrafficState(): Promise<TrafficStateSnapshot> {
+function defsForBoard(board?: FloorBoardId) {
+  if (board === "caja") return CASHIER_LOAD_STATIONS;
+  if (board === "cocina") return KITCHEN_LOAD_STATIONS;
+  return allLoadStationDefs();
+}
+
+export async function getTrafficState(
+  board?: FloorBoardId,
+): Promise<TrafficStateSnapshot> {
   await ensureConfig();
   await ensureMeters();
   const config = await prisma.trafficSimulatorConfig.findUniqueOrThrow({
@@ -42,7 +52,8 @@ export async function getTrafficState(): Promise<TrafficStateSnapshot> {
   });
   const rows = await prisma.loadStationMeter.findMany();
   const byId = Object.fromEntries(rows.map((r) => [r.loadStationId, r]));
-  const meters = CASHIER_LOAD_STATIONS.map((s) => {
+  const defs = defsForBoard(board);
+  const meters = defs.map((s) => {
     const row = byId[s.id];
     return {
       loadStationId: s.id,
@@ -55,20 +66,23 @@ export async function getTrafficState(): Promise<TrafficStateSnapshot> {
   return {
     enabled: config.enabled,
     lastTickAt: config.lastTickAt?.toISOString() ?? null,
-    meters: meters.length ? meters : emptyMeters(),
+    meters: meters.length ? meters : emptyMeters(board),
   };
 }
 
-export async function setTrafficEnabled(enabled: boolean): Promise<TrafficStateSnapshot> {
+export async function setTrafficEnabled(
+  enabled: boolean,
+  board?: FloorBoardId,
+): Promise<TrafficStateSnapshot> {
   await ensureConfig();
   await prisma.trafficSimulatorConfig.update({
     where: { id: "default" },
     data: { enabled },
   });
   if (enabled) {
-    return tickTrafficIfDue({ force: true });
+    return tickTrafficIfDue({ force: true, board });
   }
-  return getTrafficState();
+  return getTrafficState(board);
 }
 
 /**
@@ -79,6 +93,7 @@ export async function tickTrafficIfDue(opts?: {
   force?: boolean;
   date?: string;
   hour?: number;
+  board?: FloorBoardId;
 }): Promise<TrafficStateSnapshot> {
   await ensureConfig();
   await ensureMeters();
@@ -87,10 +102,7 @@ export async function tickTrafficIfDue(opts?: {
   });
 
   if (!config.enabled && !opts?.force) {
-    return getTrafficState();
-  }
-  if (!config.enabled && opts?.force) {
-    // force only when enabling path already set enabled
+    return getTrafficState(opts?.board);
   }
 
   const now = new Date();
@@ -100,14 +112,15 @@ export async function tickTrafficIfDue(opts?: {
     now.getTime() - config.lastTickAt.getTime() >= TRAFFIC_TICK_MS;
 
   if (!due || !config.enabled) {
-    return getTrafficState();
+    return getTrafficState(opts?.board);
   }
 
   const previous = await prisma.loadStationMeter.findMany();
   const prevCounts = Object.fromEntries(
     previous.map((p) => [p.loadStationId, p.orderCount]),
-  ) as Partial<Record<LoadStationId, number>>;
+  ) as Record<string, number>;
 
+  // Always advance all load stations so both boards stay warm
   const counts = simulateTick({ now, previousCounts: prevCounts });
   const meters = metersFromCounts(counts);
 
@@ -132,8 +145,12 @@ export async function tickTrafficIfDue(opts?: {
   });
 
   if (opts?.date != null && opts?.hour != null) {
-    await processReturnToStation({ date: opts.date, hour: opts.hour });
+    await processReturnToStation({
+      date: opts.date,
+      hour: opts.hour,
+      board: opts.board,
+    });
   }
 
-  return getTrafficState();
+  return getTrafficState(opts?.board);
 }

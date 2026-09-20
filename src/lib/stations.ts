@@ -27,18 +27,28 @@ export const CAJA_STATIONS: StationSeed[] = [
 ];
 
 /**
- * Cocina stations — SPEC §4.5
- * linea maxConcurrent=2 (optional config choice documented in DECISIONS).
+ * Cocina stations — Kitchen phase seed (fryer/tortilla/birria/taquero/carne/prepa).
+ * maxConcurrent=1 each; no stacking.
  */
 export const COCINA_STATIONS: StationSeed[] = [
-  { id: "guia_abrir", board: "cocina", label: "Guia Abrir", color: "orange", maxConcurrent: 1, sortOrder: 0, priority: null },
-  { id: "linea", board: "cocina", label: "Linea", color: "red", maxConcurrent: 2, sortOrder: 1, priority: null },
-  { id: "expo", board: "cocina", label: "Expo", color: "yellow", maxConcurrent: 1, sortOrder: 2, priority: null },
-  { id: "prep", board: "cocina", label: "Prep", color: "green", maxConcurrent: 1, sortOrder: 3, priority: null },
-  { id: "cerrar", board: "cocina", label: "Cerrar", color: "blue", maxConcurrent: 1, sortOrder: 4, priority: null },
-  { id: "produccion", board: "cocina", label: "Produccion", color: "purple", maxConcurrent: 1, sortOrder: 5, priority: null },
-  { id: "picar", board: "cocina", label: "Picar Carne", color: "brown", maxConcurrent: 1, sortOrder: 6, priority: null },
-  { id: "dish", board: "cocina", label: "Dish", color: "gray", maxConcurrent: 1, sortOrder: 7, priority: null },
+  { id: "fryer", board: "cocina", label: "Fryer", color: "orange", maxConcurrent: 1, sortOrder: 0, priority: 1 },
+  { id: "tortilla", board: "cocina", label: "Tortilla", color: "yellow", maxConcurrent: 1, sortOrder: 1, priority: 2 },
+  { id: "birria", board: "cocina", label: "Birria", color: "red", maxConcurrent: 1, sortOrder: 2, priority: 3 },
+  { id: "taquero", board: "cocina", label: "Taquero", color: "green", maxConcurrent: 1, sortOrder: 3, priority: 4 },
+  { id: "carne", board: "cocina", label: "Carne", color: "brown", maxConcurrent: 1, sortOrder: 4, priority: 5 },
+  { id: "prepa", board: "cocina", label: "Prepa", color: "blue", maxConcurrent: 1, sortOrder: 5, priority: 6 },
 ];
+
+/** Obsolete cocina station ids removed in Kitchen phase (cleaned on seed). */
+export const LEGACY_COCINA_STATION_IDS = [
+  "guia_abrir",
+  "linea",
+  "expo",
+  "prep",
+  "cerrar",
+  "produccion",
+  "picar",
+  "dish",
+] as const;
 
 export const ALL_STATIONS: StationSeed[] = [...CAJA_STATIONS, ...COCINA_STATIONS];

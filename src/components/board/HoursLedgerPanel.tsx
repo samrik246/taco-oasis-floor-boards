@@ -102,35 +102,72 @@ export function HoursLedgerPanel({
           {error}
         </p>
       )}
-      {!loading && !error && ledger && ledger.byStation.length === 0 && (
-        <p
-          className="text-sm font-medium text-neutral-600"
-          data-testid="hours-ledger-empty"
-        >
-          No station minutes yet this week.
-        </p>
-      )}
+      {!loading &&
+        !error &&
+        ledger &&
+        ledger.byStation.length === 0 &&
+        (ledger.byTarea?.length ?? 0) === 0 && (
+          <p
+            className="text-sm font-medium text-neutral-600"
+            data-testid="hours-ledger-empty"
+          >
+            No station or tarea minutes yet this week.
+          </p>
+        )}
       {!loading && ledger && ledger.byStation.length > 0 && (
-        <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-rows">
-          {ledger.byStation.map((row) => (
-            <li
-              key={row.stationId}
-              className={cn(
-                "flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm",
-              )}
-              data-station-id={row.stationId}
-              data-minutes={row.minutes}
-            >
-              <span className="font-semibold">{row.stationLabel}</span>
-              <span className="font-bold tabular-nums">
-                {row.minutes} min
-                <span className="ml-1 font-medium text-neutral-600">
-                  ({row.hours}h)
+        <>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-neutral-700">
+            By station
+          </h3>
+          <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-rows">
+            {ledger.byStation.map((row) => (
+              <li
+                key={row.stationId}
+                className={cn(
+                  "flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm",
+                )}
+                data-station-id={row.stationId}
+                data-minutes={row.minutes}
+              >
+                <span className="font-semibold">{row.stationLabel}</span>
+                <span className="font-bold tabular-nums">
+                  {row.minutes} min
+                  <span className="ml-1 font-medium text-neutral-600">
+                    ({row.hours}h)
+                  </span>
                 </span>
-              </span>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {!loading && ledger && (ledger.byTarea?.length ?? 0) > 0 && (
+        <>
+          <h3 className="mt-1 text-xs font-bold uppercase tracking-wide text-neutral-700">
+            By tarea ({ledger.totalTareaMinutes ?? 0} min)
+          </h3>
+          <ul
+            className="flex flex-col gap-1.5"
+            data-testid="hours-ledger-tarea-rows"
+          >
+            {ledger.byTarea.map((row) => (
+              <li
+                key={row.templateId}
+                className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-neutral-400 bg-neutral-50 px-2 py-1.5 text-sm"
+                data-template-id={row.templateId}
+                data-minutes={row.minutes}
+              >
+                <span className="font-semibold">{row.templateLabel}</span>
+                <span className="font-bold tabular-nums">
+                  {row.minutes} min
+                  <span className="ml-1 font-medium text-neutral-600">
+                    ({row.hours}h)
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

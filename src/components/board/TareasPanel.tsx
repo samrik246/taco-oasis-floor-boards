@@ -9,6 +9,7 @@ export type TareaTemplateDto = {
   code: string;
   label: string;
   mode: string;
+  board?: string;
   lemonWarnOnGreens: boolean;
 };
 
@@ -43,6 +44,8 @@ type Props = {
   onMarkWorking: (id: string) => void;
   readonly: boolean;
   compact?: boolean;
+  /** Board label for panel title */
+  boardLabel?: string;
 };
 
 export function TareasPanel({
@@ -56,11 +59,13 @@ export function TareasPanel({
   onMarkWorking,
   readonly,
   compact,
+  boardLabel = "Cashiers",
 }: Props) {
   const [forceLemon, setForceLemon] = useState(false);
   const working = assignments.filter((a) => a.status === "working");
   const done = assignments.filter((a) => a.status === "done");
   const backlog = templates.filter((t) => t.mode === "backlog_when_slow");
+  const isKitchen = boardLabel === "Kitchen";
 
   useEffect(() => {
     setForceLemon(false);
@@ -74,9 +79,12 @@ export function TareasPanel({
       )}
       data-testid="tareas-panel"
     >
-      <h2 className="text-lg font-bold">Cashiers tareas</h2>
+      <h2 className="text-lg font-bold">{boardLabel} tareas</h2>
       <p className="text-xs font-medium text-neutral-600">
-        Homework-style daily list. Multi active OK. Chiles = when-slow backlog.
+        Homework-style daily list. Multi active OK.
+        {isKitchen
+          ? " Suggestions use seat fit."
+          : " Chiles = when-slow backlog."}
       </p>
 
       {backlog.length > 0 && (
@@ -137,17 +145,32 @@ export function TareasPanel({
               </span>
             </button>
           ))}
-          <label className="flex min-h-11 items-center gap-2 text-xs font-semibold">
-            <input
-              type="checkbox"
-              className="size-4 accent-neutral-900"
-              checked={forceLemon}
-              onChange={(e) => setForceLemon(e.target.checked)}
-              disabled={readonly}
-              data-testid="force-lemon"
-            />
-            Force lemon on greens (manager)
-          </label>
+          {!isKitchen && (
+            <label className="flex min-h-11 items-center gap-2 text-xs font-semibold">
+              <input
+                type="checkbox"
+                className="size-4 accent-neutral-900"
+                checked={forceLemon}
+                onChange={(e) => setForceLemon(e.target.checked)}
+                disabled={readonly}
+                data-testid="force-lemon"
+              />
+              Force lemon on greens (manager)
+            </label>
+          )}
+          {isKitchen && (
+            <label className="flex min-h-11 items-center gap-2 text-xs font-semibold">
+              <input
+                type="checkbox"
+                className="size-4 accent-neutral-900"
+                checked={forceLemon}
+                onChange={(e) => setForceLemon(e.target.checked)}
+                disabled={readonly}
+                data-testid="force-slammed"
+              />
+              Force assign when Slammed (manager)
+            </label>
+          )}
         </div>
       )}
 

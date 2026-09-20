@@ -2,7 +2,7 @@
  * Station uniqueness hard rule (SPEC §4.2 + Phase 1):
  * At most one employee per (board, date, hour, stationId) when maxConcurrent=1.
  * Stations with maxConcurrent < 0 remain unlimited (legacy helper; Nieves is now 1).
- * Stations with maxConcurrent > 1 (e.g. cocina linea=2) allow that many.
+ * Stations with maxConcurrent > 1 allow that many (Kitchen phase: all cocina = 1).
  */
 export function canOccupyStation(args: {
   maxConcurrent: number;

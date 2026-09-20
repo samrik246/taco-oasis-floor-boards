@@ -1,19 +1,23 @@
 /**
- * Fake order-traffic simulator (Phase 1).
+ * Fake order-traffic simulator.
  * Advances every 15s when enabled; no real POS / Jolt feed.
+ * Covers Cashiers + Kitchen load stations; callers filter by board.
  */
 
 import {
+  allLoadStationDefs,
   busynessFromOrderCount,
   CASHIER_LOAD_STATIONS,
+  KITCHEN_LOAD_STATIONS,
   type BusynessLevel,
-  type LoadStationId,
+  type LoadStationDef,
 } from "@/lib/load-stations";
+import type { FloorBoardId } from "@/lib/board-config";
 
 export const TRAFFIC_TICK_MS = 15_000;
 
 export type LoadMeterSnapshot = {
-  loadStationId: LoadStationId;
+  loadStationId: string;
   label: string;
   level: BusynessLevel;
   orderCount: number;
@@ -36,26 +40,28 @@ function hashSeed(s: string): number {
   return h >>> 0;
 }
 
+function defsForBoard(board?: FloorBoardId): readonly LoadStationDef[] {
+  if (board === "caja") return CASHIER_LOAD_STATIONS;
+  if (board === "cocina") return KITCHEN_LOAD_STATIONS;
+  return allLoadStationDefs();
+}
+
 /**
  * Simulate one tick of fake orders per load station.
  * Uses time bucket so concurrent callers in the same 15s window get similar levels.
  */
 export function simulateTick(args: {
   now: Date;
-  previousCounts?: Partial<Record<LoadStationId, number>>;
-}): Record<LoadStationId, number> {
+  previousCounts?: Record<string, number>;
+  board?: FloorBoardId;
+}): Record<string, number> {
   const bucket = Math.floor(args.now.getTime() / TRAFFIC_TICK_MS);
-  const next: Record<LoadStationId, number> = {
-    nieves: 0,
-    cliente: 0,
-    carro: 0,
-    expo: 0,
-  };
+  const defs = defsForBoard(args.board);
+  const next: Record<string, number> = {};
 
-  for (const station of CASHIER_LOAD_STATIONS) {
+  for (const station of defs) {
     const prev = args.previousCounts?.[station.id] ?? 0;
     const noise = hashSeed(`${station.id}:${bucket}`) % 7; // 0–6 new orders
-    // Decay prior window (~40%) then add noise
     const decayed = Math.floor(prev * 0.4);
     next[station.id] = Math.min(14, decayed + noise);
   }
@@ -64,9 +70,10 @@ export function simulateTick(args: {
 }
 
 export function metersFromCounts(
-  counts: Record<LoadStationId, number>,
+  counts: Record<string, number>,
+  board?: FloorBoardId,
 ): LoadMeterSnapshot[] {
-  return CASHIER_LOAD_STATIONS.map((s) => ({
+  return defsForBoard(board).map((s) => ({
     loadStationId: s.id,
     label: s.label,
     level: busynessFromOrderCount(counts[s.id] ?? 0),
@@ -75,11 +82,8 @@ export function metersFromCounts(
   }));
 }
 
-export function emptyMeters(): LoadMeterSnapshot[] {
-  return metersFromCounts({
-    nieves: 0,
-    cliente: 0,
-    carro: 0,
-    expo: 0,
-  });
+export function emptyMeters(board?: FloorBoardId): LoadMeterSnapshot[] {
+  const counts: Record<string, number> = {};
+  for (const s of defsForBoard(board)) counts[s.id] = 0;
+  return metersFromCounts(counts, board);
 }

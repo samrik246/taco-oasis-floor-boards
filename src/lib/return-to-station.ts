@@ -1,14 +1,16 @@
 /**
  * Return-to-station: when a load station is Slammed and the assignee (or MULTI)
  * is on a working tarea → auto-unassign + prompt.
+ * Board-aware: Cashiers MULTI floater; Kitchen has no MULTI.
  */
 
 import type { BusynessLevel } from "@/lib/load-stations";
 import {
-  CASHIER_LOAD_STATIONS,
+  allLoadStationDefs,
   loadStationForSeat,
-  type LoadStationId,
 } from "@/lib/load-stations";
+import type { FloorBoardId } from "@/lib/board-config";
+import { boardConfig } from "@/lib/board-config";
 
 export type ActiveTareaRef = {
   id: string;
@@ -25,7 +27,7 @@ export type SeatAssignee = {
 export type ReturnPromptDraft = {
   employeeId: string;
   displayName: string;
-  loadStationId: LoadStationId;
+  loadStationId: string;
   seatId: string;
   tareaIds: string[];
   message: string;
@@ -34,13 +36,17 @@ export type ReturnPromptDraft = {
 /**
  * Who should be prompted back when a load station is slammed:
  * - Anyone currently seated on that load station's seats who has working tareas
- * - Anyone on MULTI (floater) who has working tareas (helps everywhere)
+ * - Anyone on MULTI (floater, Cashiers only) who has working tareas
  */
 export function draftReturnPrompts(args: {
-  meters: { loadStationId: LoadStationId; level: BusynessLevel }[];
+  meters: { loadStationId: string; level: BusynessLevel }[];
   seatAssignees: SeatAssignee[];
   workingTareas: ActiveTareaRef[];
+  board?: FloorBoardId;
 }): ReturnPromptDraft[] {
+  const multiSeatId =
+    args.board != null ? boardConfig(args.board).multiSeatId : "multi";
+
   const slammed = new Set(
     args.meters.filter((m) => m.level === "slammed").map((m) => m.loadStationId),
   );
@@ -60,7 +66,8 @@ export function draftReturnPrompts(args: {
     const tareas = tareasByEmployee.get(assignee.employeeId);
     if (!tareas || tareas.length === 0) continue;
 
-    const onMulti = assignee.seatId === "multi";
+    const onMulti =
+      multiSeatId != null && assignee.seatId === multiSeatId;
     const load = loadStationForSeat(assignee.seatId);
     const relevantLoad = onMulti
       ? [...slammed][0]
@@ -71,21 +78,18 @@ export function draftReturnPrompts(args: {
     if (!relevantLoad && !onMulti) continue;
     if (onMulti && slammed.size === 0) continue;
 
-    const loadId: LoadStationId = onMulti
-      ? ([...slammed][0] as LoadStationId)
-      : (relevantLoad as LoadStationId);
+    const loadId = onMulti
+      ? ([...slammed][0] as string)
+      : (relevantLoad as string);
 
     if (!slammed.has(loadId) && !onMulti) continue;
-    if (onMulti && !slammed.has(loadId)) {
-      // MULTI: prompt for any slammed station
-    }
 
     const key = `${assignee.employeeId}:${loadId}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     const loadLabel =
-      CASHIER_LOAD_STATIONS.find((s) => s.id === loadId)?.label ?? loadId;
+      allLoadStationDefs().find((s) => s.id === loadId)?.label ?? loadId;
 
     drafts.push({
       employeeId: assignee.employeeId,

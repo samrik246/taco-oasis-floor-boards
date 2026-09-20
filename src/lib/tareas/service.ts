@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
-import { CASHIER_TAREA_TEMPLATES, isLemonWarnTemplate } from "@/lib/tareas/catalog";
-import { GREEN_SEAT_IDS } from "@/lib/tareas/catalog";
+import {
+  ALL_TAREA_TEMPLATES,
+  GREEN_SEAT_IDS,
+  isLemonWarnTemplate,
+  slammedWarnLoadStation,
+} from "@/lib/tareas/catalog";
 import {
   positionFitFromSource,
   suggestAssignees,
@@ -9,9 +13,10 @@ import {
 } from "@/lib/suggestions";
 import { chicagoHourStart } from "@/lib/hour-grid";
 import type { AbilityLevel } from "@/lib/rules/types";
+import type { FloorBoardId } from "@/lib/board-config";
 
 export async function ensureTareaTemplates() {
-  for (const t of CASHIER_TAREA_TEMPLATES) {
+  for (const t of ALL_TAREA_TEMPLATES) {
     await prisma.tareaTemplate.upsert({
       where: { id: t.id },
       create: {
@@ -20,28 +25,44 @@ export async function ensureTareaTemplates() {
         label: t.label,
         mode: t.mode,
         sortOrder: t.sortOrder,
+        board: t.board,
         lemonWarnOnGreens: t.lemonWarnOnGreens === true,
+        preferSeatId: t.preferSeatId ?? null,
+        warnOnSlammedLoadStationId: t.warnOnSlammedLoadStationId ?? null,
       },
       update: {
         code: t.code,
         label: t.label,
         mode: t.mode,
         sortOrder: t.sortOrder,
+        board: t.board,
         lemonWarnOnGreens: t.lemonWarnOnGreens === true,
+        preferSeatId: t.preferSeatId ?? null,
+        warnOnSlammedLoadStationId: t.warnOnSlammedLoadStationId ?? null,
       },
     });
   }
 }
 
-export async function listTareaTemplates() {
+export async function listTareaTemplates(board?: FloorBoardId) {
   await ensureTareaTemplates();
-  return prisma.tareaTemplate.findMany({ orderBy: { sortOrder: "asc" } });
+  return prisma.tareaTemplate.findMany({
+    where: board ? { board } : undefined,
+    orderBy: { sortOrder: "asc" },
+  });
 }
 
-export async function listTareaAssignments(date: string) {
+export async function listTareaAssignments(
+  date: string,
+  board?: FloorBoardId,
+) {
   await ensureTareaTemplates();
   return prisma.tareaAssignment.findMany({
-    where: { date, unassignedAt: null },
+    where: {
+      date,
+      unassignedAt: null,
+      ...(board ? { template: { board } } : {}),
+    },
     include: {
       template: true,
       employee: {
@@ -57,6 +78,7 @@ export type AssignTareaResult =
       ok: true;
       assignment: Awaited<ReturnType<typeof listTareaAssignments>>[number];
       lemonWarning?: string;
+      slammedWarning?: string;
     }
   | {
       ok: false;
@@ -64,6 +86,7 @@ export type AssignTareaResult =
       error: string;
       code?: string;
       lemonWarning?: string;
+      slammedWarning?: string;
     };
 
 export async function assignTarea(args: {
@@ -72,6 +95,7 @@ export async function assignTarea(args: {
   templateId: string;
   hour: number;
   forceLemon?: boolean;
+  forceSlammed?: boolean;
 }): Promise<AssignTareaResult> {
   await ensureTareaTemplates();
 
@@ -116,13 +140,33 @@ export async function assignTarea(args: {
     }
   }
 
+  let slammedWarning: string | undefined;
+  const slammedLoad = slammedWarnLoadStation(args.templateId);
+  if (slammedLoad) {
+    const meter = await prisma.loadStationMeter.findUnique({
+      where: { loadStationId: slammedLoad },
+    });
+    if (meter?.level === "slammed") {
+      slammedWarning = `Load station ${slammedLoad} is Slammed — deep clean usually waits. Manager can force.`;
+      if (!args.forceSlammed && !args.forceLemon) {
+        return {
+          ok: false,
+          status: 422,
+          error: slammedWarning,
+          code: "SLAMMED_WARN",
+          slammedWarning,
+        };
+      }
+    }
+  }
+
   const created = await prisma.tareaAssignment.create({
     data: {
       date: args.date,
       employeeId: args.employeeId,
       templateId: args.templateId,
       status: "working",
-      forceLemon: args.forceLemon === true,
+      forceLemon: args.forceLemon === true || args.forceSlammed === true,
     },
     include: {
       template: true,
@@ -132,7 +176,12 @@ export async function assignTarea(args: {
     },
   });
 
-  return { ok: true, assignment: created, lemonWarning };
+  return {
+    ok: true,
+    assignment: created,
+    lemonWarning,
+    slammedWarning,
+  };
 }
 
 export async function setTareaStatus(args: {
@@ -163,13 +212,23 @@ export async function buildTareaSuggestions(args: {
   hour: number;
   templateId: string;
   forceLemon?: boolean;
+  board?: FloorBoardId;
 }): Promise<SuggestionSlot[]> {
   await ensureTareaTemplates();
   const hourStart = chicagoHourStart(args.date, args.hour);
 
+  const template = await prisma.tareaTemplate.findUnique({
+    where: { id: args.templateId },
+  });
+  const board: FloorBoardId =
+    args.board ??
+    ((template?.board as FloorBoardId | undefined) === "cocina"
+      ? "cocina"
+      : "caja");
+
   const shifts = await prisma.shift.findMany({
     where: {
-      board: "caja",
+      board,
       date: args.date,
       startAt: { lte: hourStart },
       endAt: { gt: hourStart },
@@ -182,18 +241,26 @@ export async function buildTareaSuggestions(args: {
 
   const workingCounts = await prisma.tareaAssignment.groupBy({
     by: ["employeeId"],
-    where: { date: args.date, status: "working", unassignedAt: null },
+    where: {
+      date: args.date,
+      status: "working",
+      unassignedAt: null,
+      template: { board },
+    },
     _count: { _all: true },
   });
   const countMap = Object.fromEntries(
     workingCounts.map((w) => [w.employeeId, w._count._all]),
   );
 
+  const defaultAbilityStation = board === "cocina" ? "taquero" : "green1";
+
   const candidates: SuggestionCandidate[] = shifts.map((sh) => {
     const seatId = sh.assignments[0]?.stationId ?? null;
     const ability =
-      sh.employee.abilities.find((a) => a.stationId === (seatId ?? "green1"))
-        ?.level ?? null;
+      sh.employee.abilities.find(
+        (a) => a.stationId === (seatId ?? defaultAbilityStation),
+      )?.level ?? null;
     return {
       employeeId: sh.employee.id,
       displayName: `${sh.employee.firstName} ${sh.employee.lastName}`.trim(),

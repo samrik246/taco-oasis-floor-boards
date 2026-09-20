@@ -65,7 +65,7 @@ describe("station uniqueness (SPEC §4.2)", () => {
     ).toBe(true);
   });
 
-  it("allows two on linea (maxConcurrent=2) but not three", () => {
+  it("allows stacking only when maxConcurrent > 1", () => {
     expect(
       canOccupyStation({ maxConcurrent: 2, existingOccupancy: 1 }),
     ).toBe(true);
@@ -90,7 +90,17 @@ describe("abilities seed + block (SPEC §4.3 / §4.7)", () => {
     const seeds = seedAbilitiesFromPositions(["Caja Manager"]);
     expect(seeds.find((s) => s.stationId === "mana")?.level).toBe("preferred");
     expect(seeds.find((s) => s.stationId === "green1")?.level).toBe("ok");
-    expect(seeds.find((s) => s.stationId === "linea")?.level).toBe("forbidden");
+    expect(seeds.find((s) => s.stationId === "fryer")?.level).toBe("forbidden");
+  });
+
+  it("seeds preferred taquero for generic Cocina", () => {
+    const seeds = seedAbilitiesFromPositions(["Cocina"]);
+    expect(seeds.find((s) => s.stationId === "taquero")?.level).toBe(
+      "preferred",
+    );
+    expect(seeds.find((s) => s.stationId === "green1")?.level).toBe(
+      "forbidden",
+    );
   });
 
   it("seeds preferred nieves for Caja - Nieves", () => {

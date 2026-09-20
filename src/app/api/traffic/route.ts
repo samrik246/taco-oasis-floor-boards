@@ -5,8 +5,14 @@ import {
   setTrafficEnabled,
   tickTrafficIfDue,
 } from "@/lib/traffic/service";
+import type { FloorBoardId } from "@/lib/board-config";
 
 export const dynamic = "force-dynamic";
+
+function parseBoard(raw: string | null): FloorBoardId | undefined {
+  if (raw === "caja" || raw === "cocina") return raw;
+  return undefined;
+}
 
 /** GET — current meters; ticks simulator if due (15s) when date+hour provided */
 export async function GET(req: Request) {
@@ -15,11 +21,12 @@ export async function GET(req: Request) {
     const date = url.searchParams.get("date") ?? undefined;
     const hourRaw = url.searchParams.get("hour");
     const hour = hourRaw != null ? Number(hourRaw) : undefined;
+    const board = parseBoard(url.searchParams.get("board"));
 
     const state =
       date != null && hour != null && Number.isFinite(hour)
-        ? await tickTrafficIfDue({ date, hour })
-        : await getTrafficState();
+        ? await tickTrafficIfDue({ date, hour, board })
+        : await getTrafficState(board);
 
     return NextResponse.json(state);
   } catch (e) {
@@ -35,16 +42,22 @@ const patchSchema = z.object({
   enabled: z.boolean(),
   date: z.string().optional(),
   hour: z.number().int().optional(),
+  board: z.enum(["caja", "cocina"]).optional(),
 });
 
 /** PATCH — manager on/off toggle for fake order simulator */
 export async function PATCH(req: Request) {
   try {
     const body = patchSchema.parse(await req.json());
-    const state = await setTrafficEnabled(body.enabled);
+    const state = await setTrafficEnabled(body.enabled, body.board);
     if (body.enabled && body.date != null && body.hour != null) {
       return NextResponse.json(
-        await tickTrafficIfDue({ force: true, date: body.date, hour: body.hour }),
+        await tickTrafficIfDue({
+          force: true,
+          date: body.date,
+          hour: body.hour,
+          board: body.board,
+        }),
       );
     }
     return NextResponse.json(state);

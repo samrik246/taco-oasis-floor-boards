@@ -1,8 +1,12 @@
 import { TIMEZONE } from "@/lib/constants";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import type { EmployeeHoursLedger, LedgerStationRow } from "@/lib/ledger-types";
+import type {
+  EmployeeHoursLedger,
+  LedgerStationRow,
+  LedgerTareaRow,
+} from "@/lib/ledger-types";
 
-export type { EmployeeHoursLedger, LedgerStationRow };
+export type { EmployeeHoursLedger, LedgerStationRow, LedgerTareaRow };
 
 /** Format local Chicago calendar components as YYYY-MM-DD. */
 function ymdFromLocalParts(y: number, monthIndex: number, day: number): string {
@@ -52,9 +56,20 @@ export function assignmentMinutes(hourStart: Date, hourEnd: Date): number {
   return Math.max(0, Math.round(ms / 60_000));
 }
 
+/** Tarea duration: assignedAt → completedAt | unassignedAt | now (capped). */
+export function tareaMinutes(
+  assignedAt: Date,
+  completedAt: Date | null,
+  unassignedAt: Date | null,
+  now: Date = new Date(),
+): number {
+  const end = completedAt ?? unassignedAt ?? now;
+  return assignmentMinutes(assignedAt, end);
+}
+
 /**
  * Aggregate assignment minutes for an employee in the Chicago week
- * containing `weekOfDate` (YYYY-MM-DD).
+ * containing `weekOfDate` (YYYY-MM-DD). Includes tarea minutes.
  */
 export async function getEmployeeWeekHours(
   employeeId: string,
@@ -109,6 +124,52 @@ export async function getEmployeeWeekHours(
 
   const totalMinutes = byStation.reduce((s, r) => s + r.minutes, 0);
 
+  // Tarea minutes in the same Chicago week (by date string bounds)
+  const tareas = await prisma.tareaAssignment.findMany({
+    where: {
+      employeeId,
+      date: { gte: weekStart, lte: weekEnd },
+    },
+    include: { template: true },
+  });
+
+  const byTareaMap = new Map<
+    string,
+    { templateId: string; templateLabel: string; minutes: number }
+  >();
+  const now = new Date();
+  for (const t of tareas) {
+    const mins = tareaMinutes(
+      t.assignedAt,
+      t.completedAt,
+      t.unassignedAt,
+      now,
+    );
+    const prev = byTareaMap.get(t.templateId);
+    if (prev) {
+      prev.minutes += mins;
+    } else {
+      byTareaMap.set(t.templateId, {
+        templateId: t.templateId,
+        templateLabel: t.template.label,
+        minutes: mins,
+      });
+    }
+  }
+
+  const byTarea: LedgerTareaRow[] = [...byTareaMap.values()]
+    .map((r) => ({
+      ...r,
+      hours: Math.round((r.minutes / 60) * 100) / 100,
+    }))
+    .sort(
+      (a, b) =>
+        b.minutes - a.minutes ||
+        a.templateLabel.localeCompare(b.templateLabel),
+    );
+
+  const totalTareaMinutes = byTarea.reduce((s, r) => s + r.minutes, 0);
+
   return {
     employeeId: employee.id,
     firstName: employee.firstName,
@@ -118,5 +179,8 @@ export async function getEmployeeWeekHours(
     totalMinutes,
     totalHours: Math.round((totalMinutes / 60) * 100) / 100,
     byStation,
+    totalTareaMinutes,
+    totalTareaHours: Math.round((totalTareaMinutes / 60) * 100) / 100,
+    byTarea,
   };
 }
