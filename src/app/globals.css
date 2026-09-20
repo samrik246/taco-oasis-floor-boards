@@ -21,3 +21,11 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Touch-friendly: avoid 300ms tap delay feel + larger hit areas on iPad */
+button,
+[role="button"],
+select,
+label {
+  touch-action: manipulation;
+}

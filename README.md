@@ -45,4 +45,10 @@ pnpm dev
 ## Stage 1 APIs
 - `POST /api/imports` — multipart field `file` (xlsx or schedules csv)
 - `GET /api/days` — dates present after import
-- `GET /api/boards/:board/days/:date` — stations + shifts (+ assignments) for `caja` or `cocina`
+- `GET /api/boards/:board/days/:date` — stations + shifts (+ assignments + abilities) for `caja` or `cocina`
+
+## Stage 2 APIs
+- `GET /api/sample` — import the in-repo sample xlsx in one click
+- `PUT /api/assignments` — `{ shiftId, stationId, date, hour }` with server-side rules (422 + violation codes)
+- `DELETE /api/assignments/:id` — clear
+- `POST /api/assignments/swap` — `{ assignmentIdA, assignmentIdB }`

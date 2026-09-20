@@ -26,3 +26,34 @@ With “contains Cocina OR equals Produccion OR equals Picar Carne”, cocina≈
 
 ## Sample xlsx fixture
 GitHub Contents API cannot push the binary reliably. In-repo CSV pair is source; `scripts/build-sample-xlsx.ts` regenerates `fixtures/wheniwork-restaurant-export-sample.xlsx` for ExcelJS tests. Generated xlsx is committed when present.
+
+---
+
+# Stage 2 defaults (interactive board)
+
+## Assign / uniqueness
+- **Shift window:** `shiftStart <= hourStart < shiftEnd` (America/Chicago).
+- **Station uniqueness:** enforce `maxConcurrent` (`nieves` = `-1` unlimited; `linea` = `2`).
+- **Person uniqueness:** one assignment per employee per hour (cannot stand at two stations). Violation code `PERSON_ALREADY_ASSIGNED`.
+- **Swap:** exchanges `shiftId` on two assignment rows; re-validates shift window + ability + occupancy.
+- **Clear:** `DELETE /api/assignments/:id`.
+
+## Abilities seed (from schedule Position)
+On import, each employee gets `EmployeeStationAbility` rows:
+- Cross-board stations → `forbidden`.
+- Same-board stations → `ok`, then overlays:
+  - `Caja Manager` → `mana` preferred
+  - `Caja - Nieves` → `nieves` preferred
+  - `Caja - Meser@` → `mesero` preferred
+  - `Caja - Limpieza` → `clean` preferred; primary cashier lanes forbidden
+  - `Caja - Prueba` → `green1` / `green2` training
+  - Cocina guia abrir/cerrar → preferred on matching stations
+- Assign UI filters by level; **server blocks** `forbidden` (`FORBIDDEN_ABILITY`).
+- Missing ability row treats as allow (`ok`) for beta.
+
+## Load sample
+- `GET /api/sample` imports `fixtures/wheniwork-restaurant-export-sample.xlsx` in one click.
+
+## UI
+- Board labels: Cashiers | Kitchen; hour scrubber 7:00–22:00; touch targets ≥44px; high-contrast station colors.
+- Auto-fill button disabled / NoOp stub only.

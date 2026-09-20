@@ -24,7 +24,11 @@ export async function GET(_request: Request, context: RouteContext) {
       prisma.shift.findMany({
         where: { board, date },
         include: {
-          employee: true,
+          employee: {
+            include: {
+              abilities: true,
+            },
+          },
           assignments: {
             include: { station: true },
             orderBy: { hourStart: "asc" },
@@ -58,6 +62,10 @@ export async function GET(_request: Request, context: RouteContext) {
           firstName: sh.employee.firstName,
           lastName: sh.employee.lastName,
           email: sh.employee.email,
+          abilities: sh.employee.abilities.map((a) => ({
+            stationId: a.stationId,
+            level: a.level,
+          })),
         },
         assignments: sh.assignments.map((a) => ({
           id: a.id,

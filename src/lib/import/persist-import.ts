@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/db";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
+import { seedAbilitiesFromPositions } from "@/lib/rules/abilities";
 
 /**
  * Persist a parse result. Never writes pay columns (they are already stripped
  * from ParsedShift). Upserts employees by externalId; creates a new ImportBatch
  * and Shift rows for every schedule row (including multiple positions per employee).
+ * Seeds EmployeeStationAbility from Position hints (SPEC §4.7).
  */
 export async function persistImport(
   parsed: ParseResult,
@@ -19,12 +21,16 @@ export async function persistImport(
 
     // Upsert employees first
     const byExternal = new Map<string, { firstName: string; lastName: string; email: string | null }>();
+    const positionsByExternal = new Map<string, string[]>();
     for (const s of parsed.shifts) {
       byExternal.set(s.externalId, {
         firstName: s.firstName,
         lastName: s.lastName,
         email: s.email,
       });
+      const list = positionsByExternal.get(s.externalId) ?? [];
+      list.push(s.sourcePosition);
+      positionsByExternal.set(s.externalId, list);
     }
 
     const employeeIdByExternal = new Map<string, string>();
@@ -44,6 +50,26 @@ export async function persistImport(
         },
       });
       employeeIdByExternal.set(externalId, emp.id);
+
+      // Re-seed abilities from all positions seen for this employee in this import
+      const positions = positionsByExternal.get(externalId) ?? [];
+      const seeds = seedAbilitiesFromPositions(positions);
+      for (const seed of seeds) {
+        await tx.employeeStationAbility.upsert({
+          where: {
+            employeeId_stationId: {
+              employeeId: emp.id,
+              stationId: seed.stationId,
+            },
+          },
+          create: {
+            employeeId: emp.id,
+            stationId: seed.stationId,
+            level: seed.level,
+          },
+          update: { level: seed.level },
+        });
+      }
     }
 
     for (const s of parsed.shifts) {
