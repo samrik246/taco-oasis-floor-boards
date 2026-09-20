@@ -1,0 +1,205 @@
+// Taco Oasis Floor Boards — SQLite schema (SPEC §6)
+// Note: SQLite has no native enums; board/ability stored as strings.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Employee {
+  id               String                   @id @default(cuid())
+  externalId       String                   @unique
+  firstName        String
+  lastName         String
+  email            String?
+  shifts           Shift[]
+  abilities        EmployeeStationAbility[]
+  tareaAssignments TareaAssignment[]
+  returnPrompts    ReturnPrompt[]
+  positionMoves    PositionMoveLog[]
+  performanceAnswers PerformanceAnswer[]
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+}
+
+model Station {
+  id            String                   @id
+  board         String // caja | cocina
+  label         String
+  color         String
+  maxConcurrent Int // -1 = unlimited
+  sortOrder     Int
+  priority      Int?
+  abilities     EmployeeStationAbility[]
+  assignments   Assignment[]
+}
+
+model Shift {
+  id             String       @id @default(cuid())
+  employeeId     String
+  employee       Employee     @relation(fields: [employeeId], references: [id])
+  date           String // YYYY-MM-DD in America/Chicago
+  startAt        DateTime
+  endAt          DateTime
+  sourcePosition String
+  board          String // caja | cocina | other
+  importBatchId  String?
+  importBatch    ImportBatch? @relation(fields: [importBatchId], references: [id])
+  assignments    Assignment[]
+
+  @@index([date, board])
+  @@index([employeeId, date])
+}
+
+model Assignment {
+  id        String   @id @default(cuid())
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  stationId String
+  station   Station  @relation(fields: [stationId], references: [id])
+  hourStart DateTime
+  hourEnd   DateTime
+
+  @@index([stationId, hourStart])
+  @@index([shiftId])
+}
+
+model EmployeeStationAbility {
+  employeeId String
+  stationId  String
+  level      String // forbidden | training | ok | preferred
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  station    Station  @relation(fields: [stationId], references: [id])
+
+  @@id([employeeId, stationId])
+}
+
+model ImportBatch {
+  id         String   @id @default(cuid())
+  filename   String
+  importedAt DateTime @default(now())
+  rowCount   Int
+  shifts     Shift[]
+}
+
+/// Day notes scoped to board + date (Stage 3). Author label is always "Manager".
+model ManagerNote {
+  id        String   @id @default(cuid())
+  board     String // caja | cocina
+  date      String // YYYY-MM-DD America/Chicago
+  body      String
+  author    String   @default("Manager")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([board, date])
+}
+
+/// Singleton row (id = "default") for fake order-traffic simulator.
+model TrafficSimulatorConfig {
+  id         String    @id @default("default")
+  enabled    Boolean   @default(false)
+  lastTickAt DateTime?
+  updatedAt  DateTime  @updatedAt
+}
+
+/// Per load-station busyness from the fake simulator (caja + cocina ids).
+model LoadStationMeter {
+  loadStationId String   @id
+  level         String   @default("quiet") // quiet | busy | slammed
+  orderCount    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+/// Homework-style tarea template (board-scoped catalog).
+model TareaTemplate {
+  id                String            @id
+  code              String            @unique
+  label             String
+  mode              String // normal | backlog_when_slow
+  sortOrder         Int
+  board             String            @default("caja") // caja | cocina
+  lemonWarnOnGreens Boolean           @default(false)
+  assignments       TareaAssignment[]
+}
+
+/// Multi active OK; status working | done.
+model TareaAssignment {
+  id           String        @id @default(cuid())
+  date         String // YYYY-MM-DD America/Chicago
+  employeeId   String
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  templateId   String
+  template     TareaTemplate @relation(fields: [templateId], references: [id])
+  status       String        @default("working") // working | done
+  forceLemon   Boolean       @default(false)
+  assignedAt   DateTime      @default(now())
+  completedAt  DateTime?
+  unassignedAt DateTime? // set when return-to-station auto-clears
+
+  @@index([date, status])
+  @@index([employeeId, date])
+}
+
+/// Visual return-to-station prompt (optional chime is client-side).
+model ReturnPrompt {
+  id            String    @id @default(cuid())
+  date          String
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  loadStationId String
+  seatId        String
+  message       String
+  createdAt     DateTime  @default(now())
+  acknowledgedAt DateTime?
+
+  @@index([date, acknowledgedAt])
+}
+
+/// Logged when moving someone off a station (reason required).
+model PositionMoveLog {
+  id            String   @id @default(cuid())
+  date          String
+  hour          Int
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  fromStationId String?
+  toStationId   String?
+  assignmentId  String?
+  reason        String // Break | Cover expo | Training | Help slammed | Other
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([date, employeeId])
+}
+
+/// End-of-shift / close-day survey question catalog (minimal v1).
+model PerformanceQuestion {
+  id        String              @id
+  prompt    String
+  kind      String // free_text | yes_no | scale_1_5
+  sortOrder Int
+  active    Boolean             @default(true)
+  answers   PerformanceAnswer[]
+}
+
+/// Stored manager answers for a person on a board date.
+model PerformanceAnswer {
+  id         String               @id @default(cuid())
+  date       String // YYYY-MM-DD
+  board      String // caja | cocina
+  employeeId String
+  employee   Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  questionId String
+  question   PerformanceQuestion  @relation(fields: [questionId], references: [id])
+  value      String
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@unique([date, board, employeeId, questionId])
+  @@index([date, board])
+}

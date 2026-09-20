@@ -1,0 +1,11 @@
+{
+  "name": "Taco Oasis Floor Boards",
+  "short_name": "Floor Boards",
+  "description": "Cashiers and Kitchen station boards for Taco Oasis",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#fafafa",
+  "theme_color": "#171717",
+  "lang": "en"
+}
