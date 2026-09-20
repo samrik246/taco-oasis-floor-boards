@@ -100,14 +100,17 @@ For each assignment cell `(employee, date, hourStart)`:
 
 ### 4.2 Station uniqueness (hard)
 At a given `(board, date, hour, stationId)`:
-- At most **one** employee — **except** station `nieves` which may have many.
+- At most **one** employee when `maxConcurrent = 1` (all caja stations including **nieves** after Phase 1).
+- Stations may allow more only when `maxConcurrent > 1` (e.g. cocina `linea` = 2).
+
+> **Phase 1 change:** Nieves stacking removed — one person per station everywhere. See `docs/DECISIONS.md` Phase 1.
 
 ### 4.3 Position-type hints from schedule Position string
 | Schedule Position | Default ability / behavior |
 |-------------------|----------------------------|
 | Caja Manager | can work `mana`; prefer mana |
 | Caja - Regular | regular cashier stations |
-| Caja - Nieves | can stack on `nieves` |
+| Caja - Nieves | prefer `nieves` (one person; no stacking as of Phase 1) |
 | Caja - Meser@ | mesero role |
 | Caja - Limpieza | cleaning; limited stations |
 | Caja - Prueba | treat as **new hire / training** (Green lock preference) |
@@ -124,7 +127,7 @@ At a given `(board, date, hour, stationId)`:
 | blue | Blue / Outside | blue | 1 | 5 |
 | purple2 | Purple 2 | lavender | 1 | 6 |
 | multi | MULTI | gray | 1 | 7 |
-| nieves | Nieves | teal | unlimited | — |
+| nieves | Nieves | teal | 1 | — |
 | mesero | Mesero | orange | 1 | — |
 | clean | Limpieza / Clean | cyan | 1 | — |
 
@@ -289,6 +292,17 @@ Using `fixtures/wheniwork-restaurant-export-sample.xlsx`:
 - DB: SQLite file `prisma/dev.db`  
 - Port: 3000  
 - Board labels: “Cashiers” / “Kitchen”  
-- Nieves stacking: allowed  
+- Nieves stacking: **removed in Phase 1** (one person)  
 - Pay columns: dropped  
 - Auto-fill: stub only  
+
+---
+
+## 15. Phase 1 product notes (Cashiers Tareas + traffic)
+
+See `docs/DECISIONS.md` Phase 1 for locked answers. Summary:
+- Homework-style cashiers tareas (not Jolt time-critical); multi active OK
+- Load stations: Nieves / cliente / carro / Expo mapped to color seats
+- Fake order simulator 15s + Quiet/Busy/Slammed; return-to-station on Slammed
+- Suggestions as top/next; move-off-station reasons logged
+- Kitchen phase later — do not invent competing kitchen product here

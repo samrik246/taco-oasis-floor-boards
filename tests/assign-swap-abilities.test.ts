@@ -127,7 +127,7 @@ describe("assign / swap / clear + abilities enforcement", () => {
     }
   });
 
-  it("rejects double green1 and allows multi nieves", async () => {
+  it("rejects double green1 and rejects double nieves", async () => {
     await prisma.assignment.deleteMany();
 
     const shifts = await prisma.shift.findMany({
@@ -160,15 +160,13 @@ describe("assign / swap / clear + abilities enforcement", () => {
       expect(a2.violations.some((v) => v.code === "STATION_FULL")).toBe(true);
     }
 
-    // nieves stacking
+    // Phase 1: nieves is one person — second assign rejected
     const n1 = await createAssignment({
       shiftId: shifts[0]!.id,
       stationId: "nieves",
       date: "2026-09-20",
       hour: 12,
     });
-    // first person may already be assigned at 11 — use hour 12; clear person conflict by using different hours
-    // shifts[0] was assigned at 11 on green1 — for hour 12 they should be free
     expect(n1.ok).toBe(true);
 
     const n2 = await createAssignment({
@@ -177,7 +175,10 @@ describe("assign / swap / clear + abilities enforcement", () => {
       date: "2026-09-20",
       hour: 12,
     });
-    expect(n2.ok).toBe(true);
+    expect(n2.ok).toBe(false);
+    if (!n2.ok) {
+      expect(n2.violations.some((v) => v.code === "STATION_FULL")).toBe(true);
+    }
   });
 
   it("blocks forbidden ability assigns", async () => {

@@ -11,15 +11,18 @@ datasource db {
 }
 
 model Employee {
-  id         String                   @id @default(cuid())
-  externalId String                   @unique
-  firstName  String
-  lastName   String
-  email      String?
-  shifts     Shift[]
-  abilities  EmployeeStationAbility[]
-  createdAt  DateTime                 @default(now())
-  updatedAt  DateTime                 @updatedAt
+  id              String                   @id @default(cuid())
+  externalId      String                   @unique
+  firstName       String
+  lastName        String
+  email           String?
+  shifts          Shift[]
+  abilities       EmployeeStationAbility[]
+  tareaAssignments TareaAssignment[]
+  returnPrompts   ReturnPrompt[]
+  positionMoves   PositionMoveLog[]
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
 }
 
 model Station {
@@ -93,4 +96,81 @@ model ManagerNote {
   updatedAt DateTime @updatedAt
 
   @@index([board, date])
+}
+
+/// Singleton row (id = "default") for fake order-traffic simulator.
+model TrafficSimulatorConfig {
+  id         String    @id @default("default")
+  enabled    Boolean   @default(false)
+  lastTickAt DateTime?
+  updatedAt  DateTime  @updatedAt
+}
+
+/// Per cashiers load-station busyness from the fake simulator.
+model LoadStationMeter {
+  loadStationId String   @id // nieves | cliente | carro | expo
+  level         String   @default("quiet") // quiet | busy | slammed
+  orderCount    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+/// Homework-style cashiers tarea template (one simplified daily list).
+model TareaTemplate {
+  id               String            @id
+  code             String            @unique
+  label            String
+  mode             String // normal | backlog_when_slow
+  sortOrder        Int
+  lemonWarnOnGreens Boolean          @default(false)
+  assignments      TareaAssignment[]
+}
+
+/// Multi active OK; status working | done.
+model TareaAssignment {
+  id           String        @id @default(cuid())
+  date         String // YYYY-MM-DD America/Chicago
+  employeeId   String
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  templateId   String
+  template     TareaTemplate @relation(fields: [templateId], references: [id])
+  status       String        @default("working") // working | done
+  forceLemon   Boolean       @default(false)
+  assignedAt   DateTime      @default(now())
+  completedAt  DateTime?
+  unassignedAt DateTime? // set when return-to-station auto-clears
+
+  @@index([date, status])
+  @@index([employeeId, date])
+}
+
+/// Visual return-to-station prompt (optional chime is client-side).
+model ReturnPrompt {
+  id             String    @id @default(cuid())
+  date           String
+  employeeId     String
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  loadStationId  String
+  seatId         String
+  message        String
+  createdAt      DateTime  @default(now())
+  acknowledgedAt DateTime?
+
+  @@index([date, acknowledgedAt])
+}
+
+/// Logged when moving someone off a station (reason required).
+model PositionMoveLog {
+  id            String   @id @default(cuid())
+  date          String
+  hour          Int
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  fromStationId String?
+  toStationId   String?
+  assignmentId  String?
+  reason        String // Break | Cover expo | Training | Help slammed | Other
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([date, employeeId])
 }

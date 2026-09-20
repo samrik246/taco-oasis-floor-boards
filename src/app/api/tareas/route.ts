@@ -1,0 +1,101 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  assignTarea,
+  buildTareaSuggestions,
+  listTareaAssignments,
+  listTareaTemplates,
+  setTareaStatus,
+} from "@/lib/tareas/service";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const date = url.searchParams.get("date");
+    const suggest = url.searchParams.get("suggest");
+    const hourRaw = url.searchParams.get("hour");
+    const forceLemon = url.searchParams.get("forceLemon") === "1";
+
+    const templates = await listTareaTemplates();
+
+    if (suggest && date && hourRaw != null) {
+      const hour = Number(hourRaw);
+      const suggestions = await buildTareaSuggestions({
+        date,
+        hour,
+        templateId: suggest,
+        forceLemon,
+      });
+      return NextResponse.json({ templates, suggestions });
+    }
+
+    if (!date) {
+      return NextResponse.json({ templates, assignments: [] });
+    }
+
+    const assignments = await listTareaAssignments(date);
+    return NextResponse.json({ templates, assignments });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "Failed to load tareas" }, { status: 500 });
+  }
+}
+
+const postSchema = z.object({
+  date: z.string().min(1),
+  employeeId: z.string().min(1),
+  templateId: z.string().min(1),
+  hour: z.number().int(),
+  forceLemon: z.boolean().optional(),
+});
+
+export async function POST(req: Request) {
+  try {
+    const body = postSchema.parse(await req.json());
+    const result = await assignTarea(body);
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          error: result.error,
+          code: result.code,
+          lemonWarning: result.lemonWarning,
+        },
+        { status: result.status },
+      );
+    }
+    return NextResponse.json({
+      assignment: result.assignment,
+      lemonWarning: result.lemonWarning,
+    });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: e.message }, { status: 422 });
+    }
+    console.error(e);
+    return NextResponse.json({ error: "Failed to assign tarea" }, { status: 500 });
+  }
+}
+
+const patchSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["working", "done"]),
+});
+
+export async function PATCH(req: Request) {
+  try {
+    const body = patchSchema.parse(await req.json());
+    const updated = await setTareaStatus(body);
+    if (!updated) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ assignment: updated });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: e.message }, { status: 422 });
+    }
+    console.error(e);
+    return NextResponse.json({ error: "Failed to update tarea" }, { status: 500 });
+  }
+}

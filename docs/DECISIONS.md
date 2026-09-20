@@ -14,7 +14,7 @@
 - **Timezone:** America/Chicago.
 - **Hour grid:** 7:00–22:00 (constants `HOUR_GRID_START` / `HOUR_GRID_END`).
 - **Auto-fill:** `NoOpAutoFill` stub only.
-- **Nieves:** `maxConcurrent = -1` (unlimited).
+- **Nieves:** `maxConcurrent = 1` (Phase 1 — no stacking; was `-1` unlimited in beta).
 - **Cocina `linea`:** `maxConcurrent = 2` (SPEC §4.5 optional allowance).
 - **Pay columns:** `Hourly Rate`, `Labor Cost`, `Total` detected on import headers and never persisted on shift DTOs / DB.
 
@@ -33,7 +33,7 @@ GitHub Contents API cannot push the binary reliably. In-repo CSV pair is source;
 
 ## Assign / uniqueness
 - **Shift window:** `shiftStart <= hourStart < shiftEnd` (America/Chicago).
-- **Station uniqueness:** enforce `maxConcurrent` (`nieves` = `-1` unlimited; `linea` = `2`).
+- **Station uniqueness:** enforce `maxConcurrent` (`nieves` = `1` one person; `linea` = `2`).
 - **Person uniqueness:** one assignment per employee per hour (cannot stand at two stations). Violation code `PERSON_ALREADY_ASSIGNED`.
 - **Swap:** exchanges `shiftId` on two assignment rows; re-validates shift window + ability + occupancy.
 - **Clear:** `DELETE /api/assignments/:id`.
@@ -101,3 +101,53 @@ On import, each employee gets `EmployeeStationAbility` rows:
 - `pnpm test:e2e` uses a **fresh disposable** SQLite file (`prisma/e2e.db`) via `DATABASE_URL=file:./e2e.db`.
 - Flow: Load sample → Cashiers → date with shifts → assign → ledger minutes bump.
 - Chromium only for beta CI.
+
+---
+
+# Phase 1 defaults (Cashiers Tareas + order traffic) — locked 2026-09-20
+
+Synced from store `docs/alignment-decisions.md`. Kitchen phase is **out of scope**.
+
+## Scope
+- **Cashiers first.** No kitchen boards/tareas/traffic until cashiers is solid.
+- **Jolt stays** for time-critical routines. App tareas = homework (no strict clock).
+- **No Jolt API.** Fake order-traffic simulator only.
+
+## Nieves / uniqueness
+- **One person per station everywhere** — including Nieves (`maxConcurrent = 1`). Stacking removed.
+- Cocina `linea` remains `maxConcurrent = 2`.
+
+## Load-station ↔ color-board map (caja)
+| Order load station | Color-board seats |
+|--------------------|-------------------|
+| Nieves | nieves |
+| cliente | Green 1 + Green 2 |
+| carro | Yellow (+ outside) + Blue (+ outside) |
+| Expo | Purple 1 + Purple 2 |
+
+MULTI gets return-to-station prompts when helping; MANA/mesero/CLEAN as assigned.
+
+## Order traffic
+- Built-in **simulator every 15s** with manager on/off toggle.
+- Meters: **Quiet / Busy / Slammed** per load station.
+- UI auto-refresh **every 15s** (match feed).
+
+## Return-to-station
+- When load station is **Slammed** and assignee (or MULTI) is on a working tarea → **auto-unassign** + banner prompt.
+- Optional short chime; **muteable** on tablets.
+
+## Tareas
+- **One simplified cashiers list** every day (from common Jolt cashiers set; not Wed/Thu quirks).
+- **Multiple active tareas** per person OK; statuses working/done.
+- **DESVENAR CHILES** = shared when-slow backlog.
+- **LEMON** warns on greens/cliente; manager can **force**.
+
+## Suggestions
+- Opaque engine: abilities + position fit + load → show as **top / next** (never say “ranked”).
+
+## Position moves
+- Leaving a station requires reason dropdown: **Break / Cover expo / Training / Help slammed / Other** + optional note, logged.
+
+## Tablets
+- Large tablet = fullest UI; small can still **assign + check off** (no hard station lock yet).
+- Android tablet touch targets preserved (`--touch-min` / `.touch-target`).

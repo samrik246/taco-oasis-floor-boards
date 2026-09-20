@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BOARD_LABELS } from "@/lib/constants";
@@ -21,13 +21,53 @@ import {
 import { HoursLedgerPanel } from "./HoursLedgerPanel";
 import { ManagerNotesPanel } from "./ManagerNotesPanel";
 import { ViolationsBanner } from "./ViolationsBanner";
+import {
+  TrafficMetersPanel,
+  type TrafficStateDto,
+} from "./TrafficMetersPanel";
+import {
+  ReturnPromptBanner,
+  type ReturnPromptDto,
+} from "./ReturnPromptBanner";
+import {
+  TareasPanel,
+  type SuggestionDto,
+  type TareaAssignmentDto,
+  type TareaTemplateDto,
+} from "./TareasPanel";
+import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
+import type { MoveReason } from "@/lib/position-moves";
 import { cn } from "@/lib/utils";
+import { TRAFFIC_TICK_MS } from "@/lib/traffic/simulator";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
+function playReturnChime() {
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.value = 0.08;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+    window.setTimeout(() => void ctx.close(), 300);
+  } catch {
+    /* ignore audio failures */
+  }
+}
+
 /**
  * Floor board UI — Android tablet Chrome first (landscape ~1280×800+).
- * Stage 3: hours ledger, violations banner, readonly mode, manager notes.
+ * Phase 1: traffic meters, tareas, return prompts, move reasons, 15s refresh.
  */
 export function FloorBoard() {
   const searchParams = useSearchParams();
@@ -57,6 +97,29 @@ export function FloorBoard() {
     "all",
   );
   const [clock, setClock] = useState<string>("");
+
+  const [traffic, setTraffic] = useState<TrafficStateDto | null>(null);
+  const [returnPrompts, setReturnPrompts] = useState<ReturnPromptDto[]>([]);
+  const [chimeMute, setChimeMute] = useState(false);
+  const [tareaTemplates, setTareaTemplates] = useState<TareaTemplateDto[]>([]);
+  const [tareaAssignments, setTareaAssignments] = useState<
+    TareaAssignmentDto[]
+  >([]);
+  const [selectedTareaTemplateId, setSelectedTareaTemplateId] = useState<
+    string | null
+  >(null);
+  const [suggestions, setSuggestions] = useState<SuggestionDto[]>([]);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  const [isLargeUi, setIsLargeUi] = useState(true);
+  const knownPromptIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const apply = () => setIsLargeUi(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   useEffect(() => {
     const tick = () => {
@@ -126,6 +189,89 @@ export function FloorBoard() {
     }
   }, [board, date, showToast]);
 
+  const refreshTraffic = useCallback(async () => {
+    if (!date) return;
+    try {
+      const res = await fetch(
+        `/api/traffic?date=${encodeURIComponent(date)}&hour=${hour}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as TrafficStateDto;
+      setTraffic(data);
+    } catch {
+      /* soft fail */
+    }
+  }, [date, hour]);
+
+  const refreshReturnPrompts = useCallback(async () => {
+    if (!date) return;
+    try {
+      const res = await fetch(
+        `/api/return-prompts?date=${encodeURIComponent(date)}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { prompts: ReturnPromptDto[] };
+      const next = data.prompts ?? [];
+      const fresh = next.filter((p) => !knownPromptIds.current.has(p.id));
+      if (fresh.length > 0 && !chimeMute) {
+        playReturnChime();
+      }
+      for (const p of next) knownPromptIds.current.add(p.id);
+      setReturnPrompts(next);
+    } catch {
+      /* soft fail */
+    }
+  }, [date, chimeMute]);
+
+  const refreshTareas = useCallback(async () => {
+    if (!date) return;
+    try {
+      const res = await fetch(`/api/tareas?date=${encodeURIComponent(date)}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        templates: TareaTemplateDto[];
+        assignments: TareaAssignmentDto[];
+      };
+      setTareaTemplates(data.templates ?? []);
+      setTareaAssignments(data.assignments ?? []);
+    } catch {
+      /* soft fail */
+    }
+  }, [date]);
+
+  const refreshSuggestions = useCallback(async () => {
+    if (!date || !selectedTareaTemplateId) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { suggestions: SuggestionDto[] };
+      setSuggestions(data.suggestions ?? []);
+    } catch {
+      /* soft fail */
+    }
+  }, [date, hour, selectedTareaTemplateId]);
+
+  const refreshPhase1 = useCallback(async () => {
+    await Promise.all([
+      refreshBoard(),
+      refreshTraffic(),
+      refreshReturnPrompts(),
+      refreshTareas(),
+      refreshSuggestions(),
+    ]);
+  }, [
+    refreshBoard,
+    refreshTraffic,
+    refreshReturnPrompts,
+    refreshTareas,
+    refreshSuggestions,
+  ]);
+
   useEffect(() => {
     void refreshDates();
   }, [refreshDates]);
@@ -133,6 +279,25 @@ export function FloorBoard() {
   useEffect(() => {
     void refreshBoard();
   }, [refreshBoard]);
+
+  useEffect(() => {
+    if (board !== "caja") return;
+    void refreshTraffic();
+    void refreshReturnPrompts();
+    void refreshTareas();
+  }, [board, refreshTraffic, refreshReturnPrompts, refreshTareas]);
+
+  useEffect(() => {
+    void refreshSuggestions();
+  }, [refreshSuggestions]);
+
+  // Auto-refresh every 15s (match order feed)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshPhase1();
+    }, TRAFFIC_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [refreshPhase1]);
 
   const available = useMemo(() => {
     if (!day || !date) return [];
@@ -174,7 +339,7 @@ export function FloorBoard() {
       }
       showToast("ok", `Loaded sample (${data.rowCount} rows)`);
       await refreshDates();
-      await refreshBoard();
+      await refreshPhase1();
       bumpLedger();
     } finally {
       setLoading(false);
@@ -199,7 +364,7 @@ export function FloorBoard() {
       }
       showToast("ok", `Imported ${data.rowCount} rows`);
       await refreshDates();
-      await refreshBoard();
+      await refreshPhase1();
       bumpLedger();
     } finally {
       setLoading(false);
@@ -232,18 +397,51 @@ export function FloorBoard() {
     bumpLedger();
   }
 
-  async function clearAssignment(id: string) {
+  function requestClear(assignmentId: string, shift: ShiftDto, stationId: string) {
     if (readonly) {
       showToast("err", "Read-only mode — mutations blocked");
       return;
     }
-    const res = await fetch(`/api/assignments/${id}`, { method: "DELETE" });
+    setPendingMove({
+      assignmentId,
+      employeeId: shift.employee.id,
+      employeeName: displayName(shift),
+      fromStationId: stationId,
+    });
+  }
+
+  async function confirmClear(reason: MoveReason, note: string) {
+    if (!pendingMove) return;
+    const moveRes = await fetch("/api/position-moves", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date,
+        hour,
+        employeeId: pendingMove.employeeId,
+        fromStationId: pendingMove.fromStationId,
+        toStationId: null,
+        assignmentId: pendingMove.assignmentId,
+        reason,
+        note: note || null,
+      }),
+    });
+    if (!moveRes.ok) {
+      const data = await moveRes.json();
+      showToast("err", data.error ?? "Move log failed");
+      return;
+    }
+
+    const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
+      method: "DELETE",
+    });
     const data = await res.json();
+    setPendingMove(null);
     if (!res.ok) {
       showToast("err", data.error ?? "Clear failed");
       return;
     }
-    showToast("ok", "Cleared");
+    showToast("ok", "Cleared (reason logged)");
     setSwapFirstId(null);
     await refreshBoard();
     bumpLedger();
@@ -311,14 +509,95 @@ export function FloorBoard() {
     setSelectedShiftId((prev) => (prev === shift.id ? null : shift.id));
   }
 
+  async function toggleTraffic(enabled: boolean) {
+    if (readonly) return;
+    setTraffic((prev) =>
+      prev
+        ? { ...prev, enabled }
+        : { enabled, lastTickAt: null, meters: [] },
+    );
+    const res = await fetch("/api/traffic", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled, date, hour }),
+    });
+    if (!res.ok) {
+      setTraffic((prev) => (prev ? { ...prev, enabled: !enabled } : prev));
+      showToast("err", "Could not toggle simulator");
+      return;
+    }
+    const data = (await res.json()) as TrafficStateDto;
+    setTraffic(data);
+    await refreshReturnPrompts();
+    await refreshTareas();
+    showToast("ok", enabled ? "Simulator on" : "Simulator off");
+  }
+
+  async function ackReturnPrompt(id: string) {
+    const res = await fetch("/api/return-prompts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) {
+      showToast("err", "Could not acknowledge");
+      return;
+    }
+    await refreshReturnPrompts();
+  }
+
+  async function assignTarea(employeeId: string, forceLemon: boolean) {
+    if (readonly || !selectedTareaTemplateId) return;
+    const res = await fetch("/api/tareas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date,
+        employeeId,
+        templateId: selectedTareaTemplateId,
+        hour,
+        forceLemon,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.code === "LEMON_WARN_GREENS") {
+        showToast("err", data.lemonWarning ?? data.error);
+        return;
+      }
+      showToast("err", data.error ?? "Tarea assign failed");
+      return;
+    }
+    if (data.lemonWarning) showToast("ok", data.lemonWarning);
+    else showToast("ok", "Tarea assigned");
+    await refreshTareas();
+    await refreshSuggestions();
+  }
+
+  async function setTareaStatus(id: string, status: "working" | "done") {
+    if (readonly) return;
+    const res = await fetch("/api/tareas", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    if (!res.ok) {
+      showToast("err", "Could not update tarea");
+      return;
+    }
+    await refreshTareas();
+  }
+
   const hours = hourGridHours();
   const hasStations = (day?.stations.length ?? 0) > 0;
   const emptyBoard = Boolean(date && day && day.shifts.length === 0);
+  const showCashiersExtras = board === "caja";
 
   return (
     <div
       className="flex min-h-dvh flex-col bg-neutral-50 text-neutral-950"
       data-readonly={readonly ? "1" : "0"}
+      data-large-ui={isLargeUi ? "1" : "0"}
       data-testid="floor-board"
     >
       <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-3 sm:px-4">
@@ -335,6 +614,13 @@ export function FloorBoard() {
               Read-only
             </span>
           )}
+
+          <span
+            className="rounded-md border border-neutral-400 px-2 py-1 text-xs font-semibold text-neutral-700"
+            data-testid="ui-size-badge"
+          >
+            {isLargeUi ? "Large tablet UI" : "Compact tablet UI"}
+          </span>
 
           <div
             className="inline-flex rounded-lg border-2 border-neutral-900 p-1"
@@ -479,10 +765,31 @@ export function FloorBoard() {
         </div>
       )}
 
+      {showCashiersExtras && (
+        <ReturnPromptBanner
+          prompts={returnPrompts}
+          mute={chimeMute}
+          onMuteChange={setChimeMute}
+          onAck={(id) => void ackReturnPrompt(id)}
+          readonly={readonly}
+        />
+      )}
+
       <ViolationsBanner violations={violations} />
 
-      {/* Tablet landscape: people | stations | ledger+notes (~1280+) */}
-      <div className="grid flex-1 gap-3 p-3 sm:gap-4 sm:p-4 xl:grid-cols-[16rem_minmax(0,1fr)_16rem]">
+      {showCashiersExtras && (
+        <div className="px-3 pt-3 sm:px-4">
+          <TrafficMetersPanel
+            traffic={traffic}
+            readonly={readonly}
+            onToggle={(en) => void toggleTraffic(en)}
+            compact={!isLargeUi}
+          />
+        </div>
+      )}
+
+      {/* Tablet landscape: people | stations | ledger+notes+tareas */}
+      <div className="grid flex-1 gap-3 p-3 sm:gap-4 sm:p-4 xl:grid-cols-[16rem_minmax(0,1fr)_18rem]">
         <aside className="flex flex-col gap-3 rounded-lg border-2 border-neutral-900 bg-white p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-bold">Available</h2>
@@ -647,9 +954,7 @@ export function FloorBoard() {
                       {station.label}
                     </div>
                     <div className="text-xs font-bold opacity-90">
-                      {station.maxConcurrent < 0
-                        ? "stackable"
-                        : `max ${station.maxConcurrent}`}
+                      max {station.maxConcurrent}
                       {full ? " · full" : ""}
                     </div>
                   </button>
@@ -694,7 +999,9 @@ export function FloorBoard() {
                           <button
                             type="button"
                             className="touch-target min-h-11 min-w-11 rounded bg-neutral-900 text-sm font-bold text-white active:bg-neutral-700"
-                            onClick={() => void clearAssignment(assignment.id)}
+                            onClick={() =>
+                              requestClear(assignment.id, shift, station.id)
+                            }
                             aria-label={`Clear ${displayName(shift)}`}
                             data-testid={`clear-${station.id}`}
                           >
@@ -724,9 +1031,38 @@ export function FloorBoard() {
               <code className="font-mono text-sm">pnpm db:setup</code>.
             </p>
           )}
+
+          {/* Compact tablets: tareas under stations so assign+checkoff stays reachable */}
+          {showCashiersExtras && !isLargeUi && (
+            <TareasPanel
+              templates={tareaTemplates}
+              assignments={tareaAssignments}
+              suggestions={suggestions}
+              selectedTemplateId={selectedTareaTemplateId}
+              onSelectTemplate={setSelectedTareaTemplateId}
+              onAssign={(id, force) => void assignTarea(id, force)}
+              onMarkDone={(id) => void setTareaStatus(id, "done")}
+              onMarkWorking={(id) => void setTareaStatus(id, "working")}
+              readonly={readonly}
+              compact
+            />
+          )}
         </section>
 
         <div className="flex flex-col gap-3">
+          {showCashiersExtras && isLargeUi && (
+            <TareasPanel
+              templates={tareaTemplates}
+              assignments={tareaAssignments}
+              suggestions={suggestions}
+              selectedTemplateId={selectedTareaTemplateId}
+              onSelectTemplate={setSelectedTareaTemplateId}
+              onAssign={(id, force) => void assignTarea(id, force)}
+              onMarkDone={(id) => void setTareaStatus(id, "done")}
+              onMarkWorking={(id) => void setTareaStatus(id, "working")}
+              readonly={readonly}
+            />
+          )}
           <HoursLedgerPanel
             employeeId={ledgerEmployeeId}
             employeeName={ledgerEmployeeName}
@@ -741,6 +1077,12 @@ export function FloorBoard() {
           />
         </div>
       </div>
+
+      <MoveReasonModal
+        pending={pendingMove}
+        onCancel={() => setPendingMove(null)}
+        onConfirm={(reason, note) => void confirmClear(reason, note)}
+      />
     </div>
   );
 }

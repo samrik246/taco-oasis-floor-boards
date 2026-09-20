@@ -17,7 +17,7 @@ describe("station seed dictionaries", () => {
       "clean",
     ]);
     const nieves = CAJA_STATIONS.find((s) => s.id === "nieves");
-    expect(nieves?.maxConcurrent).toBe(-1);
+    expect(nieves?.maxConcurrent).toBe(1);
   });
 
   it("seeds cocina stations from SPEC §4.5", () => {

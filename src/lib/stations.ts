@@ -20,7 +20,8 @@ export const CAJA_STATIONS: StationSeed[] = [
   { id: "blue", board: "caja", label: "Blue / Outside", color: "blue", maxConcurrent: 1, sortOrder: 5, priority: 5 },
   { id: "purple2", board: "caja", label: "Purple 2", color: "lavender", maxConcurrent: 1, sortOrder: 6, priority: 6 },
   { id: "multi", board: "caja", label: "MULTI", color: "gray", maxConcurrent: 1, sortOrder: 7, priority: 7 },
-  { id: "nieves", board: "caja", label: "Nieves", color: "teal", maxConcurrent: -1, sortOrder: 8, priority: null },
+  // Phase 1: one person per station everywhere — including Nieves (no stacking).
+  { id: "nieves", board: "caja", label: "Nieves", color: "teal", maxConcurrent: 1, sortOrder: 8, priority: null },
   { id: "mesero", board: "caja", label: "Mesero", color: "orange", maxConcurrent: 1, sortOrder: 9, priority: null },
   { id: "clean", board: "caja", label: "Limpieza / Clean", color: "cyan", maxConcurrent: 1, sortOrder: 10, priority: null },
 ];

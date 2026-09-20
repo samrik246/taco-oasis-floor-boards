@@ -8,6 +8,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+    // Integration tests share prisma/dev.db — run files serially
+    fileParallelism: false,
   },
   resolve: {
     alias: {

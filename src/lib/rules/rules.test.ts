@@ -51,7 +51,14 @@ describe("station uniqueness (SPEC §4.2)", () => {
     ).toBe(true);
   });
 
-  it("allows stacking on nieves (maxConcurrent=-1)", () => {
+  it("rejects second occupant on nieves (Phase 1: no stacking)", () => {
+    expect(isStackableStation(1)).toBe(false);
+    expect(
+      canOccupyStation({ maxConcurrent: 1, existingOccupancy: 1 }),
+    ).toBe(false);
+  });
+
+  it("legacy unlimited helper still works for maxConcurrent=-1", () => {
     expect(isStackableStation(-1)).toBe(true);
     expect(
       canOccupyStation({ maxConcurrent: -1, existingOccupancy: 5 }),
@@ -138,14 +145,14 @@ describe("validateAssignment composed rules", () => {
     expect(v.some((x) => x.code === "STATION_FULL")).toBe(true);
   });
 
-  it("allows multi nieves", () => {
+  it("rejects second nieves occupant (no stacking)", () => {
     const v = validateAssignment({
       ...base,
       stationId: "nieves",
-      maxConcurrent: -1,
-      existingOccupancy: 3,
+      maxConcurrent: 1,
+      existingOccupancy: 1,
     });
-    expect(v).toEqual([]);
+    expect(v.some((x) => x.code === "STATION_FULL")).toBe(true);
   });
 
   it("rejects out-of-shift", () => {
