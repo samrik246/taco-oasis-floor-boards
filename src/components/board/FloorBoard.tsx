@@ -133,10 +133,17 @@ export function FloorBoard() {
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
+  const toastTimerRef = useRef<number | null>(null);
 
   const showToast = useCallback((kind: "ok" | "err", text: string) => {
     setToast({ kind, text });
-    window.setTimeout(() => setToast(null), 4000);
+    if (toastTimerRef.current != null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 4000);
   }, []);
 
   useManagerIdle({
