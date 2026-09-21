@@ -39,6 +39,23 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("timeline-matrix")).toBeVisible({
       timeout: 15_000,
     });
+
+    // Schedule first-class view (all day)
+    await page.getByTestId("view-toggle-schedule").click();
+    await expect(page.getByTestId("schedule-panel")).toBeVisible();
+    await expect(page.getByTestId("schedule-grid")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("schedule-mode-all-day")).toBeVisible();
+    await expect(page.getByTestId("schedule-headcount-row")).toBeVisible();
+    await expect(page.getByTestId("schedule-hour-7")).toBeVisible();
+    await page.getByTestId("schedule-mode-rest-of-day").click();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-mode",
+      "rest-of-day",
+    );
+    await expect(page.getByTestId("schedule-rest-rule")).toBeVisible();
+
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
 
@@ -124,6 +141,23 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await page.getByTestId("view-toggle-timeline").click();
     await expect(page.getByTestId("timeline-panel")).toBeVisible();
     await expect(page.getByTestId("timeline-title").or(page.getByTestId("timeline-panel"))).toBeVisible();
+
+    // Cocina Schedule UI is Spanish
+    await page.getByTestId("view-toggle-schedule").click();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-locale",
+      "es",
+    );
+    await expect(page.getByTestId("schedule-mode-all-day")).toContainText(
+      /Todo el día/i,
+    );
+    await expect(page.getByTestId("schedule-mode-rest-of-day")).toContainText(
+      /Resto del día/i,
+    );
+    await expect(page.getByTestId("schedule-title")).toContainText(/Horario/i);
+    await expect(page.getByTestId("schedule-grid")).toBeVisible({
+      timeout: 15_000,
+    });
 
     // Idle timeout returns to staff (MANAGER_IDLE_MS=1500 in playwright config)
     await page.getByTestId("view-toggle-board").click();

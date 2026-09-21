@@ -22,7 +22,21 @@ export type Messages = {
   managerIdleLogout: string;
   viewBoard: string;
   viewTimeline: string;
+  viewSchedule: string;
   viewTareas: string;
+  scheduleTitle: string;
+  scheduleHint: string;
+  scheduleEmpty: string;
+  scheduleAllDay: string;
+  scheduleRestOfDay: string;
+  scheduleModeLabel: string;
+  scheduleRestRuleToday: string;
+  scheduleRestRuleOther: string;
+  scheduleHeadcount: string;
+  scheduleManHours: string;
+  scheduleShiftCol: string;
+  scheduleAreaCol: string;
+  scheduleUnassignedGroup: string;
   date: string;
   hour: string;
   noDates: string;
@@ -156,7 +170,23 @@ const en: Messages = {
   managerIdleLogout: "Manager session timed out — back to staff",
   viewBoard: "Board",
   viewTimeline: "Timeline",
+  viewSchedule: "Schedule",
   viewTareas: "Tareas",
+  scheduleTitle: "Day schedule",
+  scheduleHint:
+    "People grouped by station. Colored blocks show position codes across the hour grid.",
+  scheduleEmpty: "No people on this board for this date.",
+  scheduleAllDay: "All day",
+  scheduleRestOfDay: "Rest of day",
+  scheduleModeLabel: "Schedule range",
+  scheduleRestRuleToday: "Rest of day from now (Chicago).",
+  scheduleRestRuleOther:
+    "Not today — columns from the first scheduled hour on this date.",
+  scheduleHeadcount: "Headcount",
+  scheduleManHours: "Man-hours",
+  scheduleShiftCol: "Shift",
+  scheduleAreaCol: "Area",
+  scheduleUnassignedGroup: "Unassigned",
   date: "Date",
   hour: "Hour",
   noDates: "No dates",
@@ -295,7 +325,23 @@ const es: Messages = {
   managerIdleLogout: "Sesión de gerente expiró — vuelves a personal",
   viewBoard: "Tablero",
   viewTimeline: "Línea de tiempo",
+  viewSchedule: "Horario",
   viewTareas: "Tareas",
+  scheduleTitle: "Horario del día",
+  scheduleHint:
+    "Personas agrupadas por estación. Bloques de color = código de puesto en la cuadrícula de horas.",
+  scheduleEmpty: "Nadie en este tablero para esta fecha.",
+  scheduleAllDay: "Todo el día",
+  scheduleRestOfDay: "Resto del día",
+  scheduleModeLabel: "Rango del horario",
+  scheduleRestRuleToday: "Resto del día desde ahora (Chicago).",
+  scheduleRestRuleOther:
+    "Otra fecha — columnas desde la primera hora programada de este día.",
+  scheduleHeadcount: "Personas",
+  scheduleManHours: "Horas-hombre",
+  scheduleShiftCol: "Turno",
+  scheduleAreaCol: "Área",
+  scheduleUnassignedGroup: "Sin asignar",
   date: "Fecha",
   hour: "Hora",
   noDates: "Sin fechas",
