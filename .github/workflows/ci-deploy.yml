@@ -1,0 +1,421 @@
+# =============================================================================
+# Taco Oasis Floor Boards — CI quality gates + go-live deploy
+# =============================================================================
+#
+# This app is a Next.js 16 + Prisma/SQLite floor board for LAN tablets
+# (home-base host). There is no Vercel/Fly/Railway config in-repo; go-live
+# matches docs/go-live-checklist: build on a home-base machine and serve via
+# `pnpm start` (tablets hit http://HOME_BASE_IP:3000).
+#
+# Deploy strategy (production-ready, secrets-gated):
+#   1. Always: quality gates (install → prisma generate → test → build → e2e)
+#   2. On main (or workflow_dispatch): upload production artifact
+#   3. Optional SSH/rsync to home-base when DEPLOY_* secrets are set
+#   4. Optional Vercel production deploy when VERCEL_TOKEN is set
+#      (SQLite on serverless is limited — prefer SSH home-base for floor use)
+#
+# Required repository secrets for SSH go-live (all must be set):
+#   DEPLOY_HOST          — home-base hostname or IP (reachable from Actions runner
+#                          or a self-hosted runner on the same LAN)
+#   DEPLOY_USER          — SSH user on home-base
+#   DEPLOY_SSH_KEY       — private key (PEM) for DEPLOY_USER
+#   DEPLOY_PATH          — absolute remote app directory (e.g. /opt/taco-oasis)
+#
+# Optional SSH secrets / vars:
+#   DEPLOY_PORT          — SSH port (default 22) — repository variable or secret
+#   DEPLOY_SSH_KNOWN_HOSTS — known_hosts line(s); if unset, StrictHostKeyChecking=accept-new
+#   DEPLOY_HEALTHCHECK_URL — e.g. http://127.0.0.1:3000 (run on remote after restart)
+#
+# Optional Vercel secrets (alternative path; not recommended for SQLite floor use):
+#   VERCEL_TOKEN
+#   VERCEL_ORG_ID
+#   VERCEL_PROJECT_ID
+#
+# Dry-run: workflow_dispatch input dry_run=true skips rsync/Vercel writes and
+# prints what would be deployed.
+#
+# See also: docs/DEPLOY.md
+# =============================================================================
+
+name: CI + Go-live Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip destructive deploy writes (artifact still built/uploaded)"
+        type: boolean
+        default: true
+      force_deploy:
+        description: "Attempt deploy even if dry_run would skip (still needs secrets)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Cancel overlapping PR runs; never cancel an in-flight main deploy mid-rsync.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.33.3"
+  # CI / build use disposable SQLite (matches package.json test script).
+  DATABASE_URL: "file:./ci.db"
+  CI: "true"
+
+permissions:
+  contents: read
+  actions: write # upload-artifact
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Quality gates — every PR and every push to main
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Quality gates (test · build · e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm ${{ env.PNPM_VERSION }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm exec prisma generate
+
+      - name: Prepare SQLite for vitest (schema + seed)
+        # package.json `pnpm test` hardcodes DATABASE_URL=file:./dev.db
+        # (Prisma resolves relative to prisma/). Fresh CI runners have no DB file.
+        env:
+          DATABASE_URL: "file:./dev.db"
+        run: pnpm db:setup
+
+      - name: Unit / integration tests (vitest)
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests (Playwright)
+        run: pnpm test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Quality summary
+        if: always()
+        run: |
+          {
+            echo "## Quality gates"
+            echo ""
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| pnpm install | ✅ |"
+            echo "| prisma generate | ✅ (if reached) |"
+            echo "| pnpm test | see job log |"
+            echo "| pnpm build | see job log |"
+            echo "| pnpm test:e2e | see job log |"
+            echo ""
+            echo "Node \`${{ env.NODE_VERSION }}\` · pnpm \`${{ env.PNPM_VERSION }}\`"
+            echo "Commit \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pack production artifact (standalone-ish bundle)
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          STAGE="deploy-staging"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          # Runtime needs: Next build output, public assets, Prisma schema/client,
+          # package manifests, and lockfile for production install on host.
+          cp -a .next public prisma package.json pnpm-lock.yaml pnpm-workspace.yaml "$STAGE/"
+          # Include next.config + postcss/tailwind configs if present (start needs them).
+          for f in next.config.ts next.config.js next.config.mjs \
+                   postcss.config.mjs postcss.config.js \
+                   tsconfig.json components.json; do
+            [[ -f "$f" ]] && cp -a "$f" "$STAGE/" || true
+          done
+          # Minimal env for home-base SQLite (host should replace with durable path).
+          printf '%s\n' 'DATABASE_URL="file:./prisma/prod.db"' > "$STAGE/.env.production.example"
+          tar -czf taco-oasis-floor-boards.tgz -C "$STAGE" .
+          ls -lh taco-oasis-floor-boards.tgz
+          echo "Packed artifact for SHA ${{ github.sha }}"
+
+      - name: Upload production artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: taco-oasis-prod-${{ github.sha }}
+          path: taco-oasis-floor-boards.tgz
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Go-live deploy — main only (or manual workflow_dispatch)
+  # Skips cleanly when neither SSH nor Vercel secrets are configured.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Go-live deploy
+    needs: quality
+    if: |
+      always() &&
+      needs.quality.result == 'success' &&
+      (
+        github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # No GitHub Environment gate: deploy activates only when secrets exist.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Resolve deploy mode
+        id: mode
+        env:
+          # Map secret presence without failing the job when unset.
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PATH: ${{ secrets.DEPLOY_PATH }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          DRY_RUN_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy || false }}
+        run: |
+          set -euo pipefail
+          ssh_ok=false
+          vercel_ok=false
+          if [[ -n "${SSH_HOST}" && -n "${SSH_USER}" && -n "${SSH_KEY}" && -n "${SSH_PATH}" ]]; then
+            ssh_ok=true
+          fi
+          if [[ -n "${VERCEL_TOKEN}" && -n "${VERCEL_ORG_ID}" && -n "${VERCEL_PROJECT_ID}" ]]; then
+            vercel_ok=true
+          fi
+
+          dry_run=false
+          if [[ "${DRY_RUN_INPUT}" == "true" ]]; then
+            dry_run=true
+          fi
+          if [[ "${FORCE_DEPLOY}" == "true" ]]; then
+            dry_run=false
+          fi
+          # Push to main defaults to real deploy when secrets exist; dry_run only
+          # from workflow_dispatch unless force_deploy.
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            dry_run=false
+          fi
+
+          echo "ssh_configured=${ssh_ok}" >> "$GITHUB_OUTPUT"
+          echo "vercel_configured=${vercel_ok}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${dry_run}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Go-live deploy mode"
+            echo ""
+            echo "- Event: \`${{ github.event_name }}\`"
+            echo "- SHA: \`${{ github.sha }}\`"
+            echo "- SSH secrets configured: \`${ssh_ok}\`"
+            echo "- Vercel secrets configured: \`${vercel_ok}\`"
+            echo "- Dry run: \`${dry_run}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${ssh_ok}" != "true" && "${vercel_ok}" != "true" ]]; then
+            echo "::notice::No deploy secrets configured. Artifact from quality job is retained; SSH/Vercel deploy skipped. See docs/DEPLOY.md."
+          fi
+
+      - name: Download production artifact
+        if: steps.mode.outputs.ssh_configured == 'true' || steps.mode.outputs.vercel_configured == 'true' || steps.mode.outputs.dry_run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: taco-oasis-prod-${{ github.sha }}
+          path: artifact
+
+      - name: Dry-run deploy preview
+        if: steps.mode.outputs.dry_run == 'true'
+        run: |
+          set -euo pipefail
+          echo "=== DRY RUN — no remote writes ==="
+          ls -lh artifact/taco-oasis-floor-boards.tgz || ls -lh artifact/
+          echo "Would SSH deploy: ${{ steps.mode.outputs.ssh_configured }}"
+          echo "Would Vercel deploy: ${{ steps.mode.outputs.vercel_configured }}"
+          echo "::notice::Dry-run complete. Re-run workflow_dispatch with dry_run=false (and secrets set) to go live."
+
+      - name: Skip notice (no secrets)
+        if: |
+          steps.mode.outputs.ssh_configured != 'true' &&
+          steps.mode.outputs.vercel_configured != 'true' &&
+          steps.mode.outputs.dry_run != 'true'
+        run: |
+          echo "Deploy skipped — configure DEPLOY_* or VERCEL_* secrets (docs/DEPLOY.md)."
+          echo "::notice::CI passed; deploy inactive until secrets exist."
+
+      # ---- Optional SSH / rsync home-base path (preferred for SQLite LAN) ----
+      - name: Configure SSH client
+        if: steps.mode.outputs.ssh_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || vars.DEPLOY_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [[ -n "${DEPLOY_SSH_KNOWN_HOSTS}" ]]; then
+            printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${DEPLOY_PORT}" -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+          chmod 644 ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<EOF
+          Host homebase
+            HostName ${DEPLOY_HOST}
+            Port ${DEPLOY_PORT}
+            User ${{ secrets.DEPLOY_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Rsync artifact to home-base and restart
+        if: steps.mode.outputs.ssh_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          HEALTHCHECK_URL: ${{ secrets.DEPLOY_HEALTHCHECK_URL }}
+        run: |
+          set -euo pipefail
+          REMOTE_TMP="/tmp/taco-oasis-${{ github.sha }}.tgz"
+          scp -F ~/.ssh/config artifact/taco-oasis-floor-boards.tgz "homebase:${REMOTE_TMP}"
+          ssh -F ~/.ssh/config homebase bash -s <<EOF
+          set -euo pipefail
+          DEPLOY_PATH='${DEPLOY_PATH}'
+          mkdir -p "\${DEPLOY_PATH}"
+          # Preserve existing SQLite DB across releases
+          if [[ -f "\${DEPLOY_PATH}/prisma/prod.db" ]]; then
+            cp -a "\${DEPLOY_PATH}/prisma/prod.db" "/tmp/taco-oasis-prod.db.bak"
+          fi
+          tar -xzf '${REMOTE_TMP}' -C "\${DEPLOY_PATH}"
+          if [[ -f /tmp/taco-oasis-prod.db.bak ]]; then
+            mkdir -p "\${DEPLOY_PATH}/prisma"
+            mv /tmp/taco-oasis-prod.db.bak "\${DEPLOY_PATH}/prisma/prod.db"
+          fi
+          cd "\${DEPLOY_PATH}"
+          if [[ ! -f .env ]]; then
+            cp .env.production.example .env
+          fi
+          # Production install + generate (host must have Node + pnpm)
+          corepack enable || true
+          pnpm install --frozen-lockfile --prod=false
+          pnpm exec prisma generate
+          # Ensure schema exists without wiping data when possible
+          DATABASE_URL="\${DATABASE_URL:-file:./prisma/prod.db}" pnpm exec prisma db push
+          # Restart via systemd if unit exists; else nohup next start
+          if systemctl list-unit-files 2>/dev/null | grep -q taco-oasis; then
+            sudo systemctl restart taco-oasis
+          else
+            pkill -f 'next start' || true
+            nohup pnpm start -- -H 0.0.0.0 -p 3000 > /tmp/taco-oasis.log 2>&1 &
+            sleep 3
+          fi
+          if [[ -n '${HEALTHCHECK_URL}' ]]; then
+            curl -fsS --retry 5 --retry-delay 2 '${HEALTHCHECK_URL}' >/dev/null
+          fi
+          rm -f '${REMOTE_TMP}'
+          echo "Deployed ${{ github.sha }} to \${DEPLOY_PATH}"
+          EOF
+
+      - name: Annotate SSH deploy success
+        if: steps.mode.outputs.ssh_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        run: |
+          echo "::notice::SSH go-live deploy completed for ${{ github.sha }}"
+          echo "### SSH deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed \`${{ github.sha }}\` to home-base \`DEPLOY_PATH\`." >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- Optional Vercel path (gated; SQLite caveats apply) ----
+      - name: Checkout (Vercel needs repo context)
+        if: steps.mode.outputs.vercel_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        uses: actions/checkout@v4
+
+      - name: Install pnpm (Vercel path)
+        if: steps.mode.outputs.vercel_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js (Vercel path)
+        if: steps.mode.outputs.vercel_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Vercel CLI and pull project
+        if: steps.mode.outputs.vercel_configured == 'true' && steps.mode.outputs.dry_run != 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          pnpm add -g vercel@39
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          echo "::warning::Vercel deploy used. SQLite file DB is ephemeral on serverless — prefer SSH home-base for floor tablets (docs/DEPLOY.md)."
+
+      - name: Final deploy summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "### Outcome"
+            echo "- SSH configured: \`${{ steps.mode.outputs.ssh_configured }}\`"
+            echo "- Vercel configured: \`${{ steps.mode.outputs.vercel_configured }}\`"
+            echo "- Dry run: \`${{ steps.mode.outputs.dry_run }}\`"
+            echo ""
+            echo "Secret names: \`DEPLOY_HOST\`, \`DEPLOY_USER\`, \`DEPLOY_SSH_KEY\`, \`DEPLOY_PATH\`,"
+            echo "\`DEPLOY_PORT\`, \`DEPLOY_SSH_KNOWN_HOSTS\`, \`DEPLOY_HEALTHCHECK_URL\`,"
+            echo "\`VERCEL_TOKEN\`, \`VERCEL_ORG_ID\`, \`VERCEL_PROJECT_ID\`."
+            echo "Full guide: \`docs/DEPLOY.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
