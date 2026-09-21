@@ -6,8 +6,20 @@ import {
 import { allTareaTemplates } from "../src/lib/board-config";
 import { allLoadStationDefs } from "../src/lib/load-stations";
 import { DEFAULT_PERFORMANCE_QUESTIONS } from "../src/lib/performance/questions";
+import {
+  DEMO_MANAGERS,
+  hashManagerCode,
+} from "../src/lib/managers/codes";
 
 const prisma = new PrismaClient();
+
+/**
+ * Demo manager access codes (hashed before insert — never in client bundle):
+ * - Ana Rivera  → 2468
+ * - Luis Ortega → 1357
+ * - Sam Chen    → 8642
+ * Documented in docs/DEPLOY.md as well.
+ */
 
 async function main() {
   // Remove obsolete Kitchen stations (pre–Kitchen-phase seeds) if unused.
@@ -105,11 +117,30 @@ async function main() {
     });
   }
 
+  // Upsert demo managers by stable name (codes hashed — see DEMO_MANAGERS comments).
+  for (const m of DEMO_MANAGERS) {
+    const codeHash = hashManagerCode(m.code);
+    const existing = await prisma.manager.findFirst({
+      where: { name: m.name },
+    });
+    if (existing) {
+      await prisma.manager.update({
+        where: { id: existing.id },
+        data: { codeHash, active: true },
+      });
+    } else {
+      await prisma.manager.create({
+        data: { name: m.name, codeHash, active: true },
+      });
+    }
+  }
+
   const count = await prisma.station.count();
   const tareas = await prisma.tareaTemplate.count();
   const questions = await prisma.performanceQuestion.count();
+  const managers = await prisma.manager.count();
   console.log(
-    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, traffic meters.`,
+    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, traffic meters.`,
   );
 }
 

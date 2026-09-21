@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { performancePrompt, type Locale, type Messages } from "@/lib/i18n";
 
 type QuestionDto = {
   id: string;
@@ -18,6 +19,8 @@ type Props = {
   employeeName: string | null;
   readonly: boolean;
   onSaved?: () => void;
+  locale: Locale;
+  t: Messages;
 };
 
 const CHOICES: Record<string, string[]> = {
@@ -36,6 +39,8 @@ export function PerformanceSurveyPanel({
   employeeName,
   readonly,
   onSaved,
+  locale,
+  t,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [questions, setQuestions] = useState<QuestionDto[]>([]);
@@ -94,7 +99,7 @@ export function PerformanceSurveyPanel({
       data-testid="performance-survey"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-bold">Close-day check</h2>
+        <h2 className="text-lg font-bold">{t.performanceTitle}</h2>
         <Button
           type="button"
           size="sm"
@@ -104,31 +109,36 @@ export function PerformanceSurveyPanel({
           onClick={() => setOpen((v) => !v)}
           data-testid="performance-toggle"
         >
-          {open ? "Hide" : "Ask"}
+          {open ? t.cancel : t.openSurvey}
         </Button>
       </div>
       {!employeeId && (
         <p className="text-sm font-medium text-neutral-700">
-          Select a person to record end-of-shift answers.
+          {t.pickPersonSurvey}
         </p>
       )}
       {open && employeeId && (
         <div className="flex flex-col gap-3" data-testid="performance-form">
           <p className="text-sm font-semibold">
-            {employeeName ?? "Employee"} · {date}
+            {employeeName ?? "—"} · {date}
           </p>
           {questions.map((q) => {
             const choices = CHOICES[q.kind];
             return (
               <label key={q.id} className="flex flex-col gap-1 text-sm">
-                <span className="font-semibold">{q.prompt}</span>
+                <span className="font-semibold">
+                  {performancePrompt(locale, q.id, q.prompt)}
+                </span>
                 {choices ? (
                   <select
                     className="touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 font-medium"
                     value={answers[q.id] ?? ""}
                     disabled={readonly}
                     onChange={(e) =>
-                      setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
+                      setAnswers((prev) => ({
+                        ...prev,
+                        [q.id]: e.target.value,
+                      }))
                     }
                     data-testid={`perf-q-${q.id}`}
                   >
@@ -145,7 +155,10 @@ export function PerformanceSurveyPanel({
                     value={answers[q.id] ?? ""}
                     disabled={readonly}
                     onChange={(e) =>
-                      setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
+                      setAnswers((prev) => ({
+                        ...prev,
+                        [q.id]: e.target.value,
+                      }))
                     }
                     data-testid={`perf-q-${q.id}`}
                   />
@@ -160,7 +173,7 @@ export function PerformanceSurveyPanel({
             onClick={() => void save()}
             data-testid="performance-save"
           >
-            Save answers
+            {t.saveAnswers}
           </Button>
           {status && (
             <p

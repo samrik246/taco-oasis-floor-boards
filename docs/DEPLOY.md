@@ -34,6 +34,18 @@ pnpm exec playwright install --with-deps chromium
 pnpm test:e2e
 ```
 
+## Demo manager access codes
+
+Manager view is unlocked with a **personal code**. Codes are stored as SHA-256 hashes in the `Manager` table (never plaintext in the client bundle). Seed creates these demo managers (`pnpm db:setup`):
+
+| Manager | Demo code |
+| --- | --- |
+| Ana Rivera | `2468` |
+| Luis Ortega | `1357` |
+| Sam Chen | `8642` |
+
+Idle timeout returns to **Staff** view after **15 seconds** without pointer/keyboard/touch (`MANAGER_IDLE_MS`, default `15000`). E2E sets a shorter value.
+
 ## Preferred go-live: SSH home-base
 
 Configure these **repository secrets** (Settings → Secrets and variables → Actions):

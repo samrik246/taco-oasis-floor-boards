@@ -1,13 +1,15 @@
 "use client";
 
 import type { BoardViolation } from "@/lib/violations";
+import type { Messages } from "@/lib/i18n";
 
 type Props = {
   violations: BoardViolation[];
+  t: Messages;
 };
 
 /** Red banner listing slipped-in rule breaks (SPEC slice 12). */
-export function ViolationsBanner({ violations }: Props) {
+export function ViolationsBanner({ violations, t }: Props) {
   if (violations.length === 0) return null;
 
   return (
@@ -16,10 +18,7 @@ export function ViolationsBanner({ violations }: Props) {
       role="alert"
       data-testid="violations-banner"
     >
-      <p className="text-base font-bold">
-        {violations.length} violation{violations.length === 1 ? "" : "s"} on this
-        board
-      </p>
+      <p className="text-base font-bold">{t.violations(violations.length)}</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold">
         {violations.map((v, i) => (
           <li key={`${v.assignmentId}-${v.code}-${i}`}>

@@ -36,6 +36,8 @@ export default defineConfig({
     env: {
       ...process.env,
       DATABASE_URL: "file:./e2e.db",
+      // Short idle so manager→staff timeout e2e stays fast
+      MANAGER_IDLE_MS: "1500",
     },
   },
 });

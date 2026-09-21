@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { tareaLabel, type Locale, type Messages } from "@/lib/i18n";
 
 export type TareaTemplateDto = {
   id: string;
@@ -43,6 +44,8 @@ type Props = {
   onMarkWorking: (id: string) => void;
   readonly: boolean;
   compact?: boolean;
+  locale: Locale;
+  t: Messages;
 };
 
 export function TareasPanel({
@@ -56,11 +59,13 @@ export function TareasPanel({
   onMarkWorking,
   readonly,
   compact,
+  locale,
+  t,
 }: Props) {
   const [forceLemon, setForceLemon] = useState(false);
   const working = assignments.filter((a) => a.status === "working");
   const done = assignments.filter((a) => a.status === "done");
-  const backlog = templates.filter((t) => t.mode === "backlog_when_slow");
+  const backlog = templates.filter((tpl) => tpl.mode === "backlog_when_slow");
 
   useEffect(() => {
     setForceLemon(false);
@@ -74,22 +79,23 @@ export function TareasPanel({
       )}
       data-testid="tareas-panel"
     >
-      <h2 className="text-lg font-bold">Cashiers tareas</h2>
-      <p className="text-xs font-medium text-neutral-600">
-        Homework-style daily list. Multi active OK. Chiles = when-slow backlog.
-      </p>
+      <h2 className="text-lg font-bold">{t.tareasTitle}</h2>
+      <p className="text-xs font-medium text-neutral-600">{t.tareasHint}</p>
 
       {backlog.length > 0 && (
         <p
           className="rounded-md border border-dashed border-neutral-500 px-2 py-1 text-xs font-semibold text-neutral-700"
           data-testid="chiles-backlog-note"
         >
-          When slow: {backlog.map((t) => t.label).join(", ")}
+          {t.backlogWhenSlow}:{" "}
+          {backlog
+            .map((tpl) => tareaLabel(locale, tpl.id, tpl.label))
+            .join(", ")}
         </p>
       )}
 
       <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-neutral-700">
-        Assign tarea
+        {t.assignTarea}
         <select
           className="touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 text-sm font-semibold normal-case text-neutral-900"
           value={selectedTemplateId ?? ""}
@@ -97,11 +103,13 @@ export function TareasPanel({
           disabled={readonly}
           data-testid="tarea-template-select"
         >
-          <option value="">Pick a tarea…</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-              {t.mode === "backlog_when_slow" ? " (when slow)" : ""}
+          <option value="">{t.pickTarea}…</option>
+          {templates.map((tpl) => (
+            <option key={tpl.id} value={tpl.id}>
+              {tareaLabel(locale, tpl.id, tpl.label)}
+              {tpl.mode === "backlog_when_slow"
+                ? ` (${t.backlogWhenSlow})`
+                : ""}
             </option>
           ))}
         </select>
@@ -110,11 +118,11 @@ export function TareasPanel({
       {selectedTemplateId && (
         <div className="flex flex-col gap-2" data-testid="tarea-suggestions">
           <div className="text-xs font-bold uppercase text-neutral-700">
-            Suggestions
+            {t.suggestions}
           </div>
           {suggestions.length === 0 && (
             <p className="text-sm font-medium text-neutral-600">
-              No suggestions for this hour.
+              {t.noOneAvailable}
             </p>
           )}
           {suggestions.slice(0, 6).map((s) => (
@@ -128,12 +136,12 @@ export function TareasPanel({
             >
               <span>
                 <span className="mr-2 text-xs font-bold uppercase text-neutral-500">
-                  {s.label}
+                  {s.label === "top" ? t.top : t.next}
                 </span>
                 {s.displayName}
               </span>
               <span className="text-xs font-medium text-neutral-600">
-                {s.seatId ?? "unseated"}
+                {s.seatId ?? "—"}
               </span>
             </button>
           ))}
@@ -146,16 +154,23 @@ export function TareasPanel({
               disabled={readonly}
               data-testid="force-lemon"
             />
-            Force lemon on greens (manager)
+            {t.forceLemon}
           </label>
         </div>
       )}
 
       <div>
-        <h3 className="mb-1 text-sm font-bold">Working ({working.length})</h3>
-        <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto" data-testid="tareas-working">
+        <h3 className="mb-1 text-sm font-bold">
+          {t.working} ({working.length})
+        </h3>
+        <ul
+          className="flex max-h-40 flex-col gap-1 overflow-y-auto"
+          data-testid="tareas-working"
+        >
           {working.length === 0 && (
-            <li className="text-sm font-medium text-neutral-600">None active.</li>
+            <li className="text-sm font-medium text-neutral-600">
+              {t.noWorking}
+            </li>
           )}
           {working.map((a) => (
             <li
@@ -163,7 +178,8 @@ export function TareasPanel({
               className="flex min-h-11 items-center justify-between gap-2 rounded border border-neutral-400 px-2 py-1 text-sm"
             >
               <span className="font-semibold">
-                {a.employee.firstName} — {a.template.label}
+                {a.employee.firstName} —{" "}
+                {tareaLabel(locale, a.template.id, a.template.label)}
               </span>
               {!readonly && (
                 <Button
@@ -173,7 +189,7 @@ export function TareasPanel({
                   onClick={() => onMarkDone(a.id)}
                   data-testid={`tarea-done-${a.id}`}
                 >
-                  Done
+                  {t.markDone}
                 </Button>
               )}
             </li>
@@ -182,10 +198,15 @@ export function TareasPanel({
       </div>
 
       <div className={cn(!compact && "hidden xl:block")}>
-        <h3 className="mb-1 text-sm font-bold">Done ({done.length})</h3>
-        <ul className="flex max-h-28 flex-col gap-1 overflow-y-auto" data-testid="tareas-done">
+        <h3 className="mb-1 text-sm font-bold">
+          {t.done} ({done.length})
+        </h3>
+        <ul
+          className="flex max-h-28 flex-col gap-1 overflow-y-auto"
+          data-testid="tareas-done"
+        >
           {done.length === 0 && (
-            <li className="text-sm font-medium text-neutral-600">None yet.</li>
+            <li className="text-sm font-medium text-neutral-600">{t.noDone}</li>
           )}
           {done.slice(0, 12).map((a) => (
             <li
@@ -193,7 +214,8 @@ export function TareasPanel({
               className="flex min-h-10 items-center justify-between gap-2 text-sm text-neutral-700"
             >
               <span>
-                {a.employee.firstName} — {a.template.label}
+                {a.employee.firstName} —{" "}
+                {tareaLabel(locale, a.template.id, a.template.label)}
               </span>
               {!readonly && (
                 <button
@@ -201,7 +223,7 @@ export function TareasPanel({
                   className="min-h-11 text-xs font-bold underline"
                   onClick={() => onMarkWorking(a.id)}
                 >
-                  Reopen
+                  {t.markWorking}
                 </button>
               )}
             </li>
