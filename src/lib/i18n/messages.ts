@@ -33,6 +33,7 @@ export type Messages = {
   scheduleModeLabel: string;
   scheduleSortLabel: string;
   scheduleSortName: string;
+  scheduleSortTime: string;
   scheduleSortPosition: string;
   scheduleRestRuleToday: string;
   scheduleRestRuleOther: string;
@@ -99,6 +100,13 @@ export type Messages = {
   toastSimToggleFailed: string;
   toastUploadFailed: string;
   toastSampleFailed: string;
+  managerOnly: string;
+  offlineBadge: string;
+  offlineBanner: string;
+  wallTitle: string;
+  wallHint: string;
+  wallEmptySeat: string;
+  wallOffHours: string;
   orderTraffic: string;
   simulator: string;
   trafficHint: string;
@@ -188,13 +196,14 @@ const en: Messages = {
   viewRush: "Rush",
   scheduleTitle: "Day schedule",
   scheduleHint:
-    "Same people and hours. By name, each block is the position. By position, each block is the person.",
+    "Same people and hours. By name, each block is the position. By time, rows follow start time. By position, each block is the person.",
   scheduleEmpty: "No people on this board for this date.",
   scheduleAllDay: "All day",
   scheduleRestOfDay: "Rest of day",
   scheduleModeLabel: "Schedule range",
   scheduleSortLabel: "Sort",
   scheduleSortName: "By name",
+  scheduleSortTime: "By time",
   scheduleSortPosition: "By position",
   scheduleRestRuleToday: "Rest of day from now (Chicago).",
   scheduleRestRuleOther:
@@ -207,13 +216,13 @@ const en: Messages = {
   rushTitle: "When it gets busier",
   rushHint: "Historical sales by weekday and hour — prep before the rush.",
   rushBasis:
-    "Based on historical sales (sample history). Not a live POS.",
+    "Share of that day’s sales by hour, from historical sales (sample history). Not order counts. Not a live POS.",
   rushPrep: "Prep before the rush — have people and the line ready before these hours.",
   rushMethod:
-    "Rush = hourly average above 1.35× this weekday’s median hour.",
+    "Rush = an hour’s share of that day’s sales above 1.35× this weekday’s median hour.",
   rushSummaryLead: "Gets busier around",
   rushEmptyDate: "Pick a date to see the usual rush.",
-  rushOrders: "orders",
+  rushOrders: "% of day",
   rushMark: "Rush",
   date: "Date",
   hour: "Hour",
@@ -251,8 +260,8 @@ const en: Messages = {
   toastImported: (n) => `Imported ${n} rows`,
   toastReadonly: "Read-only mode — mutations blocked",
   toastForbidden: "FORBIDDEN_ABILITY",
-  toastSimulatorOn: "Simulator on",
-  toastSimulatorOff: "Simulator off",
+  toastSimulatorOn: "Training on",
+  toastSimulatorOff: "Training off",
   toastTareaAssigned: "Tarea assigned",
   toastLoadFailed: "Failed to load board",
   toastNetwork: "Network error loading board",
@@ -266,9 +275,18 @@ const en: Messages = {
   toastSimToggleFailed: "Could not toggle simulator",
   toastUploadFailed: "Upload failed",
   toastSampleFailed: "Sample load failed",
-  orderTraffic: "Order traffic",
-  simulator: "Simulator",
-  trafficHint: "Fake feed every 15s — Quiet / Busy / Slammed. Not a real POS feed.",
+  managerOnly: "Manager only",
+  offlineBadge: "Offline",
+  offlineBanner:
+    "Offline — last saved board, read only. Edits wait until this tablet reconnects. Nothing here is written from the cache.",
+  wallTitle: "Wall",
+  wallHint: "Current hour. No edits.",
+  wallEmptySeat: "Open",
+  wallOffHours: "Outside service hours",
+  orderTraffic: "Training traffic",
+  simulator: "Training",
+  trafficHint:
+    "Training switch only, default off. A manager turns it on. Fake Quiet / Busy / Slammed — not a POS. Tareas clear only while training is on.",
   loadingMeters: "Loading meters…",
   quiet: "Quiet",
   busy: "Busy",
@@ -358,13 +376,14 @@ const es: Messages = {
   viewRush: "Más ocupado",
   scheduleTitle: "Horario del día",
   scheduleHint:
-    "Las mismas personas y horas. Por nombre, el bloque muestra el puesto. Por puesto, el bloque muestra a la persona.",
+    "Las mismas personas y horas. Por nombre, el bloque muestra el puesto. Por hora, las filas siguen la hora de entrada. Por puesto, el bloque muestra a la persona.",
   scheduleEmpty: "Nadie en este tablero para esta fecha.",
   scheduleAllDay: "Todo el día",
   scheduleRestOfDay: "Resto del día",
   scheduleModeLabel: "Rango del horario",
   scheduleSortLabel: "Orden",
   scheduleSortName: "Por nombre",
+  scheduleSortTime: "Por hora",
   scheduleSortPosition: "Por puesto",
   scheduleRestRuleToday: "Resto del día desde ahora (Chicago).",
   scheduleRestRuleOther:
@@ -378,14 +397,14 @@ const es: Messages = {
   rushHint:
     "Ventas históricas por día de la semana y hora — prepárate antes del rush.",
   rushBasis:
-    "Basado en ventas históricas (muestra). No es un punto de venta en vivo.",
+    "Parte de las ventas del día por hora, según ventas históricas (muestra). No son pedidos. No es un POS en vivo.",
   rushPrep:
     "Prepárate antes del rush — deja a la gente y la línea listas antes de estas horas.",
   rushMethod:
-    "Pico = promedio de la hora por encima de 1.35× la mediana de ese día.",
+    "Pico = la parte de las ventas del día por encima de 1.35× la mediana de ese día.",
   rushSummaryLead: "Se pone más ocupado alrededor de",
   rushEmptyDate: "Elige una fecha para ver el pico habitual.",
-  rushOrders: "pedidos",
+  rushOrders: "% del día",
   rushMark: "Pico",
   date: "Fecha",
   hour: "Hora",
@@ -425,8 +444,8 @@ const es: Messages = {
   toastImported: (n) => `Importadas ${n} filas`,
   toastReadonly: "Modo solo lectura — mutaciones bloqueadas",
   toastForbidden: "HABILIDAD_PROHIBIDA",
-  toastSimulatorOn: "Simulador encendido",
-  toastSimulatorOff: "Simulador apagado",
+  toastSimulatorOn: "Entrenamiento encendido",
+  toastSimulatorOff: "Entrenamiento apagado",
   toastTareaAssigned: "Tarea asignada",
   toastLoadFailed: "No se pudo cargar el tablero",
   toastNetwork: "Error de red al cargar el tablero",
@@ -440,10 +459,18 @@ const es: Messages = {
   toastSimToggleFailed: "No se pudo cambiar el simulador",
   toastUploadFailed: "Fallo al subir",
   toastSampleFailed: "Fallo al cargar muestra",
-  orderTraffic: "Tráfico de pedidos",
-  simulator: "Simulador",
+  managerOnly: "Solo gerente",
+  offlineBadge: "Sin conexión",
+  offlineBanner:
+    "Sin conexión — último tablero guardado, solo lectura. Los cambios esperan a que vuelva la base. El caché no escribe nada.",
+  wallTitle: "Pared",
+  wallHint: "Hora actual. Sin cambios.",
+  wallEmptySeat: "Libre",
+  wallOffHours: "Fuera del horario",
+  orderTraffic: "Tráfico de entrenamiento",
+  simulator: "Entrenamiento",
   trafficHint:
-    "Feed falso cada 15s — Tranquilo / Ocupado / Saturado. No es POS real.",
+    "Solo entrenamiento, apagado por defecto. Lo prende un gerente. Tranquilo / Ocupado / Saturado falso — no es POS. Las tareas se liberan solo con el entrenamiento encendido.",
   loadingMeters: "Cargando medidores…",
   quiet: "Tranquilo",
   busy: "Ocupado",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { tareaLabel, type Locale, type Messages } from "@/lib/i18n";
+import { displayTareaLabel, type Locale, type Messages } from "@/lib/i18n";
 
 export type TareaTemplateDto = {
   id: string;
@@ -89,7 +89,7 @@ export function TareasPanel({
         >
           {t.backlogWhenSlow}:{" "}
           {backlog
-            .map((tpl) => tareaLabel(locale, tpl.id, tpl.label))
+            .map((tpl) => displayTareaLabel(locale, tpl))
             .join(", ")}
         </p>
       )}
@@ -106,7 +106,7 @@ export function TareasPanel({
           <option value="">{t.pickTarea}…</option>
           {templates.map((tpl) => (
             <option key={tpl.id} value={tpl.id}>
-              {tareaLabel(locale, tpl.id, tpl.label)}
+              {displayTareaLabel(locale, tpl)}
               {tpl.mode === "backlog_when_slow"
                 ? ` (${t.backlogWhenSlow})`
                 : ""}
@@ -179,7 +179,7 @@ export function TareasPanel({
             >
               <span className="font-semibold">
                 {a.employee.firstName} —{" "}
-                {tareaLabel(locale, a.template.id, a.template.label)}
+                {displayTareaLabel(locale, a.template)}
               </span>
               {!readonly && (
                 <Button
@@ -215,7 +215,7 @@ export function TareasPanel({
             >
               <span>
                 {a.employee.firstName} —{" "}
-                {tareaLabel(locale, a.template.id, a.template.label)}
+                {displayTareaLabel(locale, a.template)}
               </span>
               {!readonly && (
                 <button

@@ -8,7 +8,7 @@ import {
 } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { formatCompactHour, formatHourLabel } from "@/lib/hour-grid";
-import { stationLabel, type Locale, type Messages } from "@/lib/i18n";
+import { displayStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DayBoardDto } from "./types";
 
@@ -41,9 +41,10 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
       shifts: day.shifts,
       stations: day.stations.map((s) => ({
         id: s.id,
-        label: stationLabel(locale, s.id, s.label),
+        label: displayStationLabel(locale, s),
         color: s.color,
         sortOrder: s.sortOrder,
+        shortCode: s.shortCode,
       })),
       mode,
       sort,
@@ -91,6 +92,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
             {(
               [
                 ["name", t.scheduleSortName],
+                ["time", t.scheduleSortTime],
                 ["position", t.scheduleSortPosition],
               ] as const
             ).map(([id, label]) => (
@@ -246,6 +248,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                     <tr
                       key={row.employeeId}
                       data-testid={`schedule-row-${row.externalId}`}
+                      data-start={row.startLabel}
                     >
                       <th
                         className={cn(
@@ -254,8 +257,16 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                         )}
                         scope="row"
                       >
-                        <span className="block min-h-9 content-center leading-tight">
-                          {row.name}
+                        <span className="flex min-h-9 items-center gap-2 leading-tight">
+                          {sort === "time" && (
+                            <span
+                              className="shrink-0 rounded bg-neutral-900 px-1.5 py-0.5 text-xs font-extrabold tabular-nums text-white"
+                              data-testid="schedule-start"
+                            >
+                              {row.startLabel}
+                            </span>
+                          )}
+                          <span>{row.name}</span>
                         </span>
                       </th>
                       <td

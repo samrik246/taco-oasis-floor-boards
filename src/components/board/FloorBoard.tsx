@@ -7,6 +7,7 @@ import { hourGridHours, formatHourLabel } from "@/lib/hour-grid";
 import { findBoardViolations } from "@/lib/violations";
 import type { AbilityLevel } from "@/lib/rules/types";
 import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
+import { stationColorClass } from "./board-helpers";
 import {
   abilityFor,
   abilityBadgeClass,
@@ -15,7 +16,6 @@ import {
   displayName,
   filterByAbilityLevel,
   sortShiftsByAbilityForStation,
-  stationColorClass,
 } from "./board-helpers";
 import { HoursLedgerPanel } from "./HoursLedgerPanel";
 import { ManagerNotesPanel } from "./ManagerNotesPanel";
@@ -50,10 +50,14 @@ import { cn } from "@/lib/utils";
 import { TRAFFIC_TICK_MS } from "@/lib/traffic/simulator";
 import {
   boardDisplayName,
+  displayStationLabel,
   localeForBoard,
   messagesFor,
-  stationLabel,
 } from "@/lib/i18n";
+import { managerAuthHeaders } from "@/lib/managers/session";
+import { readLastBoard, saveLastBoard } from "@/lib/offline-board";
+import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
+import { KioskLock, kioskRequested } from "./KioskLock";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
@@ -90,6 +94,7 @@ export function FloorBoard() {
   const readonly =
     searchParams.get("readonly") === "1" ||
     searchParams.get("readonly") === "true";
+  const kiosk = kioskRequested(searchParams);
 
   const [board, setBoard] = useState<BoardKindUi>("caja");
   const [mainView, setMainView] = useState<MainView>("board");
@@ -105,6 +110,9 @@ export function FloorBoard() {
   const [day, setDay] = useState<DayBoardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [rushForecast, setRushForecast] = useState<RushForecast | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(
     null,
@@ -169,6 +177,8 @@ export function FloorBoard() {
 
   useEffect(() => {
     const tick = () => {
+      const next = new Date();
+      setNow(next);
       setClock(
         new Date().toLocaleTimeString(locale === "es" ? "es-MX" : "en-US", {
           timeZone: "America/Chicago",
@@ -214,17 +224,25 @@ export function FloorBoard() {
     setLoading(true);
     try {
       const res = await fetch(`/api/boards/${board}/days/${date}`);
-      if (!res.ok) {
-        setLoadError(t.toastLoadFailed);
-        showToast("err", t.toastLoadFailed);
-        return;
-      }
+      if (!res.ok) throw new Error("load");
       const data = (await res.json()) as DayBoardDto;
       setDay(data);
       setLoadError(null);
+      setOffline(false);
+      saveLastBoard({ board, date, day: data });
     } catch {
-      setLoadError(t.toastNetwork);
-      showToast("err", t.toastNetwork);
+      const cached = readLastBoard();
+      if (cached?.day) {
+        const snapshot = cached.day as DayBoardDto;
+        setDay(snapshot);
+        setDate(cached.date);
+        setBoard(cached.board);
+        setOffline(true);
+        setLoadError(null);
+      } else {
+        setLoadError(t.toastNetwork);
+        showToast("err", t.toastNetwork);
+      }
     } finally {
       setLoading(false);
     }
@@ -367,13 +385,20 @@ export function FloorBoard() {
   }
 
   async function loadSample() {
-    if (readonly) {
-      showToast("err", t.toastReadonly);
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/sample");
+      const res = await fetch("/api/sample", {
+        headers: managerAuthHeaders(manager.token),
+      });
       const data = await res.json();
       if (!res.ok) {
         showToast("err", data.error ?? t.toastSampleFailed);
@@ -389,8 +414,13 @@ export function FloorBoard() {
   }
 
   async function onUpload(file: File | null) {
-    if (readonly) {
-      showToast("err", t.toastReadonly);
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
       return;
     }
     if (!file) return;
@@ -398,7 +428,11 @@ export function FloorBoard() {
     try {
       const form = new FormData();
       form.set("file", file);
-      const res = await fetch("/api/imports", { method: "POST", body: form });
+      const res = await fetch("/api/imports", {
+        method: "POST",
+        headers: managerAuthHeaders(manager.token),
+        body: form,
+      });
       const data = await res.json();
       if (!res.ok) {
         showToast("err", data.error ?? t.toastUploadFailed);
@@ -414,8 +448,8 @@ export function FloorBoard() {
   }
 
   async function assign(shiftId: string, stationId: string) {
-    if (readonly) {
-      showToast("err", t.toastReadonly);
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
     }
     const res = await fetch("/api/assignments", {
@@ -444,8 +478,8 @@ export function FloorBoard() {
     shift: ShiftDto,
     stationId: string,
   ) {
-    if (readonly) {
-      showToast("err", t.toastReadonly);
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
     }
     if (!isManager) {
@@ -465,7 +499,10 @@ export function FloorBoard() {
     if (!pendingMove) return;
     const moveRes = await fetch("/api/position-moves", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(manager?.token),
+      },
       body: JSON.stringify({
         date,
         hour,
@@ -485,6 +522,7 @@ export function FloorBoard() {
 
     const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
       method: "DELETE",
+      headers: managerAuthHeaders(manager?.token),
     });
     const data = await res.json();
     setPendingMove(null);
@@ -499,8 +537,8 @@ export function FloorBoard() {
   }
 
   async function onSwapSelect(assignmentId: string) {
-    if (readonly) {
-      showToast("err", t.toastReadonly);
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
     }
     if (!swapFirstId) {
@@ -536,7 +574,7 @@ export function FloorBoard() {
 
   function onStationTap(stationId: string) {
     setSelectedStationId(stationId);
-    if (readonly) return;
+    if (readonly || offline) return;
     if (selectedShiftId) {
       void assign(selectedShiftId, stationId);
     }
@@ -544,7 +582,7 @@ export function FloorBoard() {
 
   function onPersonTap(shift: ShiftDto) {
     selectLedgerEmployee(shift);
-    if (readonly) {
+    if (readonly || offline) {
       setSelectedShiftId(shift.id);
       return;
     }
@@ -561,7 +599,12 @@ export function FloorBoard() {
   }
 
   async function toggleTraffic(enabled: boolean) {
-    if (readonly) return;
+    if (readonly || offline) return;
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
+      return;
+    }
     setTraffic((prev) =>
       prev
         ? { ...prev, enabled }
@@ -569,7 +612,10 @@ export function FloorBoard() {
     );
     const res = await fetch("/api/traffic", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(manager.token),
+      },
       body: JSON.stringify({ enabled, date, hour, board }),
     });
     if (!res.ok) {
@@ -598,7 +644,7 @@ export function FloorBoard() {
   }
 
   async function assignTarea(employeeId: string, forceLemon: boolean) {
-    if (readonly || !selectedTareaTemplateId) return;
+    if (readonly || offline || !selectedTareaTemplateId) return;
     const res = await fetch("/api/tareas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -626,7 +672,7 @@ export function FloorBoard() {
   }
 
   async function setTareaStatus(id: string, status: "working" | "done") {
-    if (readonly) return;
+    if (readonly || offline) return;
     const res = await fetch("/api/tareas", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -639,13 +685,46 @@ export function FloorBoard() {
     await refreshTareas();
   }
 
+  useEffect(() => {
+    if (!date) {
+      setRushForecast(null);
+      return;
+    }
+    let cancel = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/rush?board=${board}&date=${encodeURIComponent(date)}`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { forecast: RushForecast };
+        if (!cancel) setRushForecast(data.forecast);
+      } catch {
+        if (!cancel) setRushForecast(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [board, date]);
+
   const hours = hourGridHours();
   const hasStations = (day?.stations.length ?? 0) > 0;
   const emptyBoard = Boolean(date && day && day.shifts.length === 0);
   const showBoardExtras = board === "caja" || board === "cocina";
   const boardName = boardDisplayName(locale, board);
-  const canMutateStaff = !readonly;
-  const showManagerPanels = isManager && !readonly;
+  const editsLocked = readonly || offline;
+  const canMutateStaff = !editsLocked;
+  const showManagerPanels = isManager && !editsLocked;
+  const leadNotice =
+    isManager && !offline && rushForecast && date
+      ? rushLeadNotice({
+          forecast: rushForecast,
+          now,
+          dateYmd: date,
+          locale,
+        })
+      : null;
 
   const tareasPanel = (
     <TareasPanel
@@ -657,7 +736,7 @@ export function FloorBoard() {
       onAssign={(id, force) => void assignTarea(id, force)}
       onMarkDone={(id) => void setTareaStatus(id, "done")}
       onMarkWorking={(id) => void setTareaStatus(id, "working")}
-      readonly={readonly}
+      readonly={editsLocked}
       compact={!isLargeUi}
       locale={locale}
       t={t}
@@ -668,12 +747,14 @@ export function FloorBoard() {
     <div
       className="flex min-h-dvh flex-col bg-neutral-50 text-neutral-950"
       data-readonly={readonly ? "1" : "0"}
+      data-offline={offline ? "1" : "0"}
       data-large-ui={isLargeUi ? "1" : "0"}
       data-locale={locale}
       data-role={isManager ? "manager" : "staff"}
       data-main-view={mainView}
       data-testid="floor-board"
     >
+      <KioskLock active={kiosk} />
       <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-xl font-bold tracking-tight md:text-2xl">
@@ -686,6 +767,14 @@ export function FloorBoard() {
               data-testid="readonly-badge"
             >
               {t.readonly}
+            </span>
+          )}
+          {offline && (
+            <span
+              className="rounded-md border-2 border-amber-800 bg-amber-100 px-3 py-1 text-sm font-bold text-amber-950"
+              data-testid="offline-badge"
+            >
+              {t.offlineBadge}
             </span>
           )}
 
@@ -807,6 +896,21 @@ export function FloorBoard() {
             </select>
           </label>
 
+          <a
+            href={`/?wall=1&board=${board}`}
+            className="text-sm font-bold underline"
+            data-testid="open-wall"
+          >
+            {t.wallTitle}
+          </a>
+          <a
+            href="/back-office"
+            className="text-sm font-bold underline"
+            data-testid="open-back-office"
+          >
+            Back office
+          </a>
+
           <span
             className="text-base font-semibold tabular-nums sm:ml-auto sm:text-lg"
             title="America/Chicago"
@@ -820,7 +924,8 @@ export function FloorBoard() {
             size="lg"
             className="min-h-11 border-2 border-neutral-900"
             onClick={() => void loadSample()}
-            disabled={loading || readonly}
+            disabled={loading || editsLocked || !isManager}
+            title={!isManager ? t.managerOnly : undefined}
             data-testid="load-sample"
           >
             {t.loadSample}
@@ -829,7 +934,7 @@ export function FloorBoard() {
           <label
             className={cn(
               "inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-white px-4 text-sm font-semibold",
-              readonly
+              editsLocked || !isManager
                 ? "cursor-not-allowed opacity-50"
                 : "cursor-pointer active:bg-neutral-200",
             )}
@@ -839,7 +944,7 @@ export function FloorBoard() {
               type="file"
               accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
               className="sr-only"
-              disabled={readonly}
+              disabled={editsLocked || !isManager}
               onChange={(e) => {
                 void onUpload(e.target.files?.[0] ?? null);
                 e.target.value = "";
@@ -880,6 +985,25 @@ export function FloorBoard() {
         </div>
       </header>
 
+      {offline && (
+        <p
+          className="border-b-2 border-amber-800 bg-amber-100 px-4 py-2 text-sm font-bold text-amber-950"
+          data-testid="offline-banner"
+          role="status"
+        >
+          {t.offlineBanner}
+        </p>
+      )}
+      {leadNotice && (
+        <p
+          className="border-b-2 border-orange-700 bg-orange-200 px-4 py-2 text-base font-black text-orange-950"
+          data-testid="rush-lead-banner"
+          role="status"
+        >
+          {leadNotice.text}
+        </p>
+      )}
+
       {toast && (
         <div
           className={cn(
@@ -911,7 +1035,7 @@ export function FloorBoard() {
           mute={chimeMute}
           onMuteChange={setChimeMute}
           onAck={(id) => void ackReturnPrompt(id)}
-          readonly={readonly}
+          readonly={editsLocked}
           locale={locale}
           t={t}
         />
@@ -923,7 +1047,8 @@ export function FloorBoard() {
         <div className="px-3 pt-3 sm:px-4">
           <TrafficMetersPanel
             traffic={traffic}
-            readonly={readonly}
+            readonly={editsLocked}
+            canToggle={isManager && !editsLocked}
             onToggle={(en) => void toggleTraffic(en)}
             compact={!isLargeUi}
             locale={locale}
@@ -982,7 +1107,7 @@ export function FloorBoard() {
                 board={board}
                 employeeId={ledgerEmployeeId}
                 employeeName={ledgerEmployeeName}
-                readonly={readonly}
+                readonly={editsLocked}
                 locale={locale}
                 t={t}
               />
@@ -1130,7 +1255,7 @@ export function FloorBoard() {
                 const full =
                   station.maxConcurrent >= 0 &&
                   occupied.length >= station.maxConcurrent;
-                const label = stationLabel(locale, station.id, station.label);
+                const label = displayStationLabel(locale, station);
 
                 return (
                   <div
@@ -1251,15 +1376,19 @@ export function FloorBoard() {
                   board={board}
                   employeeId={ledgerEmployeeId}
                   employeeName={ledgerEmployeeName}
-                  readonly={readonly}
+                  readonly={editsLocked}
                   locale={locale}
                   t={t}
                 />
-                <EmployeesPanel readonly={readonly} board={board} />
+                <EmployeesPanel
+                  readonly={editsLocked}
+                  board={board}
+                  authHeaders={managerAuthHeaders(manager?.token)}
+                />
                 <ManagerNotesPanel
                   board={board}
                   date={date}
-                  readonly={readonly}
+                  readonly={editsLocked}
                   onToast={showToast}
                   locale={locale}
                   t={t}

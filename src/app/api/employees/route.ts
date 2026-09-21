@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
   createEmployee,
   listEmployees,
-  isAbilityLevel,
 } from "@/lib/employees/service";
+import { validatePersonWrite, rejectManagerSecrets } from "@/lib/admin/validate";
+import { requireManagerSession } from "@/lib/managers/require-session";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -22,30 +24,40 @@ export async function GET() {
 }
 
 const abilitySchema = z.object({
-  stationId: z.string().min(1),
-  level: z.string().refine(isAbilityLevel, "invalid level"),
+  stationId: z.string(),
+  level: z.string(),
 });
 
 const postSchema = z.object({
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
   externalId: z.string().optional(),
   email: z.string().nullable().optional(),
   abilities: z.array(abilitySchema).optional(),
 });
 
 export async function POST(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
-    const body = postSchema.parse(await req.json());
+    const json = await req.json();
+    const secret = rejectManagerSecrets(json);
+    if (secret) return NextResponse.json({ error: secret }, { status: 422 });
+    const body = postSchema.parse(json);
+    const stations = await prisma.station.findMany({ select: { id: true } });
+    const checked = validatePersonWrite(body, {
+      creating: true,
+      knownStationIds: new Set(stations.map((s) => s.id)),
+    });
+    if (!checked.ok) {
+      return NextResponse.json({ error: checked.error }, { status: 422 });
+    }
     const result = await createEmployee({
-      firstName: body.firstName,
-      lastName: body.lastName,
-      externalId: body.externalId,
-      email: body.email,
-      abilities: body.abilities?.map((a) => ({
-        stationId: a.stationId,
-        level: a.level,
-      })),
+      firstName: checked.value.firstName ?? "",
+      lastName: checked.value.lastName ?? "",
+      externalId: checked.value.externalId,
+      email: checked.value.email,
+      abilities: checked.value.abilities,
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });

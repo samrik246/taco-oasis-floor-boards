@@ -32,12 +32,19 @@ export type ScheduleStationLike = {
   label: string;
   color: string;
   sortOrder: number;
+  /** Edited short code from the station row. Falls back to the seeded map. */
+  shortCode?: string | null;
 };
 
 export type ScheduleMode = "all-day" | "rest-of-day";
 
-/** Same people × hours. Name sort is the default (no station banners). */
-export type ScheduleSort = "name" | "position";
+/**
+ * Same people × hours. Blocks still fill left to right.
+ * name: rows A–Z, position code in the block.
+ * time: rows by shift start (earliest first), position code in the block.
+ * position: grouped by station, person name in the block.
+ */
+export type ScheduleSort = "name" | "time" | "position";
 
 export type RestOfDayRule = "today-from-now" | "other-from-first-scheduled";
 
@@ -56,6 +63,10 @@ export type SchedulePersonRow = {
   employeeId: string;
   externalId: string;
   name: string;
+  /** ISO start of the shift used for this row. */
+  startAt: string;
+  /** Compact start, e.g. 8a or 8:30a, shown beside the name in time sort. */
+  startLabel: string;
   shiftLabel: string;
   primaryStationId: string | null;
   /** Hour → stationId | null (on shift, unassigned) | undefined (off shift) */
@@ -94,6 +105,29 @@ export type ScheduleGrid = {
 
 function personName(sh: ScheduleShiftLike): string {
   return `${sh.employee.firstName} ${sh.employee.lastName}`.trim();
+}
+
+/** Compact clock for the left column: 8a, or 8:30a when the shift is not on the hour. */
+export function formatStartLabel(startAt: string): string {
+  const local = toZonedTime(new Date(startAt), TIMEZONE);
+  const hour = local.getHours();
+  const minute = local.getMinutes();
+  const suffix = hour >= 12 ? "p" : "a";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  if (minute === 0) return `${h12}${suffix}`;
+  return `${h12}:${String(minute).padStart(2, "0")}${suffix}`;
+}
+
+function compareScheduleRows(
+  a: { name: string; startAt: string },
+  b: { name: string; startAt: string },
+  sort: ScheduleSort,
+): number {
+  if (sort === "time") {
+    const delta = new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
+    if (delta !== 0) return delta;
+  }
+  return a.name.localeCompare(b.name);
 }
 
 export function formatShiftWindowLabel(startAt: string, endAt: string): string {
@@ -201,7 +235,7 @@ export function buildBlocksForHours(
       span += 1;
     }
     const st = stationsById.get(sid);
-    const code = stationShortCode(sid);
+    const code = st?.shortCode?.trim() || stationShortCode(sid);
     blocks.push({
       stationId: sid,
       code,
@@ -308,6 +342,8 @@ export function buildScheduleGrid(opts: {
       employeeId: sh.employee.id,
       externalId: sh.employee.externalId,
       name: personName(sh),
+      startAt: sh.startAt,
+      startLabel: formatStartLabel(sh.startAt),
       shiftLabel: formatShiftWindowLabel(sh.startAt, sh.endAt),
       primaryStationId: primaryStationId(sh, opts.date, allHours),
       hourStations,
@@ -324,7 +360,7 @@ export function buildScheduleGrid(opts: {
         personText: labels.get(d.name) ?? d.name,
       }),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareScheduleRows(a, b, sort));
 
   const headcount = hours.map((hour) => {
     let n = 0;
@@ -364,7 +400,7 @@ function buildSections(opts: {
   stationsById: Map<string, ScheduleStationLike>;
   unassignedGroupLabel: string;
 }): ScheduleSection[] {
-  if (opts.sort === "name") {
+  if (opts.sort === "name" || opts.sort === "time") {
     return [
       {
         stationId: null,

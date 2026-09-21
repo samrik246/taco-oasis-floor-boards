@@ -34,6 +34,8 @@ model Station {
   maxConcurrent Int // -1 = unlimited
   sortOrder     Int
   priority      Int?
+  /// Schedule-grid short code (FRY, G1). Empty falls back to the seeded map.
+  shortCode     String   @default("")
   abilities     EmployeeStationAbility[]
   assignments   Assignment[]
 }
@@ -204,15 +206,20 @@ model PerformanceAnswer {
   @@index([date, board])
 }
 
-/// Sample historical order counts by board, weekday, and hour.
-/// Not a live POS feed — seeded from fixtures/historical-hourly-sales.json.
+/// Sample historical sales dollars (cents) by board, weekday, and hour.
+/// Rush math converts each sample week into a percent of that day’s sales.
+/// Not order counts and not a live POS feed.
+/// Seeded from fixtures/historical-hourly-sales.json (values are dollars).
+///
+/// LATER (not built): compare tareas done — dishwashing, opening, closing —
+/// against these slow vs busy hours. See docs/LATER-tarea-vs-rush.md.
 model HistoricalHourlySale {
-  id     String @id @default(cuid())
-  board  String // caja | cocina
-  dow    Int // 0 = Sunday … 6 = Saturday
-  hour   Int // 7–21
-  week   Int
-  orders Int
+  id         String @id @default(cuid())
+  board      String // caja | cocina
+  dow        Int // 0 = Sunday … 6 = Saturday
+  hour       Int // 7–21
+  week       Int
+  salesCents Int
 
   @@unique([board, dow, hour, week])
   @@index([board, dow, hour])

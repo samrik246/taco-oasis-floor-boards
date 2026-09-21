@@ -18,12 +18,13 @@ type EmployeeDto = {
 type Props = {
   readonly: boolean;
   board: "caja" | "cocina";
+  authHeaders?: Record<string, string>;
 };
 
 /**
  * Simple add/edit employee + abilities (plus existing import elsewhere).
  */
-export function EmployeesPanel({ readonly, board }: Props) {
+export function EmployeesPanel({ readonly, board, authHeaders }: Props) {
   const [open, setOpen] = useState(false);
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
   const [firstName, setFirstName] = useState("");
@@ -57,7 +58,7 @@ export function EmployeesPanel({ readonly, board }: Props) {
     setMessage(null);
     const res = await fetch("/api/employees", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -86,7 +87,7 @@ export function EmployeesPanel({ readonly, board }: Props) {
     next.push({ stationId: abilityStation, level: abilityLevel });
     const res = await fetch(`/api/employees/${editId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         abilities: next.map((a) => ({
           stationId: a.stationId,

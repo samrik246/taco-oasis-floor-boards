@@ -8,7 +8,10 @@ type Props = {
   open: boolean;
   t: Messages;
   onCancel: () => void;
-  onUnlocked: (manager: { id: string; name: string }, idleMs: number) => void;
+  onUnlocked: (
+    manager: { id: string; name: string; token: string },
+    idleMs: number,
+  ) => void;
 };
 
 /**
@@ -48,13 +51,17 @@ export function ManagerUnlockModal({
         error?: string;
         manager?: { id: string; name: string };
         idleMs?: number;
+        sessionToken?: string;
       };
-      if (!res.ok || !data.ok || !data.manager) {
+      if (!res.ok || !data.ok || !data.manager || !data.sessionToken) {
         setError(t.wrongCode);
         setBusy(false);
         return;
       }
-      onUnlocked(data.manager, data.idleMs ?? 15_000);
+      onUnlocked(
+        { ...data.manager, token: data.sessionToken },
+        data.idleMs ?? 15_000,
+      );
     } catch {
       setError(t.wrongCode);
       setBusy(false);

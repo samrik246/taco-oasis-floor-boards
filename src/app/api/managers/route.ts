@@ -5,6 +5,7 @@ import {
   managerIdleMsFromEnv,
   verifyManagerCodeHash,
 } from "@/lib/managers/codes";
+import { signManagerSession } from "@/lib/managers/session";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       ok: true,
       manager: { id: match.id, name: match.name },
       idleMs: managerIdleMsFromEnv(),
+      sessionToken: signManagerSession({ id: match.id, name: match.name }),
     });
   } catch (err) {
     if (err instanceof z.ZodError) {

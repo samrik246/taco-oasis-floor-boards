@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteAssignment } from "@/lib/assignments/service";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -8,7 +9,9 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * DELETE /api/assignments/:id — clear an assignment.
  */
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const { id } = await context.params;
     if (!id) {

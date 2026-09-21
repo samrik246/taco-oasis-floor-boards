@@ -33,6 +33,8 @@ const LEVEL_STYLE: Record<BusynessLevel, string> = {
 type Props = {
   traffic: TrafficStateDto | null;
   readonly: boolean;
+  /** Training switch is manager-only. */
+  canToggle: boolean;
   onToggle: (enabled: boolean) => void;
   compact?: boolean;
   locale: Locale;
@@ -42,6 +44,7 @@ type Props = {
 export function TrafficMetersPanel({
   traffic,
   readonly,
+  canToggle,
   onToggle,
   compact,
   locale,
@@ -62,7 +65,8 @@ export function TrafficMetersPanel({
             type="checkbox"
             className="size-5 accent-neutral-900"
             checked={traffic?.enabled ?? false}
-            disabled={readonly}
+            disabled={readonly || !canToggle}
+            title={canToggle ? undefined : t.managerOnly}
             onChange={(e) => onToggle(e.target.checked)}
             data-testid="traffic-toggle"
           />

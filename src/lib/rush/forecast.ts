@@ -1,4 +1,10 @@
-import { formatCompactHour, hourGridHours } from "@/lib/hour-grid";
+import { toZonedTime } from "date-fns-tz";
+import { TIMEZONE } from "@/lib/constants";
+import {
+  chicagoHourOf,
+  formatCompactHour,
+  hourGridHours,
+} from "@/lib/hour-grid";
 import {
   historicalSaleRows,
   type HistoricalHourlySale,
@@ -6,16 +12,21 @@ import {
 } from "./historical-sales";
 
 /**
- * An hour is a rush when its mean orders are strictly above this multiple
- * of the weekday’s median hourly mean. 1.35 keeps ordinary bumps (a few
- * orders over the middle of the day) from lighting up, and marks the
- * lunch and dinner peaks in the sample history.
+ * An hour is a rush when its mean share of that day’s sales is strictly
+ * above this multiple of the weekday’s median hourly share. 1.35 keeps
+ * ordinary bumps from lighting up, and marks the lunch and dinner peaks
+ * in the sample history. The input is percent-of-day, not order counts.
  */
 export const RUSH_MEDIAN_RATIO = 1.35;
 
+/** One banner this many minutes before a historical rush window starts. */
+export const RUSH_LEAD_MINUTES = 20;
+
 export type RushHourStat = {
   hour: number;
+  /** Mean percent of that day’s sales (0–100), not orders or raw dollars. */
   mean: number;
+  /** 75th percentile of the percent-of-day samples. */
   p75: number;
   sampleCount: number;
   rush: boolean;
@@ -31,6 +42,7 @@ export type RushForecast = {
   board: RushBoard;
   /** 0 = Sunday … 6 = Saturday, from the calendar date (not the clock zone). */
   dow: number;
+  /** Median of the hourly mean percents (percent of day, not orders). */
   dayMedian: number;
   thresholdRatio: number;
   /** dayMedian * thresholdRatio. Rush hours are strictly above this. */
@@ -106,8 +118,39 @@ function joinList(parts: string[], locale: "en" | "es"): string {
 }
 
 /**
- * Hourly mean and 75th percentile for one board and weekday, then flag
- * rush hours against that day’s median hourly mean.
+ * For each sample week, convert hour sales into a percent of that day’s
+ * sales, then collect those percents per hour.
+ */
+export function sharesByHour(
+  history: HistoricalHourlySale[],
+  board: RushBoard,
+  dow: number,
+): Map<number, number[]> {
+  const byWeek = new Map<number, Map<number, number>>();
+  for (const row of history) {
+    if (row.board !== board || row.dow !== dow) continue;
+    const hours = byWeek.get(row.week) ?? new Map<number, number>();
+    hours.set(row.hour, (hours.get(row.hour) ?? 0) + row.salesCents);
+    byWeek.set(row.week, hours);
+  }
+
+  const byHour = new Map<number, number[]>();
+  for (const hours of byWeek.values()) {
+    let total = 0;
+    for (const cents of hours.values()) total += cents;
+    if (total <= 0) continue;
+    for (const [hour, cents] of hours) {
+      const list = byHour.get(hour) ?? [];
+      list.push((cents / total) * 100);
+      byHour.set(hour, list);
+    }
+  }
+  return byHour;
+}
+
+/**
+ * Hourly mean and 75th percentile of percent-of-day sales for one board
+ * and weekday, then flag rush hours against that day’s median hourly share.
  */
 export function buildRushForecast(opts: {
   board: RushBoard;
@@ -119,14 +162,7 @@ export function buildRushForecast(opts: {
   const dow = dowFromYmd(opts.dateYmd);
   const ratio = opts.thresholdRatio ?? RUSH_MEDIAN_RATIO;
   const grid = hourGridHours();
-
-  const byHour = new Map<number, number[]>();
-  for (const row of history) {
-    if (row.board !== opts.board || row.dow !== dow) continue;
-    const list = byHour.get(row.hour) ?? [];
-    list.push(row.orders);
-    byHour.set(row.hour, list);
-  }
+  const byHour = sharesByHour(history, opts.board, dow);
 
   const preliminary = grid.map((hour) => {
     const samples = byHour.get(hour) ?? [];
@@ -191,4 +227,69 @@ export function earlierRushText(
   return locale === "es"
     ? `Antes de esta ventana: ${list}.`
     : `Before this window: ${list}.`;
+}
+
+export type RushLeadNotice = {
+  minutesUntil: number;
+  startHour: number;
+  rangeLabel: string;
+  text: string;
+};
+
+/**
+ * One notice when the clock is inside the lead window before the next
+ * historical rush on this calendar date. No second forecast, no chime.
+ * Returns null once the window has started, or when it is more than
+ * RUSH_LEAD_MINUTES away.
+ */
+export function rushLeadNotice(opts: {
+  forecast: RushForecast;
+  now: Date;
+  dateYmd: string;
+  locale: "en" | "es";
+  leadMinutes?: number;
+}): RushLeadNotice | null {
+  const lead = opts.leadMinutes ?? RUSH_LEAD_MINUTES;
+  const today = chicagoYmdFrom(opts.now);
+  if (today !== opts.dateYmd) return null;
+  if (opts.forecast.ranges.length === 0) return null;
+
+  const hour = chicagoHourOf(opts.now);
+  const minute = chicagoMinuteOf(opts.now);
+  const nowMinutes = hour * 60 + minute;
+
+  let best: { minutesUntil: number; range: RushRange } | null = null;
+  for (const range of opts.forecast.ranges) {
+    const startMinutes = range.startHour * 60;
+    const minutesUntil = startMinutes - nowMinutes;
+    if (minutesUntil <= 0 || minutesUntil > lead) continue;
+    if (!best || minutesUntil < best.minutesUntil) {
+      best = { minutesUntil, range };
+    }
+  }
+  if (!best) return null;
+
+  const rangeLabel = formatRushRange(best.range);
+  const text =
+    opts.locale === "es"
+      ? `El pico empieza en ${best.minutesUntil} min (${rangeLabel}).`
+      : `Rush starts in ${best.minutesUntil} min (${rangeLabel}).`;
+  return {
+    minutesUntil: best.minutesUntil,
+    startHour: best.range.startHour,
+    rangeLabel,
+    text,
+  };
+}
+
+function chicagoYmdFrom(date: Date): string {
+  const local = toZonedTime(date, TIMEZONE);
+  const y = local.getFullYear();
+  const m = String(local.getMonth() + 1).padStart(2, "0");
+  const d = String(local.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function chicagoMinuteOf(date: Date): number {
+  return toZonedTime(date, TIMEZONE).getMinutes();
 }

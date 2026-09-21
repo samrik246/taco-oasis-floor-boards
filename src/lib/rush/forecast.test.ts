@@ -5,9 +5,12 @@ import {
   earlierRushText,
   median,
   percentile,
+  RUSH_LEAD_MINUTES,
   RUSH_MEDIAN_RATIO,
+  rushLeadNotice,
   rushSummaryText,
 } from "./forecast";
+import { chicagoDateTime } from "@/lib/time";
 
 describe("historical sales fixture", () => {
   it("seeds four weeks for both boards, every weekday, hours 7–21", () => {
@@ -16,8 +19,8 @@ describe("historical sales fixture", () => {
     const cajaMondayNoon = rows.filter(
       (r) => r.board === "caja" && r.dow === 1 && r.hour === 12,
     );
-    expect(cajaMondayNoon.map((r) => r.orders).sort((a, b) => a - b)).toEqual([
-      69, 70, 70, 71,
+    expect(cajaMondayNoon.map((r) => r.salesCents).sort((a, b) => a - b)).toEqual([
+      6900, 7000, 7000, 7100,
     ]);
   });
 });
@@ -45,7 +48,7 @@ describe("rush forecast", () => {
         dow: 1,
         hour,
         week,
-        orders: 20,
+        salesCents: 2000,
       })),
     );
     const forecast = buildRushForecast({
@@ -83,6 +86,67 @@ describe("rush forecast", () => {
       "Before this window: 12p–2p.",
     );
     expect(earlierRushText(forecast, 7, "es")).toBeNull();
+  });
+
+  it("uses percent of that day’s sales, not raw order counts", () => {
+    const history = [7, 12, 18].flatMap((hour) => [
+      {
+        board: "caja" as const,
+        dow: 1,
+        hour,
+        week: 1,
+        salesCents: hour === 12 ? 8_000 : 1_000,
+      },
+    ]);
+    const forecast = buildRushForecast({
+      board: "caja",
+      dateYmd: "2026-09-21",
+      history,
+    });
+    const noon = forecast.hours.find((h) => h.hour === 12)!;
+    expect(noon.mean).toBeCloseTo(80, 5);
+    expect(noon.mean).toBeLessThan(100);
+    expect(forecast.rushHours).toEqual([12]);
+  });
+
+  it("shows one lead notice about 20 minutes before a rush, and not during it", () => {
+    const forecast = buildRushForecast({
+      board: "caja",
+      dateYmd: "2026-09-21",
+    });
+    expect(RUSH_LEAD_MINUTES).toBe(20);
+    const soon = rushLeadNotice({
+      forecast,
+      now: chicagoDateTime("2026-09-21", "11:45 am"),
+      dateYmd: "2026-09-21",
+      locale: "en",
+    });
+    expect(soon?.text).toBe("Rush starts in 15 min (12p–2p).");
+    expect(soon?.minutesUntil).toBe(15);
+    expect(
+      rushLeadNotice({
+        forecast,
+        now: chicagoDateTime("2026-09-21", "11:00 am"),
+        dateYmd: "2026-09-21",
+        locale: "en",
+      }),
+    ).toBeNull();
+    expect(
+      rushLeadNotice({
+        forecast,
+        now: chicagoDateTime("2026-09-21", "12:05 pm"),
+        dateYmd: "2026-09-21",
+        locale: "es",
+      }),
+    ).toBeNull();
+    const dinner = rushLeadNotice({
+      forecast,
+      now: chicagoDateTime("2026-09-21", "5:45 pm"),
+      dateYmd: "2026-09-21",
+      locale: "es",
+    });
+    expect(dinner?.text).toMatch(/15 min/);
+    expect(dinner?.text).toMatch(/6p/);
   });
 });
 
