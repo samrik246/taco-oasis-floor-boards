@@ -28,7 +28,7 @@ export function ManagerUnlockModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) {
+    if (!open) {
       setCode("");
       setError(null);
       setBusy(false);
