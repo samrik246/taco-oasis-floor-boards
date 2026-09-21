@@ -38,6 +38,7 @@ import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
+import { SchedulePanel } from "./SchedulePanel";
 import { ManagerUnlockModal } from "./ManagerUnlockModal";
 import {
   useManagerIdle,
@@ -54,7 +55,7 @@ import {
 } from "@/lib/i18n";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
-type MainView = "board" | "timeline" | "tareas";
+type MainView = "board" | "timeline" | "schedule" | "tareas";
 
 function playReturnChime() {
   try {
@@ -746,6 +747,7 @@ export function FloorBoard() {
               [
                 ["board", t.viewBoard],
                 ["timeline", t.viewTimeline],
+                ["schedule", t.viewSchedule],
                 ["tareas", t.viewTareas],
               ] as const
             ).map(([id, label]) => (
@@ -939,6 +941,12 @@ export function FloorBoard() {
             onSelectHour={setHour}
             managerMode={isManager}
           />
+        </div>
+      )}
+
+      {mainView === "schedule" && (
+        <div className="p-3 sm:p-4">
+          <SchedulePanel day={day} date={date} locale={locale} t={t} />
         </div>
       )}
 

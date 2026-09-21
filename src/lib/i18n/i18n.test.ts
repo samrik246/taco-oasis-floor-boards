@@ -24,11 +24,16 @@ describe("i18n board locale", () => {
     expect(tareaLabel("es", "restock_tortillas")).toMatch(/tortillas/i);
     expect(boardDisplayName("es", "cocina")).toBe("Cocina");
     expect(messagesFor("es").orderTraffic).toMatch(/Tráfico/i);
+    expect(messagesFor("es").viewSchedule).toBe("Horario");
+    expect(messagesFor("es").scheduleAllDay).toBe("Todo el día");
+    expect(messagesFor("es").scheduleRestOfDay).toBe("Resto del día");
   });
 
   it("keeps caja UI English", () => {
     expect(stationLabel("en", "green1")).toBe("Green 1");
     expect(messagesFor("en").cashiers).toBe("Cashiers");
+    expect(messagesFor("en").viewSchedule).toBe("Schedule");
+    expect(messagesFor("en").scheduleAllDay).toBe("All day");
   });
 });
 
