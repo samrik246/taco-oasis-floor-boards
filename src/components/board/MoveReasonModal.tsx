@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
+import { moveReasonLabel, stationLabel, type Locale, type Messages } from "@/lib/i18n";
 
 export type PendingMove = {
   assignmentId: string;
@@ -15,13 +16,23 @@ type Props = {
   pending: PendingMove | null;
   onCancel: () => void;
   onConfirm: (reason: MoveReason, note: string) => void;
+  locale: Locale;
+  t: Messages;
 };
 
-export function MoveReasonModal({ pending, onCancel, onConfirm }: Props) {
+export function MoveReasonModal({
+  pending,
+  onCancel,
+  onConfirm,
+  locale,
+  t,
+}: Props) {
   const [reason, setReason] = useState<MoveReason>("Break");
   const [note, setNote] = useState("");
 
   if (!pending) return null;
+
+  const seat = stationLabel(locale, pending.fromStationId, pending.fromStationId);
 
   return (
     <div
@@ -33,14 +44,14 @@ export function MoveReasonModal({ pending, onCancel, onConfirm }: Props) {
     >
       <div className="w-full max-w-md rounded-lg border-2 border-neutral-900 bg-white p-4 shadow-lg">
         <h2 id="move-reason-title" className="text-lg font-bold">
-          Move off station
+          {t.moveOffStation}
         </h2>
         <p className="mt-1 text-sm font-medium text-neutral-700">
-          {pending.employeeName} leaving {pending.fromStationId} — pick a reason.
+          {t.moveLeaving(pending.employeeName, seat)}
         </p>
 
         <label className="mt-4 flex flex-col gap-1 text-xs font-bold uppercase">
-          Reason
+          {t.reason}
           <select
             className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-2 text-sm font-semibold normal-case"
             value={reason}
@@ -49,19 +60,19 @@ export function MoveReasonModal({ pending, onCancel, onConfirm }: Props) {
           >
             {MOVE_REASONS.map((r) => (
               <option key={r} value={r}>
-                {r}
+                {moveReasonLabel(locale, r)}
               </option>
             ))}
           </select>
         </label>
 
         <label className="mt-3 flex flex-col gap-1 text-xs font-bold uppercase">
-          Note (optional)
+          {t.noteOptional}
           <input
             className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-medium normal-case"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Optional detail"
+            placeholder={t.notePlaceholder}
             data-testid="move-reason-note"
           />
         </label>
@@ -74,7 +85,7 @@ export function MoveReasonModal({ pending, onCancel, onConfirm }: Props) {
             onClick={onCancel}
             data-testid="move-reason-cancel"
           >
-            Cancel
+            {t.cancel}
           </Button>
           <Button
             type="button"
@@ -82,7 +93,7 @@ export function MoveReasonModal({ pending, onCancel, onConfirm }: Props) {
             onClick={() => onConfirm(reason, note)}
             data-testid="move-reason-confirm"
           >
-            Clear station
+            {t.confirmClear}
           </Button>
         </div>
       </div>

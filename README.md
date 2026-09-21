@@ -43,6 +43,20 @@ pnpm dev
 | `pnpm db:setup` | `prisma db push` + seed stations |
 | `pnpm tsx scripts/build-sample-xlsx.ts` | Rebuild sample xlsx from CSV |
 
+## Manager access (demo)
+
+Staff view is the default tablet UI. **Manager unlock** uses personal codes (hashed in DB). Seeded demos (also in `docs/DEPLOY.md` / `prisma/seed.ts`):
+
+| Manager | Code |
+|---------|------|
+| Ana Rivera | `2468` |
+| Luis Ortega | `1357` |
+| Sam Chen | `8642` |
+
+Idle timeout: **15s** back to staff (`MANAGER_IDLE_MS`, default `15000`).
+
+Board language: **Cashiers (caja) = English**, **Kitchen (cocina) = Spanish**. View toggle: **Board | Timeline | Tareas**.
+
 ## Stage 1 APIs
 - `POST /api/imports` — multipart field `file` (xlsx or schedules csv)
 - `GET /api/days` — dates present after import

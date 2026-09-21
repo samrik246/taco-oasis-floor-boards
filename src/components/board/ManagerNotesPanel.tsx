@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BOARD_LABELS } from "@/lib/constants";
 import type { ManagerNoteDto } from "@/lib/notes-types";
 import { cn } from "@/lib/utils";
+import { boardDisplayName, type Locale, type Messages } from "@/lib/i18n";
 
 type Props = {
   board: "caja" | "cocina";
   date: string;
   readonly: boolean;
   onToast: (kind: "ok" | "err", text: string) => void;
+  locale: Locale;
+  t: Messages;
 };
 
 /**
@@ -22,6 +24,8 @@ export function ManagerNotesPanel({
   date,
   readonly,
   onToast,
+  locale,
+  t,
 }: Props) {
   const [notes, setNotes] = useState<ManagerNoteDto[]>([]);
   const [draft, setDraft] = useState("");
@@ -108,28 +112,29 @@ export function ManagerNotesPanel({
       data-date={date || undefined}
       data-testid="manager-notes"
       className="flex flex-col gap-2 rounded-lg border-2 border-neutral-900 bg-white p-3"
-      aria-label="Manager notes"
+      aria-label={t.managerNotes}
     >
-      <h2 className="text-lg font-bold">Notes</h2>
+      <h2 className="text-lg font-bold">{t.managerNotes}</h2>
       <p className="text-xs font-medium text-neutral-600">
-        {BOARD_LABELS[board]}
-        {date ? ` · ${date}` : ""} · Manager · America/Chicago
-        {readonly ? " · read-only" : ""}
+        {boardDisplayName(locale, board)}
+        {date ? ` · ${date}` : ""}
+        {readonly ? ` · ${t.readonly}` : ""}
       </p>
 
       {!date && (
-        <p className="text-sm font-medium text-neutral-700">
-          Pick a date to view or add day notes.
-        </p>
+        <p className="text-sm font-medium text-neutral-700">{t.pickPersonHours}</p>
       )}
 
       {date && loading && notes.length === 0 && (
-        <p className="text-sm font-medium text-neutral-600">Loading notes…</p>
+        <p className="text-sm font-medium text-neutral-600">{t.loading}</p>
       )}
 
       {date && !loading && notes.length === 0 && (
-        <p className="text-sm font-medium text-neutral-600" data-testid="notes-empty">
-          No notes for this day yet.
+        <p
+          className="text-sm font-medium text-neutral-600"
+          data-testid="notes-empty"
+        >
+          {t.noNotes}
         </p>
       )}
 
@@ -148,7 +153,7 @@ export function ManagerNotesPanel({
                   value={editBody}
                   onChange={(e) => setEditBody(e.target.value)}
                   disabled={readonly}
-                  aria-label="Edit note"
+                  aria-label={t.edit}
                 />
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -158,7 +163,7 @@ export function ManagerNotesPanel({
                     disabled={readonly || !editBody.trim()}
                     onClick={() => void saveEdit(n.id)}
                   >
-                    Save
+                    {t.save}
                   </Button>
                   <Button
                     type="button"
@@ -170,7 +175,7 @@ export function ManagerNotesPanel({
                       setEditBody("");
                     }}
                   >
-                    Cancel
+                    {t.cancel}
                   </Button>
                 </div>
               </div>
@@ -192,14 +197,14 @@ export function ManagerNotesPanel({
                         setEditBody(n.body);
                       }}
                     >
-                      Edit
+                      {t.edit}
                     </button>
                     <button
                       type="button"
                       className="touch-target min-h-11 rounded-md border-2 border-red-800 px-3 text-sm font-semibold text-red-950 active:bg-red-100"
                       onClick={() => void removeNote(n.id)}
                     >
-                      Delete
+                      {t.delete}
                     </button>
                   </div>
                 )}
@@ -212,16 +217,16 @@ export function ManagerNotesPanel({
       {!readonly && date && (
         <div className="mt-auto flex flex-col gap-2 border-t-2 border-neutral-300 pt-2">
           <label className="text-xs font-bold uppercase tracking-wide text-neutral-700">
-            Add note
+            {t.addNote}
             <textarea
               className={cn(
                 "mt-1 min-h-20 w-full rounded-md border-2 border-neutral-800 bg-white p-2 text-sm font-medium normal-case text-neutral-900",
               )}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Floor note for this board + date…"
+              placeholder={t.notePlaceholderDay}
               data-testid="notes-draft"
-              aria-label="New manager note"
+              aria-label={t.addNote}
             />
           </label>
           <Button
@@ -231,7 +236,7 @@ export function ManagerNotesPanel({
             onClick={() => void addNote()}
             data-testid="notes-add"
           >
-            Add note
+            {t.addNote}
           </Button>
         </div>
       )}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { EmployeeHoursLedger } from "@/lib/ledger-types";
 import { cn } from "@/lib/utils";
+import { stationLabel, tareaLabel, type Locale, type Messages } from "@/lib/i18n";
 
 type Props = {
   employeeId: string | null;
@@ -10,6 +11,8 @@ type Props = {
   weekOf: string;
   /** Bump to force refresh after assign/clear/swap */
   refreshKey: number;
+  locale: Locale;
+  t: Messages;
 };
 
 /**
@@ -20,6 +23,8 @@ export function HoursLedgerPanel({
   employeeName,
   weekOf,
   refreshKey,
+  locale,
+  t,
 }: Props) {
   const [ledger, setLedger] = useState<EmployeeHoursLedger | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,12 +73,11 @@ export function HoursLedgerPanel({
       <div
         className="flex flex-col gap-2 rounded-lg border-2 border-neutral-900 bg-white p-3"
         data-testid="hours-ledger"
-        aria-label="Hours this week"
+        aria-label={t.hoursThisWeek}
       >
-        <h2 className="text-lg font-bold">Hours this week</h2>
+        <h2 className="text-lg font-bold">{t.hoursThisWeek}</h2>
         <p className="text-sm font-medium text-neutral-700">
-          Select a person (tap their name on a station, or pick from Available)
-          to see minutes by station and tarea.
+          {t.pickPersonHours}
         </p>
       </div>
     );
@@ -83,20 +87,20 @@ export function HoursLedgerPanel({
     <div
       className="flex flex-col gap-2 rounded-lg border-2 border-neutral-900 bg-white p-3"
       data-testid="hours-ledger"
-      aria-label={`Hours this week for ${employeeName ?? "employee"}`}
+      aria-label={`${t.hoursThisWeek} — ${employeeName ?? ""}`}
     >
-      <h2 className="text-lg font-bold">Hours this week</h2>
+      <h2 className="text-lg font-bold">{t.hoursThisWeek}</h2>
       <p className="text-sm font-semibold text-neutral-900">
-        {employeeName ?? "Employee"}
+        {employeeName ?? "—"}
       </p>
       {ledger && (
         <p className="text-xs font-medium text-neutral-600">
-          {ledger.weekStart} → {ledger.weekEnd} · {ledger.totalHours}h stations
-          · {ledger.totalTareaHours ?? 0}h tareas
+          {ledger.weekStart} → {ledger.weekEnd} · {ledger.totalHours}h ·{" "}
+          {ledger.totalTareaHours ?? 0}h tareas
         </p>
       )}
       {loading && (
-        <p className="text-sm font-medium text-neutral-600">Loading ledger…</p>
+        <p className="text-sm font-medium text-neutral-600">{t.loadingHours}</p>
       )}
       {error && (
         <p className="rounded-md border-2 border-red-800 bg-red-50 px-2 py-2 text-sm font-semibold text-red-950">
@@ -108,13 +112,13 @@ export function HoursLedgerPanel({
           className="text-sm font-medium text-neutral-600"
           data-testid="hours-ledger-empty"
         >
-          No station minutes yet this week.
+          {t.noHours}
         </p>
       )}
       {!loading && ledger && ledger.byStation.length > 0 && (
         <>
           <h3 className="text-xs font-bold uppercase tracking-wide text-neutral-700">
-            Stations
+            {t.stationCol}
           </h3>
           <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-rows">
             {ledger.byStation.map((row) => (
@@ -126,9 +130,11 @@ export function HoursLedgerPanel({
                 data-station-id={row.stationId}
                 data-minutes={row.minutes}
               >
-                <span className="font-semibold">{row.stationLabel}</span>
+                <span className="font-semibold">
+                  {stationLabel(locale, row.stationId, row.stationLabel)}
+                </span>
                 <span className="font-bold tabular-nums">
-                  {row.minutes} min
+                  {row.minutes} {t.minutesCol.toLowerCase()}
                   <span className="ml-1 font-medium text-neutral-600">
                     ({row.hours}h)
                   </span>
@@ -143,7 +149,10 @@ export function HoursLedgerPanel({
           <h3 className="mt-1 text-xs font-bold uppercase tracking-wide text-neutral-700">
             Tareas
           </h3>
-          <ul className="flex flex-col gap-1.5" data-testid="hours-ledger-tarea-rows">
+          <ul
+            className="flex flex-col gap-1.5"
+            data-testid="hours-ledger-tarea-rows"
+          >
             {ledger.byTarea.map((row) => (
               <li
                 key={row.templateId}
@@ -151,9 +160,11 @@ export function HoursLedgerPanel({
                 data-template-id={row.templateId}
                 data-minutes={row.minutes}
               >
-                <span className="font-semibold">{row.templateLabel}</span>
+                <span className="font-semibold">
+                  {tareaLabel(locale, row.templateId, row.templateLabel)}
+                </span>
                 <span className="font-bold tabular-nums">
-                  {row.minutes} min
+                  {row.minutes} {t.minutesCol.toLowerCase()}
                   <span className="ml-1 font-medium text-neutral-600">
                     ({row.hours}h)
                   </span>

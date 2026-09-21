@@ -2,6 +2,12 @@
 
 import { cn } from "@/lib/utils";
 import type { BusynessLevel } from "@/lib/load-stations";
+import {
+  busynessLabel,
+  loadStationLabel,
+  type Locale,
+  type Messages,
+} from "@/lib/i18n";
 
 export type TrafficMeterDto = {
   loadStationId: string;
@@ -29,6 +35,8 @@ type Props = {
   readonly: boolean;
   onToggle: (enabled: boolean) => void;
   compact?: boolean;
+  locale: Locale;
+  t: Messages;
 };
 
 export function TrafficMetersPanel({
@@ -36,6 +44,8 @@ export function TrafficMetersPanel({
   readonly,
   onToggle,
   compact,
+  locale,
+  t,
 }: Props) {
   return (
     <section
@@ -46,7 +56,7 @@ export function TrafficMetersPanel({
       data-testid="traffic-meters"
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold">Order traffic</h2>
+        <h2 className="text-lg font-bold">{t.orderTraffic}</h2>
         <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
           <input
             type="checkbox"
@@ -56,12 +66,10 @@ export function TrafficMetersPanel({
             onChange={(e) => onToggle(e.target.checked)}
             data-testid="traffic-toggle"
           />
-          Simulator
+          {t.simulator}
         </label>
       </div>
-      <p className="mb-3 text-xs font-medium text-neutral-600">
-        Fake feed every 15s — Quiet / Busy / Slammed. Not a real POS feed.
-      </p>
+      <p className="mb-3 text-xs font-medium text-neutral-600">{t.trafficHint}</p>
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {(traffic?.meters ?? []).map((m) => (
           <div
@@ -73,18 +81,20 @@ export function TrafficMetersPanel({
               LEVEL_STYLE[m.level],
             )}
           >
-            <div className="text-sm font-extrabold">{m.label}</div>
+            <div className="text-sm font-extrabold">
+              {loadStationLabel(locale, m.loadStationId, m.label)}
+            </div>
             <div className="text-xs font-bold uppercase tracking-wide">
-              {m.level}
+              {busynessLabel(locale, m.level)}
             </div>
             <div className="text-[10px] font-medium opacity-80">
-              seats: {m.seatIds.join(", ")}
+              {t.seats}: {m.seatIds.join(", ")}
             </div>
           </div>
         ))}
         {!traffic && (
           <p className="col-span-full text-sm font-medium text-neutral-600">
-            Loading meters…
+            {t.loadingMeters}
           </p>
         )}
       </div>
