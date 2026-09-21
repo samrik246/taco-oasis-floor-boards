@@ -1,6 +1,32 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+
+async function shot(page: Page, name: string) {
+  const dir = process.env.STORE_MEDIA;
+  if (!dir) return;
+  fs.mkdirSync(dir, { recursive: true });
+  await page.screenshot({
+    path: path.join(dir, name),
+    fullPage: true,
+  });
+}
+
+async function unlockManager(page: Page) {
+  if (await page.getByTestId("exit-manager").isVisible().catch(() => false)) return;
+  await page.getByTestId("enter-manager").click();
+  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-unlock-submit").click();
+  await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera/i);
+}
+
+async function lockManager(page: Page) {
+  const exit = page.getByTestId("exit-manager");
+  if (await exit.isVisible().catch(() => false)) {
+    await exit.click();
+    await expect(page.getByTestId("role-badge")).toContainText(/Staff|Personal/i);
+  }
+}
 
 /**
  * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/traffic/tareas.
@@ -22,10 +48,12 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "en",
     );
 
+    await unlockManager(page);
     await page.getByTestId("load-sample").click();
     await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
       timeout: 60_000,
     });
+    await lockManager(page);
 
     await page.getByTestId("board-toggle-caja").click();
     await page.getByTestId("date-select").selectOption("2026-09-20");
@@ -74,6 +102,13 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.locator("[data-section-kind='thin']").first()).toBeVisible();
     await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
     await page.getByTestId("schedule-sort-name").click();
+    await page.getByTestId("schedule-sort-time").click();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-sort",
+      "time",
+    );
+    await expect(page.getByTestId("schedule-start").first()).toBeVisible();
+    await page.getByTestId("schedule-sort-name").click();
 
     await page.getByTestId("schedule-mode-rest-of-day").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
@@ -96,6 +131,13 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("rush-basis")).toContainText(
       /historical sales/i,
     );
+    await expect(page.getByTestId("rush-panel")).toHaveAttribute(
+      "data-metric",
+      "percent-of-day",
+    );
+    await expect(page.getByTestId("rush-hour-12")).toContainText(/% of day/i);
+    await expect(page.getByTestId("rush-basis")).toContainText(/not order counts/i);
+    await shot(page, "rush-percent.png");
     await expect(page.getByTestId("rush-hour-12")).toHaveAttribute(
       "data-rush",
       "true",
@@ -116,13 +158,16 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
     const trafficToggle = page.getByTestId("traffic-toggle");
     await trafficToggle.scrollIntoViewIfNeeded();
+    await expect(trafficToggle).toBeDisabled();
+    await unlockManager(page);
     await expect(trafficToggle).toBeEnabled({ timeout: 15_000 });
     await trafficToggle.click({ force: true });
     await expect(trafficToggle).toBeChecked({ timeout: 5_000 });
-    await expect(page.getByTestId("toast")).toContainText(/Simulator on|Simulador encendido/i, {
+    await expect(page.getByTestId("toast")).toContainText(/Training on|Entrenamiento encendido/i, {
       timeout: 15_000,
     });
     await expect(page.getByTestId("meter-cliente")).toBeVisible();
+    await lockManager(page);
 
     await page.getByTestId("hour-12").click();
 
@@ -221,6 +266,9 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("schedule-sort-position")).toContainText(
       /Por puesto/i,
     );
+    await expect(page.getByTestId("schedule-sort-time")).toContainText(
+      /Por hora/i,
+    );
 
     await page.getByTestId("view-toggle-rush").click();
     await expect(page.getByTestId("view-toggle-rush")).toContainText(
@@ -234,6 +282,8 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("rush-basis")).toContainText(
       /ventas históricas/i,
     );
+    await expect(page.getByTestId("rush-hour-12")).toContainText(/% del día/i);
+    await expect(page.getByTestId("rush-basis")).toContainText(/no son pedidos/i);
     await expect(page.getByTestId("rush-prep")).toContainText(/antes del rush/i);
     await expect(page.getByTestId("rush-hour-12")).toHaveAttribute(
       "data-rush",
@@ -255,6 +305,16 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     );
     await expect(page.getByTestId("manager-notes")).toHaveCount(0);
     await expect(page.getByTestId("enter-manager")).toBeVisible();
+
+    await page.goto("/?wall=1");
+    await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "en");
+    await expect(page.getByTestId("wall-station-yellow")).toBeVisible();
+    await expect(page.getByTestId("load-sample")).toHaveCount(0);
+    await shot(page, "wall-mode-caja.png");
+    await page.goto("/?wall=1&board=cocina");
+    await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "es");
+    await expect(page.getByTestId("wall-station-fryer")).toBeVisible();
+    await expect(page.getByTestId("wall-station-fryer")).toContainText(/Freidora|Fryer/i);
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");

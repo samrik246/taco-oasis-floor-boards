@@ -1,11 +1,15 @@
 import { prisma } from "@/lib/db";
-import { ALL_STATIONS } from "@/lib/stations";
 import type { AbilityLevel } from "@/lib/rules/types";
 
 const ABILITY_LEVELS = ["forbidden", "training", "ok", "preferred"] as const;
 
 export function isAbilityLevel(v: string): v is AbilityLevel {
   return (ABILITY_LEVELS as readonly string[]).includes(v);
+}
+
+async function knownStationIds(): Promise<Set<string>> {
+  const rows = await prisma.station.findMany({ select: { id: true } });
+  return new Set(rows.map((row) => row.id));
 }
 
 export async function listEmployees() {
@@ -48,10 +52,17 @@ export async function createEmployee(input: CreateEmployeeInput) {
     };
   }
 
-  const stationIds = new Set(ALL_STATIONS.map((s) => s.id));
-  const abilities = (input.abilities ?? []).filter((a) =>
-    stationIds.has(a.stationId),
-  );
+  const stationIds = await knownStationIds();
+  const abilities = input.abilities ?? [];
+  for (const ability of abilities) {
+    if (!stationIds.has(ability.stationId)) {
+      return {
+        ok: false as const,
+        status: 422 as const,
+        error: `Unknown station: ${ability.stationId}`,
+      };
+    }
+  }
 
   const employee = await prisma.employee.create({
     data: {
@@ -85,10 +96,19 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
     return { ok: false as const, status: 404 as const, error: "Not found" };
   }
 
-  const stationIds = new Set(ALL_STATIONS.map((s) => s.id));
+  const stationIds = await knownStationIds();
 
   if (input.abilities) {
+    const seen = new Set<string>();
     for (const a of input.abilities) {
+      if (seen.has(a.stationId)) {
+        return {
+          ok: false as const,
+          status: 422 as const,
+          error: `Ability for ${a.stationId} is listed twice`,
+        };
+      }
+      seen.add(a.stationId);
       if (!stationIds.has(a.stationId) || !isAbilityLevel(a.level)) {
         return {
           ok: false as const,

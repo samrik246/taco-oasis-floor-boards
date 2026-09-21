@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { chicagoHourStart, formatCompactHour, formatHourLabel, hourGridHours } from "@/lib/hour-grid";
 import {
   buildRushForecast,
   earlierRushText,
   RUSH_MEDIAN_RATIO,
   rushSummaryText,
+  type RushForecast,
   type RushHourStat,
 } from "@/lib/rush/forecast";
 import { resolveRestOfDayStart } from "@/lib/schedule/build-schedule";
@@ -27,16 +28,41 @@ type Props = {
 type RangeMode = "all-day" | "rest-of-day";
 
 /**
- * Historical rush timeline (7a–9p). Highlights weekday+hour buckets whose
- * average orders beat that day’s median. Not a live POS.
+ * Historical rush timeline (7a–9p). Highlights hours whose share of that
+ * day’s sales beats the weekday median. Not order counts. Not a live POS.
  */
 export function RushPanel({ day, date, board, locale, t, now }: Props) {
   const [mode, setMode] = useState<RangeMode>("all-day");
+  const [remote, setRemote] = useState<RushForecast | null>(null);
+
+  useEffect(() => {
+    if (!date) {
+      setRemote(null);
+      return;
+    }
+    let cancel = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/rush?board=${board}&date=${encodeURIComponent(date)}`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { forecast: RushForecast };
+        if (!cancel) setRemote(data.forecast);
+      } catch {
+        if (!cancel) setRemote(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [board, date]);
 
   const forecast = useMemo(() => {
     if (!date) return null;
+    if (remote && remote.board === board) return remote;
     return buildRushForecast({ board, dateYmd: date });
-  }, [board, date]);
+  }, [board, date, remote]);
 
   const windowStart = useMemo(() => {
     if (!forecast || mode !== "rest-of-day" || !date) return null;
@@ -74,6 +100,7 @@ export function RushPanel({ day, date, board, locale, t, now }: Props) {
     <section
       className="flex min-w-0 flex-col gap-3 rounded-lg border-2 border-neutral-900 bg-white p-3"
       data-testid="rush-panel"
+      data-metric="percent-of-day"
       data-mode={mode}
       data-locale={locale}
       data-board={board}
@@ -183,8 +210,8 @@ export function RushPanel({ day, date, board, locale, t, now }: Props) {
           >
             {t.rushMethod}{" "}
             <span className="tabular-nums">
-              {Math.round(forecast.dayMedian)} {t.rushOrders} ·{" "}
-              {RUSH_MEDIAN_RATIO}× → {Math.round(forecast.threshold)}
+              {forecast.dayMedian.toFixed(1)} {t.rushOrders} ·{" "}
+              {RUSH_MEDIAN_RATIO}× → {forecast.threshold.toFixed(1)}
             </span>
           </p>
         </>
@@ -239,7 +266,7 @@ function HourColumn({
         />
       </div>
       <span className="text-[11px] font-bold tabular-nums">
-        {Math.round(hour.mean)}
+        {hour.mean.toFixed(1)}
       </span>
       <span className="text-[10px] font-medium text-neutral-500">
         {ordersLabel}

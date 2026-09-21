@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type ManagerSession = {
   id: string;
   name: string;
+  token: string;
 };
 
 type Options = {

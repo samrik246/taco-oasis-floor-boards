@@ -6,6 +6,7 @@ import {
   tickTrafficIfDue,
 } from "@/lib/traffic/service";
 import { isFloorBoardId } from "@/lib/board-config";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,10 @@ const patchSchema = z.object({
   board: z.enum(["caja", "cocina"]).optional(),
 });
 
-/** PATCH — manager on/off toggle for fake order simulator */
+/** PATCH — manager training switch. Side effects run only while this is on. */
 export async function PATCH(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const body = patchSchema.parse(await req.json());
     const state = await setTrafficEnabled(body.enabled, body.board);

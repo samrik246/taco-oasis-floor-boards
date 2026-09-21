@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
 import { persistImport } from "@/lib/import/persist-import";
+import { requireManagerSession } from "@/lib/managers/require-session";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -10,6 +11,8 @@ const metaSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const contentType = request.headers.get("content-type") ?? "";
     let buffer: Buffer;

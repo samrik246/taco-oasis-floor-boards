@@ -142,6 +142,53 @@ describe("buildScheduleGrid", () => {
     expect(luis?.blocks[0]?.text).toBe("Luis");
   });
 
+  it("by time orders rows by start and keeps position codes in the blocks", () => {
+    const zoe = {
+      id: "s3",
+      date: "2026-09-21",
+      startAt: chicagoDateTime("2026-09-21", "7:00 am").toISOString(),
+      endAt: chicagoDateTime("2026-09-21", "11:00 am").toISOString(),
+      employee: {
+        id: "e3",
+        externalId: "300",
+        firstName: "Zoe",
+        lastName: "Alvarez",
+      },
+      assignments: [
+        {
+          stationId: "tortilla",
+          hourStart: chicagoDateTime("2026-09-21", "7:00 am").toISOString(),
+          hourEnd: chicagoDateTime("2026-09-21", "8:00 am").toISOString(),
+        },
+      ],
+    };
+    const grid = buildScheduleGrid({
+      date: "2026-09-21",
+      shifts: [...shifts, zoe],
+      stations,
+      mode: "all-day",
+      sort: "time",
+      unassignedGroupLabel: "Sin asignar",
+    });
+    expect(grid.sort).toBe("time");
+    expect(grid.stationBanners).toBe(false);
+    expect(grid.sections).toHaveLength(1);
+    expect(grid.sections[0]?.label).toBeNull();
+    expect(grid.sections[0]?.rows.map((r) => r.name)).toEqual([
+      "Zoe Alvarez",
+      "Ana Lopez",
+      "Luis Perez",
+    ]);
+    expect(grid.sections[0]?.rows.map((r) => r.startLabel)).toEqual([
+      "7a",
+      "8a",
+      "10a",
+    ]);
+    const zoeRow = grid.sections[0]?.rows[0];
+    expect(zoeRow?.blocks[0]?.textKind).toBe("position");
+    expect(zoeRow?.blocks[0]?.text).toBe("TOR");
+  });
+
   it("rest-of-day from now when viewing today", () => {
     const now = chicagoDateTime("2026-09-21", "1:00 pm");
     expect(chicagoYmd(now)).toBe("2026-09-21");
@@ -252,6 +299,7 @@ describe("cocina schedule i18n", () => {
     expect(es.scheduleHeadcount).toBe("Personas");
     expect(es.scheduleTitle).toMatch(/Horario/i);
     expect(es.scheduleSortName).toBe("Por nombre");
+    expect(es.scheduleSortTime).toBe("Por hora");
     expect(es.scheduleSortPosition).toBe("Por puesto");
     expect(es.viewRush).toBe("Más ocupado");
     expect(es.rushBasis).toMatch(/ventas históricas/i);
@@ -264,6 +312,7 @@ describe("cocina schedule i18n", () => {
     expect(en.scheduleAllDay).toBe("All day");
     expect(en.scheduleRestOfDay).toBe("Rest of day");
     expect(en.scheduleSortName).toBe("By name");
+    expect(en.scheduleSortTime).toBe("By time");
     expect(en.viewRush).toBe("Rush");
     expect(en.rushSummaryLead).toMatch(/Gets busier/i);
     expect(en.rushPrep).toMatch(/Prep before the rush/i);

@@ -5,6 +5,7 @@ import {
   listPositionMoves,
   logPositionMove,
 } from "@/lib/position-moves-service";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,8 @@ const postSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
     const result = await logPositionMove({

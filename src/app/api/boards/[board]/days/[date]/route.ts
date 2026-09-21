@@ -48,6 +48,7 @@ export async function GET(_request: Request, context: RouteContext) {
         maxConcurrent: s.maxConcurrent,
         sortOrder: s.sortOrder,
         priority: s.priority,
+        shortCode: s.shortCode,
       })),
       shifts: shifts.map((sh) => ({
         id: sh.id,

@@ -4,6 +4,7 @@ import path from "node:path";
 import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
 import { persistImport } from "@/lib/import/persist-import";
 import { seedDemoScheduleAssignments } from "@/lib/schedule/seed-demo-assignments";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,9 @@ const SAMPLE_FILENAME = "wheniwork-restaurant-export-sample.xlsx";
  * GET /api/sample — import fixtures/wheniwork-restaurant-export-sample.xlsx in one click.
  * Also seats demo assignments on 2026-09-20/21 so Schedule view is filled.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const fixturePath = path.join(
       process.cwd(),

@@ -1,5 +1,5 @@
 {
-  "note": "Sample historical order counts by board, day-of-week, and hour. There is no live POS. Station-level history is not real, so these are board totals (caja front vs cocina line) for prep planning.",
+  "note": "Sample historical sales dollars (not order counts) by board, day-of-week, and hour. The rush view converts each hour into a percent of that day’s sales. There is no live POS. Station-level history is not real, so these are board totals (caja front vs cocina line) for prep planning.",
   "hours": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "weeks": [
     { "week": 1, "delta": -1 },

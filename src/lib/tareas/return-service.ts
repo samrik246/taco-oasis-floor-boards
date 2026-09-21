@@ -6,14 +6,22 @@ import { isFloorBoardId } from "@/lib/board-config";
 import { tareaTemplateById } from "@/lib/tareas/catalog";
 
 /**
- * When load stations are Slammed: auto-unassign working tareas for seat
- * assignees + floaters, and create return prompts.
+ * When the training switch is on and a load station is Slammed: auto-unassign
+ * working tareas for seat assignees + floaters, and create return prompts.
+ * A live shift (trainer off) never takes this path — fake meters must not
+ * clear tareas or call people back.
  */
 export async function processReturnToStation(args: {
   date: string;
   hour: number;
   board?: FloorBoardId;
 }): Promise<{ created: number; unassigned: number }> {
+  const config = await prisma.trafficSimulatorConfig.findUnique({
+    where: { id: "default" },
+  });
+  if (!config?.enabled) {
+    return { created: 0, unassigned: 0 };
+  }
   const meters = await prisma.loadStationMeter.findMany();
   const hourStart = chicagoHourStart(args.date, args.hour);
 

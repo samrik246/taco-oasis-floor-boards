@@ -9,6 +9,7 @@ export type StationDto = {
   maxConcurrent: number;
   sortOrder: number;
   priority: number | null;
+  shortCode?: string;
 };
 
 export type AbilityDto = {

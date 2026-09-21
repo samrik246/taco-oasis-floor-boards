@@ -11,6 +11,7 @@ import {
   hashManagerCode,
 } from "../src/lib/managers/codes";
 import { historicalSaleRows } from "../src/lib/rush/historical-sales";
+import { STATION_SHORT_CODES } from "../src/lib/schedule/station-codes";
 
 const prisma = new PrismaClient();
 
@@ -46,6 +47,7 @@ async function main() {
         maxConcurrent: s.maxConcurrent,
         sortOrder: s.sortOrder,
         priority: s.priority,
+        shortCode: STATION_SHORT_CODES[s.id] ?? "",
       },
       update: {
         board: s.board,
@@ -54,6 +56,7 @@ async function main() {
         maxConcurrent: s.maxConcurrent,
         sortOrder: s.sortOrder,
         priority: s.priority,
+        shortCode: STATION_SHORT_CODES[s.id] ?? "",
       },
     });
   }

@@ -234,6 +234,15 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
     expect(forced.ok).toBe(true);
   });
 
+  it("does not clear tareas or call people back when training is off", async () => {
+    await setTrafficEnabled(false);
+    const result = await processReturnToStation({
+      date: "2026-09-20",
+      hour: 14,
+    });
+    expect(result).toEqual({ created: 0, unassigned: 0 });
+  });
+
   it("auto-unassigns tareas and creates return prompt when slammed", async () => {
     await prisma.returnPrompt.deleteMany();
     await prisma.tareaAssignment.deleteMany({ where: { date: "2026-09-20" } });
@@ -265,6 +274,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
     });
     expect(tarea.ok).toBe(true);
 
+    await setTrafficEnabled(true);
     await prisma.loadStationMeter.update({
       where: { loadStationId: "cliente" },
       data: { level: "slammed", orderCount: 10 },
@@ -274,6 +284,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
       date: "2026-09-20",
       hour: 14,
     });
+    await setTrafficEnabled(false);
     expect(result.unassigned).toBeGreaterThanOrEqual(1);
 
     const prompts = await prisma.returnPrompt.findMany({
@@ -395,6 +406,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
 
     expect(KITCHEN_TAREA_TEMPLATES.length).toBe(9);
 
+    await setTrafficEnabled(true);
     await prisma.loadStationMeter.update({
       where: { loadStationId: "fryer" },
       data: { level: "slammed", orderCount: 12 },
@@ -405,6 +417,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
       hour: 12,
       board: "cocina",
     });
+    await setTrafficEnabled(false);
     expect(ret.unassigned).toBeGreaterThanOrEqual(1);
 
     // Complete a tarea for ledger minutes (use a fresh assign after return cleared)

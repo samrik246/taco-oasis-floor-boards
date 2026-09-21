@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { FloorBoard } from "@/components/board/FloorBoard";
+import { FloorEntry } from "@/components/board/FloorEntry";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
         </div>
       }
     >
-      <FloorBoard />
+      <FloorEntry />
     </Suspense>
   );
 }

@@ -1,4 +1,6 @@
 import type { FloorBoardId } from "@/lib/board-config";
+import { ALL_STATIONS } from "@/lib/stations";
+import { tareaTemplateById } from "@/lib/tareas/catalog";
 import {
   LOAD_STATION_LABELS,
   MESSAGES,
@@ -34,6 +36,28 @@ export function stationLabel(
   fallback?: string,
 ): string {
   return STATION_LABELS[locale][stationId] ?? fallback ?? stationId;
+}
+
+/**
+ * Seeded stations keep the board language (cocina Spanish, caja English).
+ * A label edited in the back office is shown as saved, on both boards.
+ */
+export function displayStationLabel(
+  locale: Locale,
+  station: { id: string; label: string },
+): string {
+  const seed = ALL_STATIONS.find((s) => s.id === station.id);
+  if (!seed || station.label.trim() !== seed.label) return station.label;
+  return stationLabel(locale, station.id, station.label);
+}
+
+export function displayTareaLabel(
+  locale: Locale,
+  template: { id: string; label: string },
+): string {
+  const seed = tareaTemplateById(template.id);
+  if (!seed || template.label.trim() !== seed.label) return template.label;
+  return tareaLabel(locale, template.id, template.label);
 }
 
 export function tareaLabel(
