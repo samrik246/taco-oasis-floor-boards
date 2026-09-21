@@ -204,6 +204,20 @@ model PerformanceAnswer {
   @@index([date, board])
 }
 
+/// Sample historical order counts by board, weekday, and hour.
+/// Not a live POS feed — seeded from fixtures/historical-hourly-sales.json.
+model HistoricalHourlySale {
+  id     String @id @default(cuid())
+  board  String // caja | cocina
+  dow    Int // 0 = Sunday … 6 = Saturday
+  hour   Int // 7–21
+  week   Int
+  orders Int
+
+  @@unique([board, dow, hour, week])
+  @@index([board, dow, hour])
+}
+
 /// Floor manager identity. Access codes stored as SHA-256 hashes only.
 model Manager {
   id        String   @id @default(cuid())

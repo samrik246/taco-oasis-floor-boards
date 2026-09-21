@@ -39,6 +39,7 @@ import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
 import { SchedulePanel } from "./SchedulePanel";
+import { RushPanel } from "./RushPanel";
 import { ManagerUnlockModal } from "./ManagerUnlockModal";
 import {
   useManagerIdle,
@@ -55,7 +56,7 @@ import {
 } from "@/lib/i18n";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
-type MainView = "board" | "timeline" | "schedule" | "tareas";
+type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
 
 function playReturnChime() {
   try {
@@ -749,6 +750,7 @@ export function FloorBoard() {
                 ["timeline", t.viewTimeline],
                 ["schedule", t.viewSchedule],
                 ["tareas", t.viewTareas],
+                ["rush", t.viewRush],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -947,6 +949,18 @@ export function FloorBoard() {
       {mainView === "schedule" && (
         <div className="p-3 sm:p-4">
           <SchedulePanel day={day} date={date} locale={locale} t={t} />
+        </div>
+      )}
+
+      {mainView === "rush" && (
+        <div className="p-3 sm:p-4">
+          <RushPanel
+            day={day}
+            date={date}
+            board={board}
+            locale={locale}
+            t={t}
+          />
         </div>
       )}
 

@@ -24,12 +24,16 @@ export type Messages = {
   viewTimeline: string;
   viewSchedule: string;
   viewTareas: string;
+  viewRush: string;
   scheduleTitle: string;
   scheduleHint: string;
   scheduleEmpty: string;
   scheduleAllDay: string;
   scheduleRestOfDay: string;
   scheduleModeLabel: string;
+  scheduleSortLabel: string;
+  scheduleSortName: string;
+  scheduleSortPosition: string;
   scheduleRestRuleToday: string;
   scheduleRestRuleOther: string;
   scheduleHeadcount: string;
@@ -37,6 +41,15 @@ export type Messages = {
   scheduleShiftCol: string;
   scheduleAreaCol: string;
   scheduleUnassignedGroup: string;
+  rushTitle: string;
+  rushHint: string;
+  rushBasis: string;
+  rushPrep: string;
+  rushMethod: string;
+  rushSummaryLead: string;
+  rushEmptyDate: string;
+  rushOrders: string;
+  rushMark: string;
   date: string;
   hour: string;
   noDates: string;
@@ -172,13 +185,17 @@ const en: Messages = {
   viewTimeline: "Timeline",
   viewSchedule: "Schedule",
   viewTareas: "Tareas",
+  viewRush: "Rush",
   scheduleTitle: "Day schedule",
   scheduleHint:
-    "People grouped by station. Colored blocks show position codes across the hour grid.",
+    "Same people and hours. By name, each block is the position. By position, each block is the person.",
   scheduleEmpty: "No people on this board for this date.",
   scheduleAllDay: "All day",
   scheduleRestOfDay: "Rest of day",
   scheduleModeLabel: "Schedule range",
+  scheduleSortLabel: "Sort",
+  scheduleSortName: "By name",
+  scheduleSortPosition: "By position",
   scheduleRestRuleToday: "Rest of day from now (Chicago).",
   scheduleRestRuleOther:
     "Not today — columns from the first scheduled hour on this date.",
@@ -187,6 +204,17 @@ const en: Messages = {
   scheduleShiftCol: "Shift",
   scheduleAreaCol: "Area",
   scheduleUnassignedGroup: "Unassigned",
+  rushTitle: "When it gets busier",
+  rushHint: "Historical sales by weekday and hour — prep before the rush.",
+  rushBasis:
+    "Based on historical sales (sample history). Not a live POS.",
+  rushPrep: "Prep before the rush — have people and the line ready before these hours.",
+  rushMethod:
+    "Rush = hourly average above 1.35× this weekday’s median hour.",
+  rushSummaryLead: "Gets busier around",
+  rushEmptyDate: "Pick a date to see the usual rush.",
+  rushOrders: "orders",
+  rushMark: "Rush",
   date: "Date",
   hour: "Hour",
   noDates: "No dates",
@@ -327,13 +355,17 @@ const es: Messages = {
   viewTimeline: "Línea de tiempo",
   viewSchedule: "Horario",
   viewTareas: "Tareas",
+  viewRush: "Más ocupado",
   scheduleTitle: "Horario del día",
   scheduleHint:
-    "Personas agrupadas por estación. Bloques de color = código de puesto en la cuadrícula de horas.",
+    "Las mismas personas y horas. Por nombre, el bloque muestra el puesto. Por puesto, el bloque muestra a la persona.",
   scheduleEmpty: "Nadie en este tablero para esta fecha.",
   scheduleAllDay: "Todo el día",
   scheduleRestOfDay: "Resto del día",
   scheduleModeLabel: "Rango del horario",
+  scheduleSortLabel: "Orden",
+  scheduleSortName: "Por nombre",
+  scheduleSortPosition: "Por puesto",
   scheduleRestRuleToday: "Resto del día desde ahora (Chicago).",
   scheduleRestRuleOther:
     "Otra fecha — columnas desde la primera hora programada de este día.",
@@ -342,6 +374,19 @@ const es: Messages = {
   scheduleShiftCol: "Turno",
   scheduleAreaCol: "Área",
   scheduleUnassignedGroup: "Sin asignar",
+  rushTitle: "Cuándo se pone más ocupado",
+  rushHint:
+    "Ventas históricas por día de la semana y hora — prepárate antes del rush.",
+  rushBasis:
+    "Basado en ventas históricas (muestra). No es un punto de venta en vivo.",
+  rushPrep:
+    "Prepárate antes del rush — deja a la gente y la línea listas antes de estas horas.",
+  rushMethod:
+    "Pico = promedio de la hora por encima de 1.35× la mediana de ese día.",
+  rushSummaryLead: "Se pone más ocupado alrededor de",
+  rushEmptyDate: "Elige una fecha para ver el pico habitual.",
+  rushOrders: "pedidos",
+  rushMark: "Pico",
   date: "Fecha",
   hour: "Hora",
   noDates: "Sin fechas",

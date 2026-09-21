@@ -3,6 +3,7 @@ import { HOUR_GRID_END, HOUR_GRID_START, TIMEZONE } from "@/lib/constants";
 import {
   chicagoHourOf,
   chicagoHourStart,
+  formatCompactHour,
   hourGridHours,
 } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
@@ -35,11 +36,17 @@ export type ScheduleStationLike = {
 
 export type ScheduleMode = "all-day" | "rest-of-day";
 
+/** Same people × hours. Name sort is the default (no station banners). */
+export type ScheduleSort = "name" | "position";
+
 export type RestOfDayRule = "today-from-now" | "other-from-first-scheduled";
 
 export type ScheduleBlock = {
   stationId: string;
   code: string;
+  /** Position short code, or the person’s short name — depends on sort. */
+  text: string;
+  textKind: "position" | "person";
   color: string;
   startHour: number;
   span: number;
@@ -56,32 +63,37 @@ export type SchedulePersonRow = {
   blocks: ScheduleBlock[];
 };
 
-export type ScheduleGroup = {
+/**
+ * Position sort only. `kind: "thin"` is a compact section label, never a
+ * full-width colored station banner. By-name sort uses one section with
+ * `label: null` so the UI draws no section row at all.
+ */
+export type ScheduleSection = {
   stationId: string | null;
-  label: string;
+  label: string | null;
   color: string | null;
-  sortOrder: number;
+  kind: "thin";
   rows: SchedulePersonRow[];
 };
 
 export type ScheduleGrid = {
   hours: number[];
   mode: ScheduleMode;
+  sort: ScheduleSort;
+  /**
+   * Always false. The people grid must not render full-width station
+   * banner rows (Nieves, Carnes, …).
+   */
+  stationBanners: false;
   restRule: RestOfDayRule | null;
   restStartHour: number;
   headcount: number[];
   manHours: number[];
-  groups: ScheduleGroup[];
+  sections: ScheduleSection[];
 };
 
 function personName(sh: ScheduleShiftLike): string {
   return `${sh.employee.firstName} ${sh.employee.lastName}`.trim();
-}
-
-function formatCompactHour(hour: number): string {
-  const suffix = hour >= 12 ? "p" : "a";
-  const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12}${suffix}`;
 }
 
 export function formatShiftWindowLabel(startAt: string, endAt: string): string {
@@ -140,10 +152,37 @@ function primaryStationId(
   return best;
 }
 
+function shortPersonLabel(name: string, duplicateFirst: boolean): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? name;
+  if (duplicateFirst && parts.length > 1) {
+    return `${first} ${parts[1]![0]}.`;
+  }
+  return first;
+}
+
+export function personLabelsByName(names: string[]): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    const first = name.split(/\s+/).filter(Boolean)[0] ?? name;
+    counts.set(first, (counts.get(first) ?? 0) + 1);
+  }
+  const labels = new Map<string, string>();
+  for (const name of names) {
+    const first = name.split(/\s+/).filter(Boolean)[0] ?? name;
+    labels.set(name, shortPersonLabel(name, (counts.get(first) ?? 0) > 1));
+  }
+  return labels;
+}
+
 export function buildBlocksForHours(
   hourStations: Map<number, string | null | undefined>,
   hours: number[],
   stationsById: Map<string, ScheduleStationLike>,
+  label: { textKind: "position" | "person"; personText: string } = {
+    textKind: "position",
+    personText: "",
+  },
 ): ScheduleBlock[] {
   const blocks: ScheduleBlock[] = [];
   let i = 0;
@@ -162,9 +201,12 @@ export function buildBlocksForHours(
       span += 1;
     }
     const st = stationsById.get(sid);
+    const code = stationShortCode(sid);
     blocks.push({
       stationId: sid,
-      code: stationShortCode(sid),
+      code,
+      text: label.textKind === "person" ? label.personText : code,
+      textKind: label.textKind,
       color: st?.color ?? "gray",
       startHour: hour,
       span,
@@ -172,6 +214,13 @@ export function buildBlocksForHours(
     i += span;
   }
   return blocks;
+}
+
+/** People grid never uses full-width station banner rows. */
+export function scheduleHasFullWidthStationBanners(
+  grid: ScheduleGrid,
+): boolean {
+  return grid.stationBanners;
 }
 
 /**
@@ -212,6 +261,7 @@ export function buildScheduleGrid(opts: {
   shifts: ScheduleShiftLike[];
   stations: ScheduleStationLike[];
   mode: ScheduleMode;
+  sort?: ScheduleSort;
   now?: Date;
   unassignedGroupLabel: string;
 }): ScheduleGrid {
@@ -248,23 +298,32 @@ export function buildScheduleGrid(opts: {
     hours = allHours.filter((h) => h >= restStartHour);
   }
 
-  const people: SchedulePersonRow[] = [...byEmp.values()]
-    .map((sh) => {
-      const hourStations = new Map<number, string | null | undefined>();
-      for (const hour of allHours) {
-        hourStations.set(hour, stationAtHour(sh, opts.date, hour));
-      }
-      const primary = primaryStationId(sh, opts.date, allHours);
-      return {
-        employeeId: sh.employee.id,
-        externalId: sh.employee.externalId,
-        name: personName(sh),
-        shiftLabel: formatShiftWindowLabel(sh.startAt, sh.endAt),
-        primaryStationId: primary,
-        hourStations,
-        blocks: buildBlocksForHours(hourStations, hours, stationsById),
-      };
-    })
+  const sort: ScheduleSort = opts.sort ?? "name";
+  const drafts = [...byEmp.values()].map((sh) => {
+    const hourStations = new Map<number, string | null | undefined>();
+    for (const hour of allHours) {
+      hourStations.set(hour, stationAtHour(sh, opts.date, hour));
+    }
+    return {
+      employeeId: sh.employee.id,
+      externalId: sh.employee.externalId,
+      name: personName(sh),
+      shiftLabel: formatShiftWindowLabel(sh.startAt, sh.endAt),
+      primaryStationId: primaryStationId(sh, opts.date, allHours),
+      hourStations,
+    };
+  });
+  const labels = personLabelsByName(drafts.map((d) => d.name));
+  const textKind = sort === "position" ? "person" : "position";
+
+  const people: SchedulePersonRow[] = drafts
+    .map((d) => ({
+      ...d,
+      blocks: buildBlocksForHours(d.hourStations, hours, stationsById, {
+        textKind,
+        personText: labels.get(d.name) ?? d.name,
+      }),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const headcount = hours.map((hour) => {
@@ -277,57 +336,86 @@ export function buildScheduleGrid(opts: {
   // Each seated person contributes 1 man-hour in that column.
   const manHours = [...headcount];
 
+  const sections = buildSections({
+    sort,
+    people,
+    stations: opts.stations,
+    stationsById,
+    unassignedGroupLabel: opts.unassignedGroupLabel,
+  });
+
+  return {
+    hours,
+    mode: opts.mode,
+    sort,
+    stationBanners: false,
+    restRule,
+    restStartHour,
+    headcount,
+    manHours,
+    sections,
+  };
+}
+
+function buildSections(opts: {
+  sort: ScheduleSort;
+  people: SchedulePersonRow[];
+  stations: ScheduleStationLike[];
+  stationsById: Map<string, ScheduleStationLike>;
+  unassignedGroupLabel: string;
+}): ScheduleSection[] {
+  if (opts.sort === "name") {
+    return [
+      {
+        stationId: null,
+        label: null,
+        color: null,
+        kind: "thin",
+        rows: opts.people,
+      },
+    ];
+  }
+
   const groupMap = new Map<string | null, SchedulePersonRow[]>();
-  for (const row of people) {
+  for (const row of opts.people) {
     const key = row.primaryStationId;
     const list = groupMap.get(key) ?? [];
     list.push(row);
     groupMap.set(key, list);
   }
 
-  const groups: ScheduleGroup[] = [];
+  const sections: ScheduleSection[] = [];
   for (const st of [...opts.stations].sort((a, b) => a.sortOrder - b.sortOrder)) {
     const rows = groupMap.get(st.id);
     if (!rows?.length) continue;
-    groups.push({
+    sections.push({
       stationId: st.id,
       label: st.label,
       color: st.color,
-      sortOrder: st.sortOrder,
+      kind: "thin",
       rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
     });
     groupMap.delete(st.id);
   }
-  const unassigned = groupMap.get(null) ?? [];
-  // Any leftover station ids not in stations list
   for (const [sid, rows] of groupMap) {
     if (sid == null) continue;
-    groups.push({
+    sections.push({
       stationId: sid,
-      label: stationsById.get(sid)?.label ?? sid,
-      color: stationsById.get(sid)?.color ?? "gray",
-      sortOrder: 999,
+      label: opts.stationsById.get(sid)?.label ?? sid,
+      color: opts.stationsById.get(sid)?.color ?? "gray",
+      kind: "thin",
       rows,
     });
   }
+  const unassigned = groupMap.get(null) ?? [];
   if (unassigned.length) {
-    groups.push({
+    sections.push({
       stationId: null,
       label: opts.unassignedGroupLabel,
       color: null,
-      sortOrder: 1000,
+      kind: "thin",
       rows: unassigned.sort((a, b) => a.name.localeCompare(b.name)),
     });
   }
-  groups.sort((a, b) => a.sortOrder - b.sortOrder);
-
-  return {
-    hours,
-    mode: opts.mode,
-    restRule,
-    restStartHour,
-    headcount,
-    manHours,
-    groups,
-  };
+  return sections;
 }

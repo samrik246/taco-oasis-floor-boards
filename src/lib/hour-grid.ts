@@ -31,3 +31,10 @@ export function formatHourLabel(hour: number): string {
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${h12}:00 ${suffix}`;
 }
+
+/** Compact wall-clock label: 7 → "7a", 12 → "12p", 18 → "6p". */
+export function formatCompactHour(hour: number): string {
+  const suffix = hour >= 12 ? "p" : "a";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}${suffix}`;
+}

@@ -49,12 +49,67 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("schedule-mode-all-day")).toBeVisible();
     await expect(page.getByTestId("schedule-headcount-row")).toBeVisible();
     await expect(page.getByTestId("schedule-hour-7")).toBeVisible();
+    await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
+    await expect(page.locator("[data-testid^='schedule-group-']")).toHaveCount(0);
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-sort",
+      "name",
+    );
+    const positionBlock = page.locator("[data-text-kind='position']").first();
+    await expect(positionBlock).toBeVisible();
+    await expect(positionBlock).toHaveText(
+      (await positionBlock.getAttribute("data-code")) ?? "",
+    );
+    await page.getByTestId("schedule-sort-position").click();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-sort",
+      "position",
+    );
+    const personBlock = page.locator("[data-text-kind='person']").first();
+    await expect(personBlock).toBeVisible();
+    const personName = (await personBlock.getAttribute("data-person")) ?? "";
+    const shown = (await personBlock.innerText()).trim();
+    expect(personName.startsWith(shown.split(/\s+/)[0] ?? "___")).toBe(true);
+    expect(shown).not.toBe((await personBlock.getAttribute("data-code")) ?? "");
+    await expect(page.locator("[data-section-kind='thin']").first()).toBeVisible();
+    await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
+    await page.getByTestId("schedule-sort-name").click();
+
     await page.getByTestId("schedule-mode-rest-of-day").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
       "data-mode",
       "rest-of-day",
     );
     await expect(page.getByTestId("schedule-rest-rule")).toBeVisible();
+
+    for (const id of ["board", "timeline", "schedule", "tareas", "rush"]) {
+      await expect(page.getByTestId(`view-toggle-${id}`)).toBeVisible();
+    }
+    await page.getByTestId("view-toggle-rush").click();
+    await expect(page.getByTestId("rush-panel")).toBeVisible();
+    await expect(page.getByTestId("rush-summary")).toContainText(
+      /Gets busier around 12p/i,
+    );
+    await expect(page.getByTestId("rush-prep")).toContainText(
+      /Prep before the rush/i,
+    );
+    await expect(page.getByTestId("rush-basis")).toContainText(
+      /historical sales/i,
+    );
+    await expect(page.getByTestId("rush-hour-12")).toHaveAttribute(
+      "data-rush",
+      "true",
+    );
+    await expect(page.getByTestId("rush-hour-18")).toHaveAttribute(
+      "data-rush",
+      "true",
+    );
+    await expect(page.getByTestId("rush-hour-10")).toHaveAttribute(
+      "data-rush",
+      "false",
+    );
+    await expect(page.getByTestId("rush-hour-7")).toBeVisible();
+    await expect(page.getByTestId("rush-hour-21")).toBeVisible();
 
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
@@ -158,6 +213,36 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("schedule-grid")).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
+    await expect(page.locator("[data-text-kind='position']").first()).toBeVisible();
+    await expect(page.getByTestId("schedule-sort-name")).toContainText(
+      /Por nombre/i,
+    );
+    await expect(page.getByTestId("schedule-sort-position")).toContainText(
+      /Por puesto/i,
+    );
+
+    await page.getByTestId("view-toggle-rush").click();
+    await expect(page.getByTestId("view-toggle-rush")).toContainText(
+      /Más ocupado/i,
+    );
+    await expect(page.getByTestId("rush-panel")).toHaveAttribute(
+      "data-locale",
+      "es",
+    );
+    await expect(page.getByTestId("rush-summary")).toContainText(/más ocupado/i);
+    await expect(page.getByTestId("rush-basis")).toContainText(
+      /ventas históricas/i,
+    );
+    await expect(page.getByTestId("rush-prep")).toContainText(/antes del rush/i);
+    await expect(page.getByTestId("rush-hour-12")).toHaveAttribute(
+      "data-rush",
+      "true",
+    );
+    await expect(page.getByTestId("rush-hour-19")).toHaveAttribute(
+      "data-rush",
+      "true",
+    );
 
     // Idle timeout returns to staff (MANAGER_IDLE_MS=1500 in playwright config)
     await page.getByTestId("view-toggle-board").click();

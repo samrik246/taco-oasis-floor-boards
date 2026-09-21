@@ -4,9 +4,10 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import {
   buildScheduleGrid,
   type ScheduleMode,
+  type ScheduleSort,
 } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
-import { formatHourLabel } from "@/lib/hour-grid";
+import { formatCompactHour, formatHourLabel } from "@/lib/hour-grid";
 import { stationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DayBoardDto } from "./types";
@@ -20,12 +21,18 @@ type Props = {
   now?: Date;
 };
 
+const NAME_COL = "left-0 w-[10.5rem] min-w-[10.5rem] max-w-[10.5rem]";
+const SHIFT_COL = "left-[10.5rem] w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem]";
+
 /**
- * Spreadsheet-style schedule grid (cocina colores / caja colores).
- * Sticky name column, hour headcounts, station-colored blocks, all-day / rest-of-day.
+ * People × hours schedule.
+ * By name (default): sticky person + shift, colored blocks show the position code.
+ * By position: thin section labels, colored blocks show the person’s name.
+ * No full-width station banner rows.
  */
 export function SchedulePanel({ day, date, locale, t, now }: Props) {
   const [mode, setMode] = useState<ScheduleMode>("all-day");
+  const [sort, setSort] = useState<ScheduleSort>("name");
 
   const grid = useMemo(() => {
     if (!day || !date) return null;
@@ -39,10 +46,11 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
         sortOrder: s.sortOrder,
       })),
       mode,
+      sort,
       now,
       unassignedGroupLabel: t.scheduleUnassignedGroup,
     });
-  }, [day, date, locale, mode, now, t.scheduleUnassignedGroup]);
+  }, [day, date, locale, mode, now, sort, t.scheduleUnassignedGroup]);
 
   const restHint =
     grid?.restRule === "today-from-now"
@@ -51,50 +59,87 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
         ? t.scheduleRestRuleOther
         : null;
 
+  const peopleCount =
+    grid?.sections.reduce((n, section) => n + section.rows.length, 0) ?? 0;
+
   return (
     <section
       className="flex min-w-0 flex-col gap-3 rounded-lg border-2 border-neutral-900 bg-white p-3"
       data-testid="schedule-panel"
       data-mode={mode}
+      data-sort={sort}
       data-locale={locale}
+      data-station-banners="false"
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-lg font-bold" data-testid="schedule-title">
             {t.scheduleTitle}
           </h2>
-          <p className="text-xs font-medium text-neutral-600">
+          <p className="max-w-xl text-xs font-medium text-neutral-600">
             {t.scheduleHint}
           </p>
         </div>
 
-        <div
-          className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
-          role="group"
-          aria-label={t.scheduleModeLabel}
-          data-testid="schedule-mode-toggle"
-        >
-          {(
-            [
-              ["all-day", t.scheduleAllDay],
-              ["rest-of-day", t.scheduleRestOfDay],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={cn(
-                "touch-target min-h-11 rounded-md px-3 text-sm font-semibold active:opacity-90",
-                mode === id
-                  ? "bg-neutral-800 text-white"
-                  : "bg-white text-neutral-900 active:bg-neutral-200",
-              )}
-              onClick={() => setMode(id)}
-              data-testid={`schedule-mode-${id}`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
+            role="group"
+            aria-label={t.scheduleSortLabel}
+            data-testid="schedule-sort-toggle"
+          >
+            {(
+              [
+                ["name", t.scheduleSortName],
+                ["position", t.scheduleSortPosition],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={cn(
+                  "touch-target min-h-11 rounded-md px-3 text-sm font-semibold active:opacity-90",
+                  sort === id
+                    ? "bg-neutral-800 text-white"
+                    : "bg-white text-neutral-900 active:bg-neutral-200",
+                )}
+                aria-pressed={sort === id}
+                onClick={() => setSort(id)}
+                data-testid={`schedule-sort-${id}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
+            role="group"
+            aria-label={t.scheduleModeLabel}
+            data-testid="schedule-mode-toggle"
+          >
+            {(
+              [
+                ["all-day", t.scheduleAllDay],
+                ["rest-of-day", t.scheduleRestOfDay],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={cn(
+                  "touch-target min-h-11 rounded-md px-3 text-sm font-semibold active:opacity-90",
+                  mode === id
+                    ? "bg-neutral-800 text-white"
+                    : "bg-white text-neutral-900 active:bg-neutral-200",
+                )}
+                onClick={() => setMode(id)}
+                data-testid={`schedule-mode-${id}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -113,7 +158,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
         </p>
       )}
 
-      {!grid || grid.groups.length === 0 ? (
+      {!grid || peopleCount === 0 ? (
         <p
           className="rounded-md border-2 border-dashed border-neutral-400 px-3 py-6 text-center text-sm font-medium text-neutral-600"
           data-testid="schedule-empty"
@@ -126,63 +171,46 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
             <thead>
               <tr>
                 <th
-                  className="sticky left-0 z-20 min-w-[9rem] border-b-2 border-r border-neutral-900 bg-white px-2 py-2 text-sm font-bold"
+                  className={cn(
+                    "sticky z-20 border-b-2 border-r border-neutral-900 bg-white px-2 py-1.5 text-sm font-bold",
+                    NAME_COL,
+                  )}
                   scope="col"
                 >
                   {t.person}
                 </th>
                 <th
-                  className="sticky left-[9rem] z-20 min-w-[4.5rem] border-b-2 border-r border-neutral-900 bg-white px-1 py-2 text-center text-xs font-bold"
+                  className={cn(
+                    "sticky z-20 border-b-2 border-r-2 border-neutral-900 bg-white px-1 py-1.5 text-center text-xs font-bold",
+                    SHIFT_COL,
+                  )}
                   scope="col"
                 >
                   {t.scheduleShiftCol}
                 </th>
-                <th
-                  className="sticky left-[13.5rem] z-20 min-w-[5.5rem] border-b-2 border-r-2 border-neutral-900 bg-white px-1 py-2 text-center text-xs font-bold"
-                  scope="col"
-                >
-                  {t.scheduleAreaCol}
-                </th>
                 {grid.hours.map((h) => (
                   <th
                     key={h}
-                    className="min-w-[3.25rem] border-b-2 border-neutral-900 px-0.5 py-2 text-center font-bold"
+                    className="min-w-[3.4rem] border-b-2 border-neutral-900 px-0.5 py-1.5 text-center text-xs font-bold"
                     scope="col"
                     data-testid={`schedule-hour-${h}`}
                   >
-                    {formatHourLabel(h)}
+                    {formatCompactHour(h)}
                   </th>
                 ))}
               </tr>
               <tr data-testid="schedule-headcount-row">
                 <th
-                  colSpan={3}
-                  className="sticky left-0 z-20 border-b border-r-2 border-neutral-400 bg-neutral-100 px-2 py-1.5 text-left text-xs font-bold"
+                  colSpan={2}
+                  className="sticky left-0 z-20 border-b border-r-2 border-neutral-300 bg-neutral-50 px-2 py-0.5 text-left text-[11px] font-bold"
                 >
                   {t.scheduleHeadcount}
                 </th>
                 {grid.headcount.map((n, i) => (
                   <td
                     key={grid.hours[i]}
-                    className="border-b border-neutral-400 bg-neutral-100 px-0.5 py-1.5 text-center text-sm font-bold tabular-nums"
+                    className="border-b border-neutral-300 bg-neutral-50 px-0.5 py-0.5 text-center text-xs font-bold tabular-nums"
                     data-testid={`schedule-headcount-${grid.hours[i]}`}
-                  >
-                    {n}
-                  </td>
-                ))}
-              </tr>
-              <tr data-testid="schedule-manhours-row">
-                <th
-                  colSpan={3}
-                  className="sticky left-0 z-20 border-b-2 border-r-2 border-neutral-900 bg-neutral-50 px-2 py-1.5 text-left text-xs font-bold"
-                >
-                  {t.scheduleManHours}
-                </th>
-                {grid.manHours.map((n, i) => (
-                  <td
-                    key={grid.hours[i]}
-                    className="border-b-2 border-neutral-900 bg-neutral-50 px-0.5 py-1.5 text-center text-sm font-bold tabular-nums"
-                    data-testid={`schedule-manhours-${grid.hours[i]}`}
                   >
                     {n}
                   </td>
@@ -190,49 +218,76 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
               </tr>
             </thead>
             <tbody>
-              {grid.groups.map((group) => (
-                <Fragment key={`g-${group.stationId ?? "none"}`}>
-                  <tr
-                    data-testid={`schedule-group-${group.stationId ?? "unassigned"}`}
-                  >
-                    <th
-                      colSpan={3 + grid.hours.length}
-                      className={cn(
-                        "sticky left-0 z-10 border-y border-neutral-800 px-2 py-2 text-left text-sm font-extrabold uppercase tracking-wide",
-                        group.color
-                          ? stationSolidClass(group.color)
-                          : "bg-neutral-200 text-neutral-900",
-                      )}
+              {grid.sections.map((section) => (
+                <Fragment key={`s-${section.stationId ?? "all"}-${section.label ?? "flat"}`}>
+                  {section.label ? (
+                    <tr
+                      data-testid={`schedule-section-${section.stationId ?? "unassigned"}`}
+                      data-section-kind="thin"
+                      data-station-banner="false"
+                      className="h-5"
                     >
-                      {group.label}
-                    </th>
-                  </tr>
-                  {group.rows.map((row) => (
+                      <th
+                        colSpan={2}
+                        className="sticky left-0 z-10 border-b border-r-2 border-neutral-300 bg-neutral-100 px-2 py-0 text-left text-[10px] font-bold uppercase leading-5 tracking-wide text-neutral-700"
+                        scope="rowgroup"
+                      >
+                        {section.label}
+                      </th>
+                      {grid.hours.map((h) => (
+                        <td
+                          key={h}
+                          className="border-b border-neutral-200 bg-neutral-100 p-0"
+                        />
+                      ))}
+                    </tr>
+                  ) : null}
+                  {section.rows.map((row) => (
                     <tr
                       key={row.employeeId}
                       data-testid={`schedule-row-${row.externalId}`}
                     >
                       <th
-                        className="sticky left-0 z-10 border-b border-r border-neutral-300 bg-white px-2 py-1.5 text-sm font-bold"
+                        className={cn(
+                          "sticky z-10 border-b border-r border-neutral-300 bg-white px-2 py-1 text-sm font-bold",
+                          NAME_COL,
+                        )}
                         scope="row"
                       >
-                        <span className="block min-h-10 content-center leading-tight">
+                        <span className="block min-h-9 content-center leading-tight">
                           {row.name}
                         </span>
                       </th>
-                      <td className="sticky left-[9rem] z-10 border-b border-r border-neutral-300 bg-white px-1 py-1.5 text-center text-xs font-semibold tabular-nums">
+                      <td
+                        className={cn(
+                          "sticky z-10 border-b border-r-2 border-neutral-300 bg-white px-1 py-1 text-center text-[11px] font-semibold tabular-nums",
+                          SHIFT_COL,
+                        )}
+                      >
                         {row.shiftLabel}
-                      </td>
-                      <td className="sticky left-[13.5rem] z-10 border-b border-r-2 border-neutral-300 bg-white px-1 py-1.5 text-center text-xs font-semibold">
-                        {row.primaryStationId
-                          ? stationLabel(locale, row.primaryStationId)
-                          : "—"}
                       </td>
                       {renderRowCells(row, grid.hours)}
                     </tr>
                   ))}
                 </Fragment>
               ))}
+              <tr data-testid="schedule-manhours-row">
+                <th
+                  colSpan={2}
+                  className="sticky left-0 z-10 border-t border-r-2 border-neutral-300 bg-neutral-50 px-2 py-0.5 text-left text-[11px] font-bold"
+                >
+                  {t.scheduleManHours}
+                </th>
+                {grid.manHours.map((n, i) => (
+                  <td
+                    key={grid.hours[i]}
+                    className="border-t border-neutral-300 bg-neutral-50 px-0.5 py-0.5 text-center text-xs font-bold tabular-nums"
+                    data-testid={`schedule-manhours-${grid.hours[i]}`}
+                  >
+                    {n}
+                  </td>
+                ))}
+              </tr>
             </tbody>
           </table>
         </div>
@@ -243,10 +298,13 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
 
 function renderRowCells(
   row: {
+    name: string;
     hourStations: Map<number, string | null | undefined>;
     blocks: Array<{
       stationId: string;
       code: string;
+      text: string;
+      textKind: "position" | "person";
       color: string;
       startHour: number;
       span: number;
@@ -270,11 +328,14 @@ function renderRowCells(
         >
           <div
             className={cn(
-              "flex min-h-10 items-center justify-center rounded-sm px-1 text-center text-[11px] font-extrabold tracking-wide",
+              "flex min-h-9 items-center justify-center rounded-sm px-1 text-center text-[11px] font-extrabold leading-tight tracking-wide",
               stationSolidClass(block.color),
             )}
+            data-text-kind={block.textKind}
+            data-code={block.code}
+            data-person={row.name}
           >
-            {block.code}
+            {block.text}
           </div>
         </td>,
       );
@@ -294,7 +355,7 @@ function renderRowCells(
           status === undefined ? "off" : status === null ? "open" : "seated"
         }
       >
-        <span className="block min-h-10 content-center">
+        <span className="block min-h-9 content-center">
           {status === null ? "·" : ""}
         </span>
       </td>,
