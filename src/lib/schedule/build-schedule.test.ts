@@ -5,6 +5,7 @@ import {
   chicagoYmd,
   formatShiftWindowLabel,
   resolveRestOfDayStart,
+  scheduleHasFullWidthStationBanners,
 } from "@/lib/schedule/build-schedule";
 import { stationShortCode } from "@/lib/schedule/station-codes";
 import { chicagoDateTime } from "@/lib/time";
@@ -81,7 +82,7 @@ describe("buildScheduleGrid", () => {
     },
   ];
 
-  it("builds all-day grid with headcount and grouped blocks", () => {
+  it("builds all-day grid sorted by name with position text and no banners", () => {
     const grid = buildScheduleGrid({
       date: "2026-09-21",
       shifts,
@@ -92,19 +93,53 @@ describe("buildScheduleGrid", () => {
     });
     expect(grid.hours[0]).toBe(7);
     expect(grid.hours[grid.hours.length - 1]).toBe(21);
-    expect(grid.groups.some((g) => g.stationId === "fryer")).toBe(true);
-    expect(grid.groups.some((g) => g.stationId === "carne")).toBe(true);
-    const fryerRow = grid.groups
-      .find((g) => g.stationId === "fryer")
-      ?.rows.find((r) => r.externalId === "100");
-    expect(fryerRow?.blocks[0]).toMatchObject({
+    expect(grid.sort).toBe("name");
+    expect(grid.stationBanners).toBe(false);
+    expect(grid.sections.every((s) => s.label == null && s.kind === "thin")).toBe(
+      true,
+    );
+    const ana = grid.sections
+      .flatMap((s) => s.rows)
+      .find((r) => r.externalId === "100");
+    expect(ana?.blocks[0]).toMatchObject({
       stationId: "fryer",
       code: "FRY",
+      text: "FRY",
+      textKind: "position",
       startHour: 8,
       span: 2,
     });
     const hc10 = grid.headcount[grid.hours.indexOf(10)];
     expect(hc10).toBe(2);
+    expect(grid.sections[0]?.rows.map((r) => r.name)).toEqual([
+      "Ana Lopez",
+      "Luis Perez",
+    ]);
+  });
+
+  it("by position groups with thin labels and shows the person name", () => {
+    const grid = buildScheduleGrid({
+      date: "2026-09-21",
+      shifts,
+      stations,
+      mode: "all-day",
+      sort: "position",
+      unassignedGroupLabel: "Sin asignar",
+    });
+    expect(grid.stationBanners).toBe(false);
+    expect(grid.sections.map((s) => s.label)).toEqual(["Freidora", "Carne"]);
+    expect(grid.sections.every((s) => s.kind === "thin")).toBe(true);
+    const ana = grid.sections
+      .find((s) => s.stationId === "fryer")
+      ?.rows.find((r) => r.externalId === "100");
+    expect(ana?.blocks.every((b) => b.text === "Ana" && b.textKind === "person")).toBe(
+      true,
+    );
+    expect(ana?.blocks.map((b) => b.code)).toEqual(["FRY", "TOR"]);
+    const luis = grid.sections
+      .flatMap((s) => s.rows)
+      .find((r) => r.externalId === "200");
+    expect(luis?.blocks[0]?.text).toBe("Luis");
   });
 
   it("rest-of-day from now when viewing today", () => {
@@ -154,6 +189,8 @@ describe("buildScheduleGrid", () => {
       {
         stationId: "fryer",
         code: "FRY",
+        text: "FRY",
+        textKind: "position",
         color: "orange",
         startHour: 8,
         span: 2,
@@ -161,11 +198,25 @@ describe("buildScheduleGrid", () => {
       {
         stationId: "tortilla",
         code: "TOR",
+        text: "TOR",
+        textKind: "position",
         color: "yellow",
         startHour: 10,
         span: 1,
       },
     ]);
+  });
+
+  it("never reports full-width station banners", () => {
+    const grid = buildScheduleGrid({
+      date: "2026-09-21",
+      shifts,
+      stations,
+      mode: "all-day",
+      sort: "position",
+      unassignedGroupLabel: "Unassigned",
+    });
+    expect(scheduleHasFullWidthStationBanners(grid)).toBe(false);
   });
 });
 
@@ -200,6 +251,11 @@ describe("cocina schedule i18n", () => {
     expect(es.scheduleRestOfDay).toBe("Resto del día");
     expect(es.scheduleHeadcount).toBe("Personas");
     expect(es.scheduleTitle).toMatch(/Horario/i);
+    expect(es.scheduleSortName).toBe("Por nombre");
+    expect(es.scheduleSortPosition).toBe("Por puesto");
+    expect(es.viewRush).toBe("Más ocupado");
+    expect(es.rushBasis).toMatch(/ventas históricas/i);
+    expect(es.rushPrep).toMatch(/antes del rush/i);
   });
 
   it("keeps English schedule strings for caja", () => {
@@ -207,5 +263,9 @@ describe("cocina schedule i18n", () => {
     expect(en.viewSchedule).toBe("Schedule");
     expect(en.scheduleAllDay).toBe("All day");
     expect(en.scheduleRestOfDay).toBe("Rest of day");
+    expect(en.scheduleSortName).toBe("By name");
+    expect(en.viewRush).toBe("Rush");
+    expect(en.rushSummaryLead).toMatch(/Gets busier/i);
+    expect(en.rushPrep).toMatch(/Prep before the rush/i);
   });
 });

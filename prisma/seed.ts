@@ -10,6 +10,7 @@ import {
   DEMO_MANAGERS,
   hashManagerCode,
 } from "../src/lib/managers/codes";
+import { historicalSaleRows } from "../src/lib/rush/historical-sales";
 
 const prisma = new PrismaClient();
 
@@ -135,12 +136,16 @@ async function main() {
     }
   }
 
+  const sales = historicalSaleRows();
+  await prisma.historicalHourlySale.deleteMany();
+  await prisma.historicalHourlySale.createMany({ data: sales });
+
   const count = await prisma.station.count();
   const tareas = await prisma.tareaTemplate.count();
   const questions = await prisma.performanceQuestion.count();
   const managers = await prisma.manager.count();
   console.log(
-    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, traffic meters.`,
+    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, ${sales.length} historical hourly sales, traffic meters.`,
   );
 }
 
