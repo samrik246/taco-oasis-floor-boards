@@ -24,7 +24,9 @@ export default defineConfig({
   },
   webServer: {
     command: [
-      "rm -f prisma/e2e.db prisma/e2e.db-journal",
+      "rm -f prisma/e2e.db prisma/e2e.db-journal prisma/e2e.db-wal prisma/e2e.db-shm",
+      // Prisma on macOS needs the SQLite file to exist before `db push` opens it.
+      "touch prisma/e2e.db",
       'DATABASE_URL="file:./e2e.db" pnpm db:setup',
       // Build once if .next missing; reuse otherwise for speed
       "test -d .next || pnpm build",
@@ -36,6 +38,8 @@ export default defineConfig({
     env: {
       ...process.env,
       DATABASE_URL: "file:./e2e.db",
+      DEMO_MANAGER_CODES: "1",
+      MANAGER_SESSION_SECRET: "playwright-manager-session-secret-000000",
       // Short idle so manager→staff timeout e2e stays fast
       MANAGER_IDLE_MS: "1500",
     },

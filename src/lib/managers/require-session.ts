@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { managerSessionFromRequest } from "@/lib/managers/session";
+import {
+  managerSessionFromRequest,
+  managerSessionIsConfigured,
+} from "@/lib/managers/session";
 
 export type AuthedManager = { id: string; name: string };
 
@@ -14,6 +17,15 @@ export async function requireManagerSession(
   | { ok: true; manager: AuthedManager }
   | { ok: false; response: NextResponse }
 > {
+  if (!managerSessionIsConfigured()) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Manager access is not configured" },
+        { status: 503 },
+      ),
+    };
+  }
   const claims = managerSessionFromRequest(req);
   if (!claims) {
     return {

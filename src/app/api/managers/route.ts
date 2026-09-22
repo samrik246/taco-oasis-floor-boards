@@ -5,7 +5,10 @@ import {
   managerIdleMsFromEnv,
   verifyManagerCodeHash,
 } from "@/lib/managers/codes";
-import { signManagerSession } from "@/lib/managers/session";
+import {
+  managerSessionIsConfigured,
+  signManagerSession,
+} from "@/lib/managers/session";
 
 export const runtime = "nodejs";
 
@@ -15,11 +18,17 @@ export async function GET() {
 }
 
 const bodySchema = z.object({
-  code: z.string().min(1).max(32),
+  code: z.string().min(4).max(64),
 });
 
 /** Verify a manager access code. Never returns hashes or plaintext codes. */
 export async function POST(request: Request) {
+  if (!managerSessionIsConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "Manager access is not configured" },
+      { status: 503 },
+    );
+  }
   try {
     const json = await request.json();
     const { code } = bodySchema.parse(json);

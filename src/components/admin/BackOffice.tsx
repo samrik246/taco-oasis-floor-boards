@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { STATION_COLORS } from "@/lib/admin/validate";
 import { hourGridHours } from "@/lib/hour-grid";
-import { managerAuthHeaders } from "@/lib/managers/session";
+import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 
 const TOKEN_KEY = "taco-oasis-back-office-session";
 
@@ -742,31 +742,120 @@ function ManagersTab({
   onError: (msg: string) => void;
 }) {
   const [rows, setRows] = useState<ManagerRow[]>([]);
-  useEffect(() => {
-    let cancel = false;
-    void (async () => {
-      const res = await fetch("/api/admin/managers", { headers: auth });
-      if (!res.ok) {
-        onError(await readError(res));
-        return;
-      }
-      const data = (await res.json()) as { managers: ManagerRow[] };
-      if (!cancel) setRows(data.managers);
-    })();
-    return () => {
-      cancel = true;
-    };
+  const [newName, setNewName] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const [replacementCodes, setReplacementCodes] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/admin/managers", { headers: auth });
+    if (!res.ok) {
+      onError(await readError(res));
+      return;
+    }
+    const data = (await res.json()) as { managers: ManagerRow[] };
+    setRows(data.managers);
   }, [auth, onError]);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function createManager() {
+    const res = await fetch("/api/admin/managers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ name: newName, code: newCode }),
+    });
+    if (!res.ok) {
+      onError(await readError(res));
+      return;
+    }
+    setNewName("");
+    setNewCode("");
+    await load();
+  }
+
+  async function updateManager(id: string, input: { code?: string; active?: boolean }) {
+    const res = await fetch(`/api/admin/managers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      onError(await readError(res));
+      return;
+    }
+    if (input.code != null) {
+      setReplacementCodes((current) => ({ ...current, [id]: "" }));
+    }
+    await load();
+  }
+
   return (
-    <section>
+    <section className="flex flex-col gap-3">
       <p className="mb-3 text-sm text-neutral-700">
-        Names only. Access codes are hashed and are not loaded into this page.
+        Add a manager, rotate a code, or deactivate old access here. Codes are sent only to
+        create or rotate access; stored hashes are never loaded into this page.
       </p>
+      <div className="flex flex-wrap gap-2 rounded border-2 border-neutral-300 p-3">
+        <input
+          className="min-h-11 rounded border-2 px-2"
+          placeholder="Manager name"
+          value={newName}
+          onChange={(event) => setNewName(event.target.value)}
+          data-testid="manager-new-name"
+        />
+        <input
+          className="min-h-11 rounded border-2 px-2"
+          type="password"
+          autoComplete="new-password"
+          placeholder="New code"
+          value={newCode}
+          onChange={(event) => setNewCode(event.target.value)}
+          data-testid="manager-new-code"
+        />
+        <button
+          type="button"
+          className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white"
+          disabled={!newName.trim() || newCode.length < 4}
+          onClick={() => void createManager()}
+          data-testid="manager-create"
+        >
+          Add manager
+        </button>
+      </div>
       <ul className="flex flex-col gap-1" data-testid="manager-list">
         {rows.map((row) => (
-          <li key={row.id} className="font-semibold" data-testid={`manager-${row.name}`}>
-            {row.name} · {row.active ? "active" : "inactive"}
+          <li key={row.id} className="flex flex-wrap items-center gap-2 rounded border p-2" data-testid={`manager-${row.name}`}>
+            <span className="font-semibold">{row.name} · {row.active ? "active" : "inactive"}</span>
+            <input
+              className="min-h-10 rounded border px-2"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Replacement code"
+              value={replacementCodes[row.id] ?? ""}
+              onChange={(event) =>
+                setReplacementCodes((current) => ({ ...current, [row.id]: event.target.value }))
+              }
+              data-testid={`manager-code-${row.id}`}
+            />
+            <button
+              type="button"
+              className="min-h-10 rounded border-2 px-3 text-sm font-bold"
+              disabled={(replacementCodes[row.id] ?? "").length < 4}
+              onClick={() => void updateManager(row.id, { code: replacementCodes[row.id] })}
+              data-testid={`manager-rotate-${row.id}`}
+            >
+              Rotate code
+            </button>
+            <button
+              type="button"
+              className="min-h-10 rounded border-2 px-3 text-sm font-bold"
+              onClick={() => void updateManager(row.id, { active: !row.active })}
+              data-testid={`manager-active-${row.id}`}
+            >
+              {row.active ? "Deactivate" : "Activate"}
+            </button>
           </li>
         ))}
       </ul>

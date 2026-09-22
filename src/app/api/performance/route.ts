@@ -6,10 +6,13 @@ import {
   upsertPerformanceAnswers,
 } from "@/lib/performance/service";
 import { isFloorBoardId } from "@/lib/board-config";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const url = new URL(req.url);
     const date = url.searchParams.get("date");
@@ -49,6 +52,8 @@ const postSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
     const result = await upsertPerformanceAnswers(body);

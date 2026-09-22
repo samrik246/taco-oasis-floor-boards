@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteNote, updateNote } from "@/lib/notes";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /** PUT /api/notes/:id — { body } */
 export async function PUT(request: Request, context: RouteContext) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const { id } = paramsSchema.parse(await context.params);
     const json = await request.json();
@@ -38,7 +41,9 @@ export async function PUT(request: Request, context: RouteContext) {
 }
 
 /** DELETE /api/notes/:id */
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const { id } = paramsSchema.parse(await context.params);
     const ok = await deleteNote(id);

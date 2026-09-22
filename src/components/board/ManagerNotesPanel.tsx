@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { ManagerNoteDto } from "@/lib/notes-types";
 import { cn } from "@/lib/utils";
 import { boardDisplayName, type Locale, type Messages } from "@/lib/i18n";
+import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 
 type Props = {
   board: "caja" | "cocina";
@@ -13,6 +14,7 @@ type Props = {
   onToast: (kind: "ok" | "err", text: string) => void;
   locale: Locale;
   t: Messages;
+  managerToken: string | null;
 };
 
 /**
@@ -26,6 +28,7 @@ export function ManagerNotesPanel({
   onToast,
   locale,
   t,
+  managerToken,
 }: Props) {
   const [notes, setNotes] = useState<ManagerNoteDto[]>([]);
   const [draft, setDraft] = useState("");
@@ -42,6 +45,7 @@ export function ManagerNotesPanel({
     try {
       const res = await fetch(
         `/api/notes?board=${board}&date=${encodeURIComponent(date)}`,
+        { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok) {
         onToast("err", "Failed to load notes");
@@ -52,7 +56,7 @@ export function ManagerNotesPanel({
     } finally {
       setLoading(false);
     }
-  }, [board, date, onToast]);
+  }, [board, date, managerToken, onToast]);
 
   useEffect(() => {
     void refresh();
@@ -62,7 +66,10 @@ export function ManagerNotesPanel({
     if (readonly || !date || !draft.trim()) return;
     const res = await fetch("/api/notes", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(managerToken),
+      },
       body: JSON.stringify({ board, date, body: draft.trim() }),
     });
     const data = await res.json();
@@ -79,7 +86,10 @@ export function ManagerNotesPanel({
     if (readonly || !editBody.trim()) return;
     const res = await fetch(`/api/notes/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(managerToken),
+      },
       body: JSON.stringify({ body: editBody.trim() }),
     });
     const data = await res.json();
@@ -95,7 +105,10 @@ export function ManagerNotesPanel({
 
   async function removeNote(id: string) {
     if (readonly) return;
-    const res = await fetch(`/api/notes/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/notes/${id}`, {
+      method: "DELETE",
+      headers: managerAuthHeaders(managerToken),
+    });
     const data = await res.json();
     if (!res.ok) {
       onToast("err", data.error ?? "Could not delete note");

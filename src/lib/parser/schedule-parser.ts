@@ -48,10 +48,11 @@ function cellToString(value: ExcelJS.CellValue): string {
     return String(value).trim();
   }
   if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, "0");
-    const d = String(value.getDate()).padStart(2, "0");
-    // Prefer ISO if it looks like a date-only midnight
+    // ExcelJS represents date-only cells as midnight UTC. Calendar dates must
+    // not move backward when the home-base process runs west of UTC.
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }
   if (typeof value === "object") {

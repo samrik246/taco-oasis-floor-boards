@@ -15,15 +15,59 @@ import { STATION_SHORT_CODES } from "../src/lib/schedule/station-codes";
 
 const prisma = new PrismaClient();
 
-/**
- * Demo manager access codes (hashed before insert — never in client bundle):
- * - Ana Rivera  → 2468
- * - Luis Ortega → 1357
- * - Sam Chen    → 8642
- * Documented in docs/DEPLOY.md as well.
- */
+const useDemoManagerCodes = process.env.DEMO_MANAGER_CODES === "1";
+const initialManagerName = process.env.INITIAL_MANAGER_NAME?.trim();
+const initialManagerCode = process.env.INITIAL_MANAGER_CODE?.trim();
+const hasInitialManager = Boolean(
+  initialManagerName && initialManagerCode && initialManagerCode.length >= 4,
+);
+
+async function seedInitialManagers() {
+  const existingCount = await prisma.manager.count();
+  if (existingCount > 0) return existingCount;
+
+  if (useDemoManagerCodes) {
+    for (const manager of DEMO_MANAGERS) {
+      await prisma.manager.create({
+        data: {
+          name: manager.name,
+          codeHash: hashManagerCode(manager.code),
+          active: true,
+        },
+      });
+    }
+    return DEMO_MANAGERS.length;
+  }
+
+  if (!hasInitialManager) {
+    throw new Error(
+      "An empty database needs INITIAL_MANAGER_NAME and a four-or-more character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
+    );
+  }
+
+  await prisma.manager.create({
+    data: {
+      name: initialManagerName!,
+      codeHash: hashManagerCode(initialManagerCode!),
+      active: true,
+    },
+  });
+  return 1;
+}
 
 async function main() {
+  // Fail before modifying an empty production database that would have no manager.
+  const existingManagers = await prisma.manager.count();
+  if (
+    existingManagers === 0 &&
+    !useDemoManagerCodes &&
+    !hasInitialManager
+  ) {
+    throw new Error(
+      "An empty database needs INITIAL_MANAGER_NAME and a four-or-more character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
+    );
+  }
+
   // Remove obsolete Kitchen stations (pre–Kitchen-phase seeds) if unused.
   for (const id of OBSOLETE_COCINA_STATION_IDS) {
     const assignments = await prisma.assignment.count({
@@ -121,23 +165,7 @@ async function main() {
     });
   }
 
-  // Upsert demo managers by stable name (codes hashed — see DEMO_MANAGERS comments).
-  for (const m of DEMO_MANAGERS) {
-    const codeHash = hashManagerCode(m.code);
-    const existing = await prisma.manager.findFirst({
-      where: { name: m.name },
-    });
-    if (existing) {
-      await prisma.manager.update({
-        where: { id: existing.id },
-        data: { codeHash, active: true },
-      });
-    } else {
-      await prisma.manager.create({
-        data: { name: m.name, codeHash, active: true },
-      });
-    }
-  }
+  const managers = await seedInitialManagers();
 
   const sales = historicalSaleRows();
   await prisma.historicalHourlySale.deleteMany();
@@ -146,7 +174,6 @@ async function main() {
   const count = await prisma.station.count();
   const tareas = await prisma.tareaTemplate.count();
   const questions = await prisma.performanceQuestion.count();
-  const managers = await prisma.manager.count();
   console.log(
     `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, ${sales.length} historical hourly sales, traffic meters.`,
   );

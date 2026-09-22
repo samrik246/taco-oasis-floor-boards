@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createNote, listNotes } from "@/lib/notes";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ const createSchema = z.object({
 
 /** GET /api/notes?board=caja&date=YYYY-MM-DD */
 export async function GET(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const url = new URL(request.url);
     const { board, date } = querySchema.parse({
@@ -39,6 +42,8 @@ export async function GET(request: Request) {
 
 /** POST /api/notes — { board, date, body } */
 export async function POST(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const json = await request.json();
     const input = createSchema.parse(json);

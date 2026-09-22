@@ -1,10 +1,17 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PATCH as patchStation } from "@/app/api/admin/stations/[id]/route";
-import { GET as listManagers } from "@/app/api/admin/managers/route";
+import {
+  GET as listManagers,
+  POST as createManager,
+} from "@/app/api/admin/managers/route";
+import { PATCH as patchManager } from "@/app/api/admin/managers/[id]/route";
 import { POST as seat } from "@/app/api/admin/seat-plan/route";
 import { PUT as saveSales } from "@/app/api/admin/sales/route";
 import { GET as rush } from "@/app/api/rush/route";
+import { GET as listNotes, POST as saveNote } from "@/app/api/notes/route";
+import { GET as getPerformance, POST as savePerformance } from "@/app/api/performance/route";
+import { POST as managerLogin } from "@/app/api/managers/route";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
 import { hourGridHours } from "@/lib/hour-grid";
@@ -248,5 +255,117 @@ describe("back office persistence", () => {
     expect(text).not.toMatch(/8642/);
     const data = JSON.parse(text) as { managers: { name: string }[] };
     expect(data.managers.some((row) => row.name === "Ana Rivera")).toBe(true);
+  });
+
+  it("requires a manager token for notes and performance reads and writes", async () => {
+    const notesRead = await listNotes(
+      new Request("http://local/api/notes?board=caja&date=2026-01-15"),
+    );
+    expect(notesRead.status).toBe(401);
+
+    const performanceRead = await getPerformance(
+      new Request("http://local/api/performance?board=caja&date=2026-01-15"),
+    );
+    expect(performanceRead.status).toBe(401);
+
+    const note = await saveNote(
+      new Request("http://local/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board: "caja", date: "2026-01-15", body: "No token" }),
+      }),
+    );
+    expect(note.status).toBe(401);
+
+    const performance = await savePerformance(
+      new Request("http://local/api/performance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          board: "caja",
+          date: "2026-01-15",
+          employeeId: "someone",
+          answers: [],
+        }),
+      }),
+    );
+    expect(performance.status).toBe(401);
+
+    const token = await managerToken();
+    const authorizedNotesRead = await listNotes(
+      authed(token, "http://local/api/notes?board=caja&date=2026-01-15"),
+    );
+    expect(authorizedNotesRead.status).toBe(200);
+
+    const authorizedPerformanceRead = await getPerformance(
+      authed(
+        token,
+        "http://local/api/performance?board=caja&date=2026-01-15",
+      ),
+    );
+    expect(authorizedPerformanceRead.status).toBe(200);
+  });
+
+  it("creates and rotates manager access without returning codes or hashes", async () => {
+    const code = "a".repeat(64);
+    const body = JSON.stringify({
+      name: `Rotation Test ${Date.now()}`,
+      code,
+    });
+    const denied = await createManager(
+      new Request("http://local/api/admin/managers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    expect(denied.status).toBe(401);
+
+    const token = await managerToken();
+    const created = await createManager(
+      authed(token, "http://local/api/admin/managers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    expect(created.status).toBe(201);
+    const text = await created.text();
+    expect(text).not.toMatch(/2468|codeHash/);
+    const manager = JSON.parse(text) as {
+      manager: { id: string; active: boolean };
+    };
+    expect(manager.manager.active).toBe(true);
+
+    const login = await managerLogin(
+      new Request("http://local/api/managers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      }),
+    );
+    expect(login.status).toBe(200);
+    const loginText = await login.text();
+    expect(loginText).not.toContain(code);
+    expect(JSON.parse(loginText).sessionToken).toEqual(expect.any(String));
+
+    const rotated = await patchManager(
+      authed(token, `http://local/api/admin/managers/${manager.manager.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "9753", active: false }),
+      }),
+      { params: Promise.resolve({ id: manager.manager.id }) },
+    );
+    expect(rotated.status).toBe(200);
+    const rotatedText = await rotated.text();
+    const rotatedManager = JSON.parse(rotatedText).manager as {
+      active: boolean;
+      code?: string;
+      codeHash?: string;
+    };
+    expect(rotatedManager).not.toHaveProperty("code");
+    expect(rotatedManager).not.toHaveProperty("codeHash");
+    expect(rotatedManager.active).toBe(false);
   });
 });

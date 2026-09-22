@@ -28,8 +28,9 @@ Sheets: `Schedules - Restaurant` (required), `Hourly - Restaurant` (optional)
 ## Quick start
 ```bash
 pnpm i
-pnpm db:setup
-pnpm dev
+# Local demo only: never use this flag on the home base.
+DEMO_MANAGER_CODES=1 pnpm db:setup
+MANAGER_SESSION_SECRET="replace-with-a-local-secret-of-32+-characters" pnpm dev
 # http://localhost:3000
 ```
 
@@ -40,18 +41,16 @@ pnpm dev
 | `pnpm build` | Prisma generate + Next production build |
 | `pnpm test` | Vitest unit/integration tests |
 | `pnpm test:e2e` | Playwright smoke (fresh `prisma/e2e.db`) |
-| `pnpm db:setup` | `prisma db push` + seed stations |
+| `pnpm db:setup` | `prisma db push` + seed stations and an initial manager |
 | `pnpm tsx scripts/build-sample-xlsx.ts` | Rebuild sample xlsx from CSV |
 
-## Manager access (demo)
+## Manager access
 
-Staff view is the default tablet UI. **Manager unlock** uses personal codes (hashed in DB). Seeded demos (also in `docs/DEPLOY.md` / `prisma/seed.ts`):
+Staff view is the default tablet UI. **Manager unlock** uses personal codes (hashed in DB). Every running app also needs a private `MANAGER_SESSION_SECRET` of at least 32 characters; it is never sent to the browser.
 
-| Manager | Code |
-|---------|------|
-| Ana Rivera | `2468` |
-| Luis Ortega | `1357` |
-| Sam Chen | `8642` |
+For an empty production database, set `INITIAL_MANAGER_NAME` and a four-or-more-character `INITIAL_MANAGER_CODE` only for `pnpm db:setup`; it creates one hashed manager code. Remove the bootstrap code from the environment afterward. The Back office **Managers** tab can add managers, rotate codes, and deactivate old access without showing stored codes or hashes.
+
+`DEMO_MANAGER_CODES=1` creates the documented demo accounts for local development and Playwright only. It must never be set on a home-base deployment.
 
 Idle timeout: **15s** back to staff (`MANAGER_IDLE_MS`, default `15000`).
 

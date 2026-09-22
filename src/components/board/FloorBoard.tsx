@@ -54,7 +54,7 @@ import {
   localeForBoard,
   messagesFor,
 } from "@/lib/i18n";
-import { managerAuthHeaders } from "@/lib/managers/session";
+import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { readLastBoard, saveLastBoard } from "@/lib/offline-board";
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { KioskLock, kioskRequested } from "./KioskLock";
@@ -1110,6 +1110,7 @@ export function FloorBoard() {
                 readonly={editsLocked}
                 locale={locale}
                 t={t}
+                managerToken={manager?.token ?? null}
               />
             </div>
           )}
@@ -1379,6 +1380,7 @@ export function FloorBoard() {
                   readonly={editsLocked}
                   locale={locale}
                   t={t}
+                  managerToken={manager?.token ?? null}
                 />
                 <EmployeesPanel
                   readonly={editsLocked}
@@ -1392,6 +1394,7 @@ export function FloorBoard() {
                   onToast={showToast}
                   locale={locale}
                   t={t}
+                  managerToken={manager?.token ?? null}
                 />
               </>
             )}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { performancePrompt, type Locale, type Messages } from "@/lib/i18n";
+import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 
 type QuestionDto = {
   id: string;
@@ -21,6 +22,7 @@ type Props = {
   onSaved?: () => void;
   locale: Locale;
   t: Messages;
+  managerToken: string | null;
 };
 
 const CHOICES: Record<string, string[]> = {
@@ -41,6 +43,7 @@ export function PerformanceSurveyPanel({
   onSaved,
   locale,
   t,
+  managerToken,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [questions, setQuestions] = useState<QuestionDto[]>([]);
@@ -53,6 +56,7 @@ export function PerformanceSurveyPanel({
     void (async () => {
       const res = await fetch(
         `/api/performance?date=${encodeURIComponent(date)}&board=${board}&employeeId=${encodeURIComponent(employeeId)}`,
+        { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok || cancelled) return;
       const data = (await res.json()) as {
@@ -67,14 +71,17 @@ export function PerformanceSurveyPanel({
     return () => {
       cancelled = true;
     };
-  }, [open, date, board, employeeId]);
+  }, [open, date, board, employeeId, managerToken]);
 
   async function save() {
     if (!employeeId || readonly) return;
     setStatus(null);
     const res = await fetch("/api/performance", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(managerToken),
+      },
       body: JSON.stringify({
         date,
         board,
