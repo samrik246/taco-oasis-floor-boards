@@ -55,9 +55,15 @@ import {
   messagesFor,
 } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
-import { readLastBoard, saveLastBoard } from "@/lib/offline-board";
+import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
+import {
+  isCurrentBoardRequest,
+  liveRefreshState,
+  offlineRefreshState,
+} from "@/lib/board/refresh-state";
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { KioskLock, kioskRequested } from "./KioskLock";
+import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
@@ -95,8 +101,10 @@ export function FloorBoard() {
     searchParams.get("readonly") === "1" ||
     searchParams.get("readonly") === "true";
   const kiosk = kioskRequested(searchParams);
+  const requestedBoard: BoardKindUi =
+    searchParams.get("board") === "cocina" ? "cocina" : "caja";
 
-  const [board, setBoard] = useState<BoardKindUi>("caja");
+  const [board, setBoard] = useState<BoardKindUi>(requestedBoard);
   const [mainView, setMainView] = useState<MainView>("board");
   const [unlockOpen, setUnlockOpen] = useState(false);
   const { manager, isManager, idleMs, unlock, lock } = useManagerSession();
@@ -106,7 +114,7 @@ export function FloorBoard() {
 
   const [dates, setDates] = useState<string[]>([]);
   const [date, setDate] = useState<string>("");
-  const [hour, setHour] = useState<number>(10);
+  const [hour, setHour] = useState<number>(() => preferredBoardHour(new Date()));
   const [day, setDay] = useState<DayBoardDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -144,6 +152,13 @@ export function FloorBoard() {
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
+  // Compare every response with the current selection so a slow prior request
+  // cannot repaint a newly selected board/date.
+  const activeBoardRef = useRef(board);
+  const activeDateRef = useRef(date);
+  const syncedUrlBoardRef = useRef(requestedBoard);
+  activeBoardRef.current = board;
+  activeDateRef.current = date;
 
   const showToast = useCallback((kind: "ok" | "err", text: string) => {
     setToast({ kind, text });
@@ -208,8 +223,7 @@ export function FloorBoard() {
       setLoadError(null);
       setDate((prev) => {
         if (prev && data.dates.includes(prev)) return prev;
-        if (data.dates.includes("2026-09-20")) return "2026-09-20";
-        return data.dates[0] ?? "";
+        return preferredBoardDate(data.dates, new Date());
       });
     } catch {
       setLoadError("Network error loading dates.");
@@ -221,25 +235,37 @@ export function FloorBoard() {
       setDay(null);
       return;
     }
+    const requestedBoard = board;
+    const requestedDate = date;
     setLoading(true);
     try {
-      const res = await fetch(`/api/boards/${board}/days/${date}`);
+      const res = await fetch(`/api/boards/${requestedBoard}/days/${requestedDate}`);
       if (!res.ok) throw new Error("load");
       const data = (await res.json()) as DayBoardDto;
-      setDay(data);
+      if (!isCurrentBoardRequest(
+        { board: activeBoardRef.current, date: activeDateRef.current },
+        { board: requestedBoard, date: requestedDate },
+      )) return;
+      const next = liveRefreshState(data);
+      setDay(next.day);
       setLoadError(null);
-      setOffline(false);
-      saveLastBoard({ board, date, day: data });
+      setOffline(next.offline);
+      saveLastBoard({ board: requestedBoard, date: requestedDate, day: data });
     } catch {
-      const cached = readLastBoard();
-      if (cached?.day) {
-        const snapshot = cached.day as DayBoardDto;
-        setDay(snapshot);
-        setDate(cached.date);
-        setBoard(cached.board);
-        setOffline(true);
+      if (!isCurrentBoardRequest(
+        { board: activeBoardRef.current, date: activeDateRef.current },
+        { board: requestedBoard, date: requestedDate },
+      )) return;
+      const cached = readLastBoardFor(requestedBoard);
+      const fallback = offlineRefreshState<DayBoardDto>(requestedBoard, cached);
+      setOffline(fallback.offline);
+      if (fallback.day) {
+        setDay(fallback.day);
+        setDate(fallback.date!);
         setLoadError(null);
       } else {
+        // A cache from the other board is not a valid display fallback.
+        setDay(null);
         setLoadError(t.toastNetwork);
         showToast("err", t.toastNetwork);
       }
@@ -338,6 +364,13 @@ export function FloorBoard() {
   }, [refreshDates]);
 
   useEffect(() => {
+    if (syncedUrlBoardRef.current === requestedBoard) return;
+    syncedUrlBoardRef.current = requestedBoard;
+    setDay(null);
+    setBoard(requestedBoard);
+  }, [requestedBoard]);
+
+  useEffect(() => {
     void refreshBoard();
   }, [refreshBoard]);
 
@@ -354,10 +387,11 @@ export function FloorBoard() {
 
   useEffect(() => {
     const id = window.setInterval(() => {
+      void refreshDates();
       void refreshPhase1();
     }, TRAFFIC_TICK_MS);
     return () => window.clearInterval(id);
-  }, [refreshPhase1]);
+  }, [refreshDates, refreshPhase1]);
 
   const available = useMemo(() => {
     if (!day || !date) return [];
@@ -815,6 +849,11 @@ export function FloorBoard() {
                     : "bg-white text-neutral-900 active:bg-neutral-200",
                 )}
                 onClick={() => {
+                  if (b !== board) {
+                    // Never carry the old board's stations into a new heading
+                    // while its request is still pending or offline.
+                    setDay(null);
+                  }
                   setBoard(b);
                   setSelectedStationId(null);
                   setSelectedShiftId(null);
@@ -884,7 +923,10 @@ export function FloorBoard() {
             <select
               className="touch-target min-h-11 min-w-[10rem] rounded-md border-2 border-neutral-900 bg-white px-3 text-base font-medium"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => {
+                setDay(null);
+                setDate(e.target.value);
+              }}
               data-testid="date-select"
             >
               {dates.length === 0 && <option value="">{t.noDates}</option>}

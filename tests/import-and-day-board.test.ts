@@ -94,6 +94,30 @@ describe("import persist + day board data", () => {
       expect(sh.employee.externalId).toBeTruthy();
     }
   });
+
+  it("rejects duplicate or overlapping imports without changing shifts or manual abilities", async () => {
+    const beforeShifts = await prisma.shift.count();
+    const employee = await prisma.employee.findUnique({ where: { externalId: "8304" } });
+    expect(employee).toBeTruthy();
+    await prisma.employeeStationAbility.upsert({
+      where: { employeeId_stationId: { employeeId: employee!.id, stationId: "yellow" } },
+      create: { employeeId: employee!.id, stationId: "yellow", level: "preferred" },
+      update: { level: "preferred" },
+    });
+    const parsed = await parseScheduleWorkbook(fs.readFileSync(FIXTURE_XLSX), {
+      filename: "renamed-copy.xlsx",
+    });
+
+    await expect(persistImport(parsed, "renamed-copy.xlsx")).rejects.toThrow(
+      "already imported",
+    );
+    expect(await prisma.shift.count()).toBe(beforeShifts);
+    expect(
+      await prisma.employeeStationAbility.findUnique({
+        where: { employeeId_stationId: { employeeId: employee!.id, stationId: "yellow" } },
+      }),
+    ).toMatchObject({ level: "preferred" });
+  });
 });
 
 const CAJA_COUNT = 11;

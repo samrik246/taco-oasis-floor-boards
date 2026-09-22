@@ -82,21 +82,41 @@ sudo apt-get install -y sqlite3  # required for consistent deploy backups
 
 After deploy, the workflow:
 
-- extracts the artifact into `DEPLOY_PATH`
-- creates a consistent SQLite backup in `DEPLOY_PATH/backups/<timestamp>-<sha>/` before extraction
-- archives the prior artifact-shaped release in `DEPLOY_PATH/backups/release-*.tgz` when one exists
-- restores the saved SQLite files after extraction
-- runs `pnpm install`, `prisma generate`, `prisma db push`
-- restarts `taco-oasis` systemd unit **or** `pnpm exec next start -H 0.0.0.0 -p 3000`
+- stops the app through its `taco-oasis` service or app-scoped pid file before changing a release or database
+- reads the host `.env` and accepts only an absolute local SQLite URL, such as `file:/opt/taco-oasis/var/data/floor-boards.db`
+- makes a consistent database backup in `DEPLOY_PATH/var/backups/<timestamp>-<sha>/` and archives the prior artifact-shaped release
+- extracts the artifact without copying that backup over the live database; restoration is explicit rollback work only
+- checks legacy duplicates, backfills assignment employee identity and import fingerprints, then applies the schema upgrade without `--accept-data-loss`
+- runs install, Prisma generation, schema sync, and the manager/station/template readiness check
+- starts `taco-oasis` or the direct Next Node entrypoint and checks `DEPLOY_HEALTHCHECK_URL`
 
-Manual fallback (same as go-live checklist):
+An empty host needs owner-entered `MANAGER_SESSION_SECRET`, `INITIAL_MANAGER_NAME`, and `INITIAL_MANAGER_CODE` in `.env` before its first deploy. The bootstrap code is removed after the first manager is created. Demo mode remains off.
+
+## Supported Mac home base
+
+For the Taco Oasis Mac on the tablet LAN, use the packaged artifact locally. This path does not need GitHub secrets, SSH, a runner, or a registered system service.
 
 ```bash
-pnpm i
-cp .env.example .env   # DATABASE_URL="file:./prisma/prod.db" recommended for prod
-INITIAL_MANAGER_NAME="Manager name" INITIAL_MANAGER_CODE="replace-this-code" pnpm db:setup  # first time only
-pnpm build && pnpm start
+cd /durable/path/to/taco-oasis-floor-boards
+chmod +x scripts/home-base.sh
+scripts/home-base.sh init "$PWD"
+scripts/home-base.sh start "$PWD"
+scripts/home-base.sh status "$PWD"
 ```
+
+`init` asks at the Mac for the first manager name and code, generates the private session secret, writes mode-600 `.env`, creates durable `var/data`, `var/log`, `var/run`, and `var/backups` folders, initializes the database, validates both boards/stations/templates/managers, and removes the one-use bootstrap code.
+
+Tablets open `http://MAC_LAN_IP:3000`. Keep the Mac powered, awake, and preferably on Ethernet. The tool only signals a process after it verifies the direct Floor Boards Node entrypoint; it refuses stale or foreign pid files and refuses to start while another process owns port 3000.
+
+```bash
+scripts/home-base.sh stop "$PWD"
+scripts/home-base.sh restart "$PWD"
+scripts/home-base.sh backup "$PWD"
+scripts/home-base.sh restore "$PWD" /absolute/path/to/var/backups/<stamp>
+scripts/home-base.sh launch-agent-template "$PWD"
+```
+
+The final command writes a per-user LaunchAgent template under the app's `var/run` folder but does not load it. After owner review, copy it to `~/Library/LaunchAgents/com.taco-oasis.floor-boards.plist` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.floor-boards.plist`. The plist runs the foreground Floor Boards Node entrypoint directly; it does not call the backgrounding helper. `stop` and `restore` boot out that registered agent and verify port 3000 has no listener before replacing SQLite. This proves start-after-login only. Unattended reboot behavior remains a physical-Mac check for tomorrow; start-before-login needs a separately reviewed administrator LaunchDaemon.
 
 ## Optional: Vercel
 
@@ -119,21 +139,22 @@ Before a live cutover, run this on the home base with the service stopped and re
 
 ```bash
 cd /opt/taco-oasis
-ls -lah backups
+ls -lah var/backups
 sudo systemctl stop taco-oasis
 # In a disposable copy of the app directory, restore one backup and start it on a spare local port.
 # Confirm the expected stations and one prior assignment are visible, then stop the rehearsal.
 sudo systemctl start taco-oasis
 ```
 
-If a deploy must be rolled back, stop the service, choose the matching `backups/release-*.tgz` and SQLite backup directory, then restore both before starting again:
+If a deploy must be rolled back, stop the service, choose the matching `var/backups/release-*.tgz` and SQLite backup directory, then restore both before starting again:
 
 ```bash
 cd /opt/taco-oasis
 sudo systemctl stop taco-oasis
-tar -xzf backups/release-<previous-sha>-<timestamp>.tgz -C .
-cp -a backups/<timestamp>-<deploying-sha>/prod.db prisma/prod.db
-rm -f prisma/prod.db-wal prisma/prod.db-shm
+tar -xzf var/backups/release-<previous-sha>-<timestamp>.tgz -C .
+# database-path records the configured absolute SQLite location for this backup.
+cp -a var/backups/<timestamp>-<deploying-sha>/database.db /absolute/path/from/database-path
+rm -f /absolute/path/from/database-path-wal /absolute/path/from/database-path-shm
 pnpm install --frozen-lockfile --prod=false
 pnpm exec prisma generate
 sudo systemctl start taco-oasis

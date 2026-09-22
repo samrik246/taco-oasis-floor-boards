@@ -61,12 +61,16 @@ model Assignment {
   id        String   @id @default(cuid())
   shiftId   String
   shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  /// Denormalized from Shift so SQLite can enforce one person per hour.
+  /// Nullable only while upgrading a legacy database; new writes always populate it.
+  employeeId String?
   stationId String
   station   Station  @relation(fields: [stationId], references: [id])
   hourStart DateTime
   hourEnd   DateTime
 
-  @@index([stationId, hourStart])
+  @@unique([stationId, hourStart])
+  @@unique([employeeId, hourStart])
   @@index([shiftId])
 }
 
@@ -83,6 +87,9 @@ model EmployeeStationAbility {
 model ImportBatch {
   id         String   @id @default(cuid())
   filename   String
+  /// Stable hash of parsed schedule rows. Makes a repeated upload idempotent.
+  // Nullable during non-destructive legacy upgrade; every new import writes it.
+  fingerprint String? @unique
   importedAt DateTime @default(now())
   rowCount   Int
   shifts     Shift[]

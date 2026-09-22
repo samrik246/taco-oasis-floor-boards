@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 const bodySchema = z.object({
-  code: z.string().min(4).max(64),
+  code: z.string().trim().min(4).max(64),
 });
 
 /** Verify a manager access code. Never returns hashes or plaintext codes. */

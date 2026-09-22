@@ -25,6 +25,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
   const dates = [...DEMO_DATES];
   const toCreate: Array<{
     shiftId: string;
+    employeeId: string;
     stationId: string;
     hourStart: Date;
     hourEnd: Date;
@@ -91,6 +92,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
 
             toCreate.push({
               shiftId: sh.id,
+              employeeId: sh.employeeId,
               stationId: station.id,
               hourStart,
               hourEnd,

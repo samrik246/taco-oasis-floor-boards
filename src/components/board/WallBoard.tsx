@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { KioskLock, kioskRequested } from "@/components/board/KioskLock";
 import { assignmentsAtStationHour, displayName, stationColorClass } from "@/components/board/board-helpers";
 import type { DayBoardDto } from "@/components/board/types";
-import { readLastBoard, saveLastBoard } from "@/lib/offline-board";
+import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
@@ -19,6 +19,8 @@ import {
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { formatHourLabel } from "@/lib/hour-grid";
 import { cn } from "@/lib/utils";
+
+const WALL_REFRESH_MS = 15_000;
 
 /**
  * Glance layout for a kitchen monitor or the MicroTouch.
@@ -48,31 +50,27 @@ export function WallBoard() {
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    let cancel = false;
+  const refreshWall = useCallback(async () => {
     const ymd = chicagoYmd(new Date());
-    void (async () => {
-      try {
-        const res = await fetch(`/api/boards/${board}/days/${ymd}`);
-        if (!res.ok) throw new Error("board");
-        const data = (await res.json()) as DayBoardDto;
-        if (cancel) return;
-        setDay(data);
-        setOffline(false);
-        saveLastBoard({ board, date: ymd, day: data });
-      } catch {
-        if (cancel) return;
-        const cached = readLastBoard();
-        if (cached) {
-          setDay(cached.day as DayBoardDto);
-          setOffline(true);
-        }
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
+    try {
+      const res = await fetch(`/api/boards/${board}/days/${ymd}`);
+      if (!res.ok) throw new Error("board");
+      const data = (await res.json()) as DayBoardDto;
+      setDay(data);
+      setOffline(false);
+      saveLastBoard({ board, date: ymd, day: data });
+    } catch {
+      const cached = readLastBoardFor(board);
+      if (cached) setDay(cached.day as DayBoardDto);
+      setOffline(true);
+    }
   }, [board]);
+
+  useEffect(() => {
+    void refreshWall();
+    const id = window.setInterval(() => void refreshWall(), WALL_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [refreshWall]);
 
   useEffect(() => {
     if (!date) return;

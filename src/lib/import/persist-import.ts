@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { createHash } from "node:crypto";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
 import { seedAbilitiesFromPositions } from "@/lib/rules/abilities";
 
@@ -6,17 +7,54 @@ import { seedAbilitiesFromPositions } from "@/lib/rules/abilities";
  * Persist a parse result. Never writes pay columns (they are already stripped
  * from ParsedShift). Upserts employees by externalId; creates a new ImportBatch
  * and Shift rows for every schedule row (including multiple positions per employee).
- * Seeds EmployeeStationAbility from Position hints (SPEC §4.7).
+ * A schedule is accepted once only: a repeated workbook is rejected by fingerprint,
+ * and a different workbook that overlaps already-imported dates is rejected until a
+ * replacement policy exists. Existing ability edits always win over import hints.
  */
+function fingerprintFor(parsed: ParseResult): string {
+  const rows = parsed.shifts
+    .map((shift) => ({
+      externalId: shift.externalId,
+      date: shift.date,
+      startAt: shift.startAt.toISOString(),
+      endAt: shift.endAt.toISOString(),
+      sourcePosition: shift.sourcePosition,
+      board: shift.board,
+    }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+}
+
 export async function persistImport(
   parsed: ParseResult,
   filename: string,
 ): Promise<{ importBatchId: string; rowCount: number }> {
   const rowCount = parsed.shifts.length;
+  if (rowCount === 0) throw new Error("Schedule contains no shifts to import.");
+  const fingerprint = fingerprintFor(parsed);
 
   return prisma.$transaction(async (tx) => {
+    const duplicate = await tx.importBatch.findUnique({
+      where: { fingerprint },
+    });
+    if (duplicate) {
+      throw new Error(
+        "This exact schedule was already imported. No shifts or abilities were changed.",
+      );
+    }
+
+    const overlap = await tx.shift.findFirst({
+      where: { date: { in: parsed.dates } },
+      select: { date: true },
+    });
+    if (overlap) {
+      throw new Error(
+        `Schedule overlaps ${overlap.date}, which is already imported. Corrected-schedule replacement is not supported; existing assignments and history were left unchanged.`,
+      );
+    }
+
     const batch = await tx.importBatch.create({
-      data: { filename, rowCount },
+      data: { filename, fingerprint, rowCount },
     });
 
     // Upsert employees first
@@ -51,7 +89,7 @@ export async function persistImport(
       });
       employeeIdByExternal.set(externalId, emp.id);
 
-      // Re-seed abilities from all positions seen for this employee in this import
+      // Seed only missing abilities. A manager's manual ability edit is authoritative.
       const positions = positionsByExternal.get(externalId) ?? [];
       const seeds = seedAbilitiesFromPositions(positions);
       for (const seed of seeds) {
@@ -67,7 +105,7 @@ export async function persistImport(
             stationId: seed.stationId,
             level: seed.level,
           },
-          update: { level: seed.level },
+          update: {},
         });
       }
     }

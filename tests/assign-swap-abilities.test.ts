@@ -181,6 +181,25 @@ describe("assign / swap / clear + abilities enforcement", () => {
     }
   });
 
+  it("serializes competing tablet writes with one controlled station conflict", async () => {
+    await prisma.assignment.deleteMany();
+    const shifts = await prisma.shift.findMany({
+      where: {
+        board: "caja", date: "2026-09-20",
+        startAt: { lte: chicagoDateTime("2026-09-20", "11:00 am") },
+        endAt: { gt: chicagoDateTime("2026-09-20", "11:00 am") },
+      },
+      take: 2,
+    });
+    const results = await Promise.all(
+      shifts.map((shift) => createAssignment({ shiftId: shift.id, stationId: "green1", date: "2026-09-20", hour: 11 })),
+    );
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(
+      await prisma.assignment.count({ where: { stationId: "green1", hourStart: chicagoDateTime("2026-09-20", "11:00 am") } }),
+    ).toBe(1);
+  });
+
   it("blocks forbidden ability assigns", async () => {
     await prisma.assignment.deleteMany();
 

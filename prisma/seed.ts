@@ -19,7 +19,7 @@ const useDemoManagerCodes = process.env.DEMO_MANAGER_CODES === "1";
 const initialManagerName = process.env.INITIAL_MANAGER_NAME?.trim();
 const initialManagerCode = process.env.INITIAL_MANAGER_CODE?.trim();
 const hasInitialManager = Boolean(
-  initialManagerName && initialManagerCode && initialManagerCode.length >= 4,
+  initialManagerName && initialManagerCode && initialManagerCode.length >= 4 && initialManagerCode.length <= 64,
 );
 
 async function seedInitialManagers() {
@@ -41,7 +41,7 @@ async function seedInitialManagers() {
 
   if (!hasInitialManager) {
     throw new Error(
-      "An empty database needs INITIAL_MANAGER_NAME and a four-or-more character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
+      "An empty database needs INITIAL_MANAGER_NAME and a trimmed 4–64 character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
     );
   }
 
@@ -64,7 +64,7 @@ async function main() {
     !hasInitialManager
   ) {
     throw new Error(
-      "An empty database needs INITIAL_MANAGER_NAME and a four-or-more character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
+      "An empty database needs INITIAL_MANAGER_NAME and a trimmed 4–64 character INITIAL_MANAGER_CODE. Use DEMO_MANAGER_CODES=1 only for local demos.",
     );
   }
 
@@ -94,13 +94,7 @@ async function main() {
         shortCode: STATION_SHORT_CODES[s.id] ?? "",
       },
       update: {
-        board: s.board,
-        label: s.label,
-        color: s.color,
-        maxConcurrent: s.maxConcurrent,
-        sortOrder: s.sortOrder,
-        priority: s.priority,
-        shortCode: STATION_SHORT_CODES[s.id] ?? "",
+        // Existing station edits belong to the manager, not to a release seed.
       },
     });
   }
@@ -117,14 +111,7 @@ async function main() {
         board: t.board,
         lemonWarnOnGreens: t.lemonWarnOnGreens === true,
       },
-      update: {
-        code: t.code,
-        label: t.label,
-        mode: t.mode,
-        sortOrder: t.sortOrder,
-        board: t.board,
-        lemonWarnOnGreens: t.lemonWarnOnGreens === true,
-      },
+      update: {},
     });
   }
 
@@ -156,20 +143,21 @@ async function main() {
         sortOrder: q.sortOrder,
         active: true,
       },
-      update: {
-        prompt: q.prompt,
-        kind: q.kind,
-        sortOrder: q.sortOrder,
-        active: true,
-      },
+      update: {},
     });
   }
 
   const managers = await seedInitialManagers();
 
   const sales = historicalSaleRows();
-  await prisma.historicalHourlySale.deleteMany();
-  await prisma.historicalHourlySale.createMany({ data: sales });
+  // Do not replace a manager's edited sales history on an ordinary bootstrap.
+  for (const sale of sales) {
+    await prisma.historicalHourlySale.upsert({
+      where: { board_dow_hour_week: { board: sale.board, dow: sale.dow, hour: sale.hour, week: sale.week } },
+      create: sale,
+      update: {},
+    });
+  }
 
   const count = await prisma.station.count();
   const tareas = await prisma.tareaTemplate.count();

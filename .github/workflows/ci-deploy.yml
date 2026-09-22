@@ -156,24 +156,24 @@ jobs:
             echo "Commit \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify SSH remote-expansion contract
+      - name: Verify deploy contract
         run: |
           set -euo pipefail
           WORKFLOW=.github/workflows/ci-deploy.yml
-          /usr/bin/grep -Fq "<<'REMOTE_SCRIPT'" "$WORKFLOW" || {
-            echo "::error::Remote deploy script must use a quoted heredoc."
+          /usr/bin/grep -Fq 'scripts/remote-deploy.sh' "$WORKFLOW" || {
+            echo "::error::SSH deploy must run the checked-in remote deploy script."
             exit 1
           }
-          /usr/bin/grep -Fq 'BACKUP_STAMP="$(date -u +%Y%m%dT%H%M%SZ)-${RELEASE_SHA}"' "$WORKFLOW" || {
-            echo "::error::Backup timestamp must be evaluated by the remote script."
+          /usr/bin/grep -Fq 'pnpm exec tsx scripts/upgrade-home-base.ts preflight' scripts/remote-deploy.sh || {
+            echo "::error::Remote deploy must preflight a legacy database before schema changes."
             exit 1
           }
-          /usr/bin/grep -Fq 'PREVIOUS_SHA="$(cat "${DEPLOY_PATH}/RELEASE_SHA")"' "$WORKFLOW" || {
-            echo "::error::Previous release SHA must be read by the remote script."
+          /usr/bin/grep -Fq 'pnpm exec tsx scripts/upgrade-home-base.ts backfill' scripts/remote-deploy.sh || {
+            echo "::error::Remote deploy must backfill upgrade fields after schema changes."
             exit 1
           }
-          /usr/bin/grep -Fq -- '-T "${DEPLOY_PATH}/.artifact-files"' "$WORKFLOW" || {
-            echo "::error::Rollback archive must read the manifest from DEPLOY_PATH."
+          /usr/bin/grep -Fq 'stop_app' scripts/remote-deploy.sh || {
+            echo "::error::Remote deploy must quiesce the app before touching SQLite."
             exit 1
           }
 
@@ -191,6 +191,13 @@ jobs:
             public
             prisma/schema.prisma
             prisma/seed.ts
+            scripts/home-base.sh
+            scripts/readiness-check.ts
+            scripts/remote-deploy.sh
+            scripts/upgrade-home-base.ts
+            src/lib
+            fixtures/historical-hourly-sales.json
+            fixtures/wheniwork-restaurant-export-sample.xlsx
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
@@ -208,8 +215,8 @@ jobs:
             .artifact-files
           )
           tar -cf - "${RUNTIME_PATHS[@]}" | tar -xf - -C "$STAGE"
-          # Minimal env for home-base SQLite (host should replace with durable path).
-          printf '%s\n' 'DATABASE_URL="file:./prisma/prod.db"' > "$STAGE/.env.production.example"
+          # The setup tool creates an absolute durable SQLite path under var/data.
+          printf '%s\n' '# Created by scripts/home-base.sh or scripts/remote-deploy.sh.' > "$STAGE/.env.production.example"
           printf '%s\n' '${{ github.sha }}' > "$STAGE/RELEASE_SHA"
           printf '%s\n' "${ARTIFACT_PATHS[@]}" > "$STAGE/.artifact-files"
           tar -czf taco-oasis-floor-boards.tgz -C "$STAGE" .
@@ -378,61 +385,7 @@ jobs:
           esac
           REMOTE_TMP="/tmp/taco-oasis-${{ github.sha }}.tgz"
           scp -F ~/.ssh/config artifact/taco-oasis-floor-boards.tgz "homebase:${REMOTE_TMP}"
-          ssh -F ~/.ssh/config homebase bash -s -- "$DEPLOY_PATH" "$REMOTE_TMP" "$HEALTHCHECK_URL" "${{ github.sha }}" <<'REMOTE_SCRIPT'
-          set -euo pipefail
-          DEPLOY_PATH="$1"
-          REMOTE_TMP="$2"
-          HEALTHCHECK_URL="$3"
-          RELEASE_SHA="$4"
-          mkdir -p "${DEPLOY_PATH}"
-          BACKUP_DIR="${DEPLOY_PATH}/backups"
-          mkdir -p "${BACKUP_DIR}"
-          BACKUP_STAMP="$(date -u +%Y%m%dT%H%M%SZ)-${RELEASE_SHA}"
-          # SQLite's online backup command gives a consistent snapshot while tablets use the app.
-          if [[ -f "${DEPLOY_PATH}/prisma/prod.db" ]]; then
-            mkdir -p "${BACKUP_DIR}/${BACKUP_STAMP}"
-            command -v sqlite3 >/dev/null
-            sqlite3 "${DEPLOY_PATH}/prisma/prod.db" ".backup '${BACKUP_DIR}/${BACKUP_STAMP}/prod.db'"
-            printf '%s\n' "${RELEASE_SHA}" > "${BACKUP_DIR}/${BACKUP_STAMP}/deploying-sha"
-          fi
-          # Keep the prior artifact-shaped release for a documented rollback.
-          if [[ -f "${DEPLOY_PATH}/RELEASE_SHA" ]]; then
-            PREVIOUS_SHA="$(cat "${DEPLOY_PATH}/RELEASE_SHA")"
-            test -f "${DEPLOY_PATH}/.artifact-files"
-            tar -czf "${BACKUP_DIR}/release-${PREVIOUS_SHA}-${BACKUP_STAMP}.tgz" \
-              -C "${DEPLOY_PATH}" \
-              -T "${DEPLOY_PATH}/.artifact-files" \
-              2>/dev/null
-          fi
-          tar -xzf "${REMOTE_TMP}" -C "${DEPLOY_PATH}"
-          if [[ -f "${BACKUP_DIR}/${BACKUP_STAMP}/prod.db" ]]; then
-            mkdir -p "${DEPLOY_PATH}/prisma"
-            rm -f "${DEPLOY_PATH}/prisma/prod.db-wal" "${DEPLOY_PATH}/prisma/prod.db-shm"
-            cp -a "${BACKUP_DIR}/${BACKUP_STAMP}/prod.db" "${DEPLOY_PATH}/prisma/prod.db"
-          fi
-          cd "${DEPLOY_PATH}"
-          if [[ ! -f .env ]]; then
-            cp .env.production.example .env
-          fi
-          # Production install + generate (host must have Node + pnpm)
-          corepack enable || true
-          pnpm install --frozen-lockfile --prod=false
-          pnpm exec prisma generate
-          # Prisma loads DATABASE_URL from the host .env; do not override custom paths.
-          pnpm exec prisma db push
-          # Restart via systemd if unit exists; else start Next directly.
-          if systemctl list-unit-files 2>/dev/null | grep -q taco-oasis; then
-            sudo systemctl restart taco-oasis
-          else
-            pkill -f 'next start' || true
-            nohup pnpm exec next start -H 0.0.0.0 -p 3000 > /tmp/taco-oasis.log 2>&1 &
-            sleep 3
-          fi
-          curl -fsS --retry 5 --retry-delay 2 "${HEALTHCHECK_URL}" >/dev/null
-          rm -f "${REMOTE_TMP}"
-          echo "Deployed ${RELEASE_SHA} to ${DEPLOY_PATH}"
-          echo "Backup: ${BACKUP_DIR}/${BACKUP_STAMP}"
-          REMOTE_SCRIPT
+          ssh -F ~/.ssh/config homebase bash -s -- "$DEPLOY_PATH" "$REMOTE_TMP" "$HEALTHCHECK_URL" "${{ github.sha }}" < scripts/remote-deploy.sh
 
       - name: Annotate SSH deploy success
         if: steps.mode.outputs.ssh_configured == 'true' && steps.mode.outputs.dry_run != 'true'

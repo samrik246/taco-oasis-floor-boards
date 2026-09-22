@@ -41,3 +41,11 @@ export function readLastBoard(): CachedFloorBoard | null {
     return null;
   }
 }
+
+/** A cached snapshot is only valid for the board that created it. */
+export function readLastBoardFor(
+  board: CachedFloorBoard["board"],
+): CachedFloorBoard | null {
+  const cached = readLastBoard();
+  return cached?.board === board ? cached : null;
+}

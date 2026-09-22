@@ -25,6 +25,20 @@ export type AssignmentDto = {
   hourEnd: string;
 };
 
+const conflictViolation = (code: "STATION_FULL" | "PERSON_ALREADY_ASSIGNED"): RuleViolation =>
+  code === "STATION_FULL"
+    ? { code, message: "That station was just assigned by another tablet. Refresh and choose another station." }
+    : { code, message: "That person was just assigned by another tablet. Refresh the board." };
+
+function isUniqueConflict(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002",
+  );
+}
+
 function toDto(a: {
   id: string;
   shiftId: string;
@@ -57,80 +71,39 @@ export async function createAssignment(
     };
   }
 
-  const shift = await prisma.shift.findUnique({
-    where: { id: params.shiftId },
-    include: { employee: true },
-  });
-  if (!shift) {
-    return {
-      ok: false,
-      status: 404,
-      violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }],
-    };
-  }
-
-  const station = await prisma.station.findUnique({
-    where: { id: params.stationId },
-  });
-  if (!station) {
-    return {
-      ok: false,
-      status: 404,
-      violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }],
-    };
-  }
-
   const hourStart = chicagoHourStart(params.date, params.hour);
   const hourEnd = chicagoHourEnd(params.date, params.hour);
-
-  const [occupancy, personAssignments, ability] = await Promise.all([
-    prisma.assignment.count({
-      where: { stationId: params.stationId, hourStart },
-    }),
-    prisma.assignment.findMany({
-      where: {
-        hourStart,
-        shift: { employeeId: shift.employeeId },
-      },
-    }),
-    prisma.employeeStationAbility.findUnique({
-      where: {
-        employeeId_stationId: {
-          employeeId: shift.employeeId,
-          stationId: params.stationId,
-        },
-      },
-    }),
-  ]);
-
-  const violations = validateAssignment({
-    hourStart,
-    shiftStart: shift.startAt,
-    shiftEnd: shift.endAt,
-    stationId: station.id,
-    stationBoard: station.board,
-    shiftBoard: shift.board,
-    maxConcurrent: station.maxConcurrent,
-    existingOccupancy: occupancy,
-    abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
-    personAlreadyAssignedAtHour: personAssignments.length > 0,
-    chicagoHour: chicagoHourOf(hourStart),
-  });
-
-  if (violations.length > 0) {
-    return { ok: false, status: 422, violations };
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
+      if (!shift) return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] } as const;
+      const station = await tx.station.findUnique({ where: { id: params.stationId } });
+      if (!station) return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] } as const;
+      const [occupancy, personAssignments, ability] = await Promise.all([
+        tx.assignment.count({ where: { stationId: params.stationId, hourStart } }),
+        tx.assignment.count({ where: { hourStart, employeeId: shift.employeeId } }),
+        tx.employeeStationAbility.findUnique({ where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } } }),
+      ]);
+      const violations = validateAssignment({
+        hourStart, shiftStart: shift.startAt, shiftEnd: shift.endAt,
+        stationId: station.id, stationBoard: station.board, shiftBoard: shift.board,
+        maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
+        abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+        personAlreadyAssignedAtHour: personAssignments > 0,
+        chicagoHour: chicagoHourOf(hourStart),
+      });
+      if (violations.length > 0) return { ok: false, status: 422, violations } as const;
+      const assignment = await tx.assignment.create({
+        data: { shiftId: params.shiftId, employeeId: shift.employeeId, stationId: params.stationId, hourStart, hourEnd },
+      });
+      return { ok: true, assignment: toDto(assignment) } as const;
+    });
+  } catch (error) {
+    if (isUniqueConflict(error)) {
+      return { ok: false, status: 422, violations: [conflictViolation("STATION_FULL")] };
+    }
+    throw error;
   }
-
-  const assignment = await prisma.assignment.create({
-    data: {
-      shiftId: params.shiftId,
-      stationId: params.stationId,
-      hourStart,
-      hourEnd,
-    },
-  });
-
-  return { ok: true, assignment: toDto(assignment) };
 }
 
 export async function deleteAssignment(
@@ -198,14 +171,21 @@ export async function swapAssignments(
     };
   }
 
-  // After swap: A.station gets B's shift, B.station gets A's shift
-  const plan = [
-    { station: a.station, shift: b.shift, hourStart: a.hourStart, keepId: a.id },
-    { station: b.station, shift: a.shift, hourStart: b.hourStart, keepId: b.id },
-  ] as const;
-
-  for (const p of plan) {
-    const ability = await prisma.employeeStationAbility.findUnique({
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const current = await tx.assignment.findMany({
+        where: { id: { in: [a.id, b.id] } }, include: { shift: true, station: true },
+      });
+      if (current.length !== 2) {
+        return { ok: false, status: 404, violations: [{ code: "ASSIGNMENT_NOT_FOUND", message: "One or both assignments no longer exist" }] } as const;
+      }
+      const [currentA, currentB] = current[0]!.id === a.id ? [current[0]!, current[1]!] : [current[1]!, current[0]!];
+      const plan = [
+        { station: currentA.station, shift: currentB.shift, hourStart: currentA.hourStart },
+        { station: currentB.station, shift: currentA.shift, hourStart: currentB.hourStart },
+      ] as const;
+      for (const p of plan) {
+        const ability = await tx.employeeStationAbility.findUnique({
       where: {
         employeeId_stationId: {
           employeeId: p.shift.employeeId,
@@ -215,7 +195,7 @@ export async function swapAssignments(
     });
 
     // Occupancy: exclude both swap partners at this station+hour
-    const occupancy = await prisma.assignment.count({
+        const occupancy = await tx.assignment.count({
       where: {
         stationId: p.station.id,
         hourStart: p.hourStart,
@@ -224,7 +204,7 @@ export async function swapAssignments(
     });
 
     // Person already assigned elsewhere at this hour (excluding the two swap rows)
-    const otherPerson = await prisma.assignment.count({
+        const otherPerson = await tx.assignment.count({
       where: {
         hourStart: p.hourStart,
         shift: { employeeId: p.shift.employeeId },
@@ -232,7 +212,7 @@ export async function swapAssignments(
       },
     });
 
-    const violations = validateAssignment({
+        const violations = validateAssignment({
       hourStart: p.hourStart,
       shiftStart: p.shift.startAt,
       shiftEnd: p.shift.endAt,
@@ -249,26 +229,16 @@ export async function swapAssignments(
 
     // Station will hold this one new person after swap — occupancy already excludes both,
     // so we need room for +1. validateAssignment with existingOccupancy already handles it.
-    if (violations.length > 0) {
-      return { ok: false, status: 422, violations };
-    }
+        if (violations.length > 0) return { ok: false, status: 422, violations } as const;
+      }
+      // Clear unique person claims before exchanging rows, then restore them atomically.
+      await tx.assignment.updateMany({ where: { id: { in: [currentA.id, currentB.id] } }, data: { employeeId: null } });
+      const u1 = await tx.assignment.update({ where: { id: currentA.id }, data: { shiftId: currentB.shiftId, employeeId: currentB.shift.employeeId } });
+      const u2 = await tx.assignment.update({ where: { id: currentB.id }, data: { shiftId: currentA.shiftId, employeeId: currentA.shift.employeeId } });
+      return { ok: true, assignments: [toDto(u1), toDto(u2)] } as const;
+    });
+  } catch (error) {
+    if (isUniqueConflict(error)) return { ok: false, status: 422, violations: [conflictViolation("PERSON_ALREADY_ASSIGNED")] };
+    throw error;
   }
-
-  // Perform swap of shiftIds
-  const updated = await prisma.$transaction(async (tx) => {
-    const u1 = await tx.assignment.update({
-      where: { id: a.id },
-      data: { shiftId: b.shiftId },
-    });
-    const u2 = await tx.assignment.update({
-      where: { id: b.id },
-      data: { shiftId: a.shiftId },
-    });
-    return [u1, u2] as const;
-  });
-
-  return {
-    ok: true,
-    assignments: [toDto(updated[0]), toDto(updated[1])],
-  };
 }
