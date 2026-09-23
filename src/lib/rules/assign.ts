@@ -6,6 +6,8 @@ import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 
 export type ValidateAssignInput = {
   hourStart: Date;
+  /** End of the grid hour; defaults to hourStart + 1 h. */
+  hourEnd?: Date;
   shiftStart: Date;
   shiftEnd: Date;
   stationId: string;
@@ -49,7 +51,7 @@ export function validateAssignment(
     });
   }
 
-  if (!isHourInShift(input.hourStart, input.shiftStart, input.shiftEnd)) {
+  if (!isHourInShift(input.hourStart, input.shiftStart, input.shiftEnd, input.hourEnd)) {
     violations.push({
       code: "OUT_OF_SHIFT",
       message: "Hour is outside the employee's shift window",

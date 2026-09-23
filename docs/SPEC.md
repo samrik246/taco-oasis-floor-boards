@@ -94,7 +94,7 @@ Hours matrix by day — can ignore in v1 parser; do not fail import if present.
 
 ### 4.1 Shift window (hard)
 For each assignment cell `(employee, date, hourStart)`:
-- Allowed iff `shiftStart <= hourStart < shiftEnd` (match existing Sheets convention: inclusive start, exclusive end).
+- ~~Allowed iff `shiftStart <= hourStart < shiftEnd`~~ **Superseded by C1 (2026-09-23) for partial hours:** a grid hour is on-shift iff `[hourStart, hourEnd)` overlaps `[shiftStart, shiftEnd)` by at least one minute (both half-open, so back-to-back shifts do not overlap). One function, `src/lib/rules/shift-window.ts`, serves assignment, both grids, Rush coverage and the people list. Ledger minutes per assignment = that overlap. Stored assignments stay whole clock hours; minutes outside the 7–21 grid stay off the board.
 - Parse times in venue local timezone **America/Chicago**.
 - Hour grid default: **7:00–22:00** in 1-hour buckets (configurable constant).
 

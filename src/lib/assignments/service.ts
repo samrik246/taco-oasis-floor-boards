@@ -85,7 +85,7 @@ export async function createAssignment(
         tx.employeeStationAbility.findUnique({ where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } } }),
       ]);
       const violations = validateAssignment({
-        hourStart, shiftStart: shift.startAt, shiftEnd: shift.endAt,
+        hourStart, hourEnd, shiftStart: shift.startAt, shiftEnd: shift.endAt,
         stationId: station.id, stationBoard: station.board, shiftBoard: shift.board,
         maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
         abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
@@ -214,6 +214,7 @@ export async function swapAssignments(
 
         const violations = validateAssignment({
       hourStart: p.hourStart,
+      hourEnd: new Date(p.hourStart.getTime() + 60 * 60_000),
       shiftStart: p.shift.startAt,
       shiftEnd: p.shift.endAt,
       stationId: p.station.id,

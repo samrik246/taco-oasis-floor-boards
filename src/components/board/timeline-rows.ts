@@ -1,4 +1,5 @@
-import { chicagoHourOf } from "@/lib/hour-grid";
+import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
+import { isHourInShift } from "@/lib/rules/shift-window";
 import type { ShiftDto } from "./types";
 
 export type TimelineCell = {
@@ -21,15 +22,12 @@ export function personName(sh: ShiftDto): string {
 
 function shiftCoversHour(sh: ShiftDto, date: string, hour: number): boolean {
   if (sh.date !== date) return false;
-  const startH = chicagoHourOf(new Date(sh.startAt));
-  const endH = chicagoHourOf(new Date(sh.endAt));
-  // endAt exclusive by hour bucket when minutes=0; treat end hour exclusive
-  const endExclusive =
-    new Date(sh.endAt).getMinutes() === 0 &&
-    new Date(sh.endAt).getSeconds() === 0
-      ? endH
-      : endH + 1;
-  return hour >= startH && hour < endExclusive;
+  return isHourInShift(
+    chicagoHourStart(date, hour),
+    new Date(sh.startAt),
+    new Date(sh.endAt),
+    chicagoHourEnd(date, hour),
+  );
 }
 
 function stationAtHour(

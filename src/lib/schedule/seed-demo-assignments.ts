@@ -73,7 +73,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
         const hourEnd = chicagoHourEnd(date, hour);
         const t = hourStart.getTime();
         const available = shifts.filter((sh) => {
-          if (!isHourInShift(hourStart, sh.startAt, sh.endAt)) return false;
+          if (!isHourInShift(hourStart, sh.startAt, sh.endAt, hourEnd)) return false;
           return !personHour.has(`${sh.employeeId}:${t}`);
         });
 

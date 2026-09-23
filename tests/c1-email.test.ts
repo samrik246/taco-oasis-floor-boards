@@ -61,9 +61,8 @@ describe("A13 / A13b: staff email is never imported, and stored emails clear onc
     expect(await clearEmployeeEmails(prisma)).toBe(3);
     const after = await prisma.employee.findMany({ orderBy: { externalId: "asc" } });
     expect(after.filter((e) => e.email !== null)).toHaveLength(0);
-    expect(after.map(({ email: _e, ...rest }) => rest)).toEqual(
-      before.map(({ email: _e, ...rest }) => rest),
-    );
+    const withoutEmail = (rows: typeof before) => rows.map((e) => ({ ...e, email: undefined }));
+    expect(withoutEmail(after)).toEqual(withoutEmail(before));
     expect(await clearEmployeeEmails(prisma)).toBe(0);
   });
 
