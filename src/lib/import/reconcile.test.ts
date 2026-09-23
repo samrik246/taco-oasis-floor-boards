@@ -78,3 +78,19 @@ describe("reconcile pairing", () => {
     expect(c.digest).toBe(a.digest);
   });
 });
+
+describe("pairing does not depend on file order (fresh review)", () => {
+  it("one old shift, two new shifts with equal overlap: pairs with the earlier new start either way", () => {
+    const hour = (h: string, h2: string) => ({ id: `x${h}`, stationId: "green1", hourStart: t(h), hourEnd: t(h2) });
+    const existing = [old("a", "9:00 am", "9:00 pm", [hour("10:00 am", "11:00 am"), hour("6:00 pm", "7:00 pm")])];
+    const early = next("9:00 am", "1:00 pm");
+    const late = next("5:00 pm", "9:00 pm");
+    const p1 = plan(existing, [early, late]);
+    const p2 = plan(existing, [late, early]);
+    expect(p1.digest).toBe(p2.digest);
+    const changed = p1.actions.find((x) => x.kind === "changed");
+    expect(changed && changed.kind === "changed" && changed.next.startAt.toISOString()).toBe(t("9:00 am").toISOString());
+    expect(p1.dates[0]!.assignmentsToRemove).toEqual(p2.dates[0]!.assignmentsToRemove);
+    expect(p1.dates[0]!.assignmentsToRemove.map((r) => r.hour)).toEqual([18]);
+  });
+});

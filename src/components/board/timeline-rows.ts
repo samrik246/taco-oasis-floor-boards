@@ -70,8 +70,9 @@ export function buildTimelineRows(opts: {
     );
   const seen = new Set<string>();
   return sorted.map((sh) => {
-    const laterShiftOfPerson = seen.has(sh.employee.id);
-    seen.add(sh.employee.id);
+    // Ended history rows carry their own marker and do not make a live shift "later".
+    const laterShiftOfPerson = !sh.supersededAt && seen.has(sh.employee.id);
+    if (!sh.supersededAt) seen.add(sh.employee.id);
     const cells: TimelineCell[] = hours.map((hour, idx) => {
       if (!shiftCoversHour(sh, date, hour)) {
         return { kind: "off", stationId: null, label: opts.offLabel, changedFromPrev: false };

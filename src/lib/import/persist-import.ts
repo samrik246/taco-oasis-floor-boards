@@ -175,7 +175,7 @@ export async function commitImport(
     }
     if (opts.expected && opts.expected.planDigest !== plan.digest) {
       throw new ImportRefusedError(
-        "The board changed after the preview (someone assigned or cleared a spot). Nothing changed. Upload the file again to see a fresh preview.",
+        "The board changed after the preview: a spot was assigned or cleared, or a new hour started. Nothing changed. Check the fresh preview and confirm again.",
         "BOARD_CHANGED",
       );
     }

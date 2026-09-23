@@ -112,7 +112,8 @@ function pairGroup(
     (a, b) =>
       Number(b.exact) - Number(a.exact) ||
       b.overlap - a.overlap ||
-      Math.min(ms(a.o.startAt), ms(a.n.startAt)) - Math.min(ms(b.o.startAt), ms(b.n.startAt)) ||
+      ms(a.n.startAt) - ms(b.n.startAt) ||
+      ms(a.o.startAt) - ms(b.o.startAt) ||
       a.o.id.localeCompare(b.o.id) ||
       a.ni - b.ni,
   );

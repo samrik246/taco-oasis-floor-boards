@@ -498,8 +498,9 @@ export function FloorBoard() {
     return { ok: res.ok, data: await res.json() };
   }
 
-  async function commitUpload(file: File, data: ImportPreviewData, updated: boolean) {
-    if (!manager?.token) return;
+  /** Returns true when the import landed. */
+  async function commitUpload(file: File, data: ImportPreviewData, updated: boolean): Promise<boolean> {
+    if (!manager?.token) return false;
     const res = await postImport(
       file,
       { mode: "commit", fingerprint: data.fingerprint, planDigest: data.planDigest },
@@ -507,7 +508,14 @@ export function FloorBoard() {
     );
     if (!res.ok) {
       showToast("err", res.data.error ?? t.toastUploadFailed);
-      return;
+      if (res.data.code === "BOARD_CHANGED") {
+        // The board or the clock moved since the preview: show a fresh one.
+        const fresh = await postImport(file, { mode: "preview" }, manager.token);
+        if (fresh.ok) setImportPreview({ file, preview: fresh.data as ImportPreviewData });
+        else setImportPreview(null);
+        await refreshBoard();
+      }
+      return false;
     }
     showToast(
       "ok",
@@ -517,14 +525,15 @@ export function FloorBoard() {
     await refreshBoard();
     await refreshPhase1();
     bumpLedger();
+    return true;
   }
 
   async function confirmImportPreview() {
     if (!importPreview) return;
     setLoading(true);
     try {
-      await commitUpload(importPreview.file, importPreview.preview, true);
-      setImportPreview(null);
+      const landed = await commitUpload(importPreview.file, importPreview.preview, true);
+      if (landed) setImportPreview(null);
     } finally {
       setLoading(false);
     }

@@ -192,3 +192,38 @@ describe("A6: a superseded shift shows only its assigned history hours, marked e
     expect(availableShiftsForHour([superseded, replacement], D, 8)).toEqual([]);
   });
 });
+
+describe("fresh-review fixes around superseded rows", () => {
+  const old: ShiftDto = {
+    id: "sh-old2",
+    date: D,
+    startAt: iso("9:00 am"),
+    endAt: iso("5:00 pm"),
+    sourcePosition: "Caja - Regular",
+    board: "caja",
+    supersededAt: iso("10:15 am"),
+    employee: employee("e4", "5302", "Jaime"),
+    assignments: [hourAssign("green1", "10:00 am", "11:00 am")],
+  };
+  const replacement: ShiftDto = { ...old, id: "sh-new2", startAt: iso("10:00 am"), endAt: iso("6:00 pm"), supersededAt: null, assignments: [] };
+
+  it("a person seated this hour on a superseded shift is not offered again on the replacement", () => {
+    expect(availableShiftsForHour([old, replacement], D, 10)).toEqual([]);
+    expect(availableShiftsForHour([old, replacement], D, 11).map((s) => s.id)).toEqual(["sh-new2"]);
+  });
+
+  it("an ended history row does not mark the live shift as a later shift", () => {
+    const grid = buildScheduleGrid({ date: D, shifts: [old, replacement], stations, mode: "all-day", unassignedGroupLabel: "U" });
+    const live = grid.sections.flatMap((s) => s.rows).find((r) => r.shiftId === "sh-new2")!;
+    expect(live.laterShiftOfPerson).toBe(false);
+    const rows = buildTimelineRows({
+      shifts: [old, replacement],
+      date: D,
+      hours: [9, 10, 11],
+      offLabel: "off",
+      unassignedLabel: "open",
+      stationLabelFor: (id) => id,
+    });
+    expect(rows.find((r) => r.shift.id === "sh-new2")!.laterShiftOfPerson).toBe(false);
+  });
+});

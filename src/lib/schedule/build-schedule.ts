@@ -317,6 +317,7 @@ export function buildScheduleGrid(opts: {
   const dayShifts = opts.shifts.filter((sh) => sh.date === opts.date);
   const firstShiftByEmp = new Map<string, ScheduleShiftLike>();
   for (const sh of dayShifts) {
+    if (sh.supersededAt) continue; // ended history rows carry their own marker
     const prev = firstShiftByEmp.get(sh.employee.id);
     if (
       !prev ||
@@ -358,7 +359,7 @@ export function buildScheduleGrid(opts: {
     }
     return {
       shiftId: sh.id,
-      laterShiftOfPerson: firstShiftByEmp.get(sh.employee.id) !== sh,
+      laterShiftOfPerson: !sh.supersededAt && firstShiftByEmp.get(sh.employee.id) !== sh,
       ended: Boolean(sh.supersededAt),
       employeeId: sh.employee.id,
       externalId: sh.employee.externalId,

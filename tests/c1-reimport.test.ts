@@ -378,3 +378,23 @@ describe("C1 step 6: open shifts in an afternoon file", () => {
     expect(await dbSnapshot(prisma)).toBe(before);
   });
 });
+
+describe("an hour that starts between preview and Confirm (fresh review)", () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("refuses with an accurate message and changes nothing", async () => {
+    await seedMorning();
+    const parsed = await parse(AFTERNOON);
+    const preview = await previewImport(parsed, { now: chicagoDateTime(D, "1:58 pm") });
+    const before = await dbSnapshot(prisma);
+    const err = await commitImport(parsed, "afternoon.csv", {
+      now: chicagoDateTime(D, "2:01 pm"),
+      expected: { fingerprint: preview.fingerprint, planDigest: preview.planDigest },
+    }).catch((e: unknown) => e);
+    expect((err as ImportRefusedError).code).toBe("BOARD_CHANGED");
+    expect((err as Error).message).toMatch(/new hour started/);
+    expect(await dbSnapshot(prisma)).toBe(before);
+  });
+});
