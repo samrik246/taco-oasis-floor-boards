@@ -171,3 +171,30 @@ describe("A13c: synthetic fixtures", () => {
     expect(fromXlsx.shifts).toEqual(fromCsv.shifts);
   });
 });
+
+describe("open shifts (C1 step 6)", () => {
+  it("skips rows with no Employee ID and counts them per date; incomplete staff rows still fail", async () => {
+    const base = {
+      position: "Caja - Regular",
+      firstName: "",
+      lastName: "",
+      date: "2030-08-05",
+      start: "9:00 am",
+      end: "1:00 pm",
+    };
+    const csv = syntheticCsv([
+      { ...base, employeeId: "" },
+      { ...base, employeeId: "", date: "2030-08-06" },
+      { ...base, employeeId: "" },
+      { ...base, employeeId: "5401", firstName: "Jaime", lastName: "Demo" },
+    ]);
+    const result = await parseScheduleWorkbook(csv, { filename: "open.csv" });
+    expect(result.shifts.map((s) => s.externalId)).toEqual(["5401"]);
+    expect(result.skippedOpenShifts).toEqual({ "2030-08-05": 2, "2030-08-06": 1 });
+
+    const broken = syntheticCsv([{ ...base, employeeId: "5402", start: "" }]);
+    await expect(parseScheduleWorkbook(broken, { filename: "broken.csv" })).rejects.toThrow(
+      /Incomplete schedule row/,
+    );
+  });
+});

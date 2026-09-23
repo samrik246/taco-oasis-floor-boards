@@ -134,7 +134,10 @@ function findHeader(row: RawRow, name: string): string {
   return key ? (row[key] ?? "") : "";
 }
 
-function parseRow(row: RawRow): ParsedShift | null {
+/** A row with a position and date but no Employee ID: an open shift (C1 step 6). */
+type OpenShiftRow = { openShiftDate: string };
+
+function parseRow(row: RawRow): ParsedShift | OpenShiftRow | null {
   const position = findHeader(row, "Position");
   const externalId = findHeader(row, "Employee ID");
   const firstName = findHeader(row, "First Name");
@@ -144,7 +147,9 @@ function parseRow(row: RawRow): ParsedShift | null {
   const endTime = findHeader(row, "Shift End Time");
 
   if (!externalId && !position && !date) return null;
-  if (!externalId || !position || !date || !startTime || !endTime) {
+  // Open shifts are skipped and counted, never fatal. No Status filter (I2).
+  if (!externalId) return isValidYmd(date) ? { openShiftDate: date } : null;
+  if (!position || !date || !startTime || !endTime) {
     throw new Error(
       `Incomplete schedule row for employee=${externalId || "?"} position=${position || "?"}`,
     );
@@ -185,9 +190,15 @@ function parseFromWorksheet(ws: ExcelJS.Worksheet): ParseResult {
   assertRequiredHeaders(headers);
   const strippedPayColumns = detectStrippedPayColumns(headers);
   const shifts: ParsedShift[] = [];
+  const skippedOpenShifts: Record<string, number> = {};
   for (const row of rows) {
     const parsed = parseRow(row);
-    if (parsed) shifts.push(parsed);
+    if (!parsed) continue;
+    if ("openShiftDate" in parsed) {
+      skippedOpenShifts[parsed.openShiftDate] = (skippedOpenShifts[parsed.openShiftDate] ?? 0) + 1;
+      continue;
+    }
+    shifts.push(parsed);
   }
   const dates = [...new Set(shifts.map((s) => s.date))].sort();
   return {
@@ -195,6 +206,7 @@ function parseFromWorksheet(ws: ExcelJS.Worksheet): ParseResult {
     bucketCounts: summarize(shifts),
     dates,
     strippedPayColumns,
+    skippedOpenShifts,
   };
 }
 

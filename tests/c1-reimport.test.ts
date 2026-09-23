@@ -346,3 +346,35 @@ describe("C1 same-day re-import (reconcile)", () => {
     expect(await dbSnapshot(prisma)).toBe(before);
   });
 });
+
+describe("C1 step 6: open shifts in an afternoon file", () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("are skipped, counted in the preview, and do not block the commit", async () => {
+    await seedMorning();
+    const withOpen = [
+      ...AFTERNOON,
+      r("", "", "11:00 am", "3:00 pm"),
+      r("", "", "5:00 pm", "9:00 pm", { position: "Cocina" }),
+    ];
+    const { preview } = await previewAndCommit(withOpen);
+    expect(preview.dates[0]!.skippedOpenShifts).toBe(2);
+    expect(preview.refusals).toEqual([]);
+    expect(await prisma.employee.count({ where: { externalId: "" } })).toBe(0);
+    await expectInvariants();
+  });
+
+  it("the board-wipe refusal counts rows after the open-shift skip", async () => {
+    await seedMorning();
+    const before = await dbSnapshot(prisma);
+    const onlyOpenCocina = [
+      ...AFTERNOON.filter((row) => row.position !== "Cocina"),
+      r("", "", "8:00 am", "4:00 pm", { position: "Cocina" }),
+    ];
+    const preview = await previewImport(await parse(onlyOpenCocina), { now: NOW });
+    expect(preview.refusals.map((x) => x.code)).toEqual(["BOARD_WIPE"]);
+    expect(await dbSnapshot(prisma)).toBe(before);
+  });
+});
