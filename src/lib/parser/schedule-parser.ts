@@ -65,6 +65,31 @@ function cellToString(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
+/** Zero-only number formats ("0000") are the one display format an ID cell can carry. */
+const ZERO_PAD_FORMAT = /^0+$/;
+
+/**
+ * Employee ID exactly as the export displays it. A text cell stays as typed
+ * (`0042` and `42` are two people). A numeric cell shows its zero-pad number
+ * format when it has one; otherwise its plain digits. Never pads or strips.
+ */
+function employeeIdText(cell: ExcelJS.Cell): string {
+  const value = cell.value;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    const fmt = typeof cell.numFmt === "string" ? cell.numFmt.trim() : "";
+    const digits = String(value);
+    if (ZERO_PAD_FORMAT.test(fmt) && digits.length < fmt.length) {
+      return "0".repeat(fmt.length - digits.length) + digits;
+    }
+    return digits;
+  }
+  return cellToString(value);
+}
+
+function isEmployeeIdHeader(h: string): boolean {
+  return h.toLowerCase() === "employee id";
+}
+
 function normalizeHeader(h: string): string {
   return h.trim();
 }
@@ -84,7 +109,8 @@ function rowsFromWorksheet(ws: ExcelJS.Worksheet): { headers: string[]; rows: Ra
     let any = false;
     headers.forEach((h, i) => {
       if (!h) return;
-      const v = cellToString(row.getCell(i + 1).value);
+      const cell = row.getCell(i + 1);
+      const v = isEmployeeIdHeader(h) ? employeeIdText(cell) : cellToString(cell.value);
       obj[h] = v;
       if (v) any = true;
     });
@@ -173,13 +199,42 @@ function parseFromWorksheet(ws: ExcelJS.Worksheet): ParseResult {
   };
 }
 
+/**
+ * Read CSV text into a worksheet. ExcelJS `csv.read` turns `0042` into the
+ * number 42 before a cell exists, so the Employee ID column is read a second
+ * time with no coercion and written back as text. Every other column keeps
+ * ExcelJS's reading. Fails closed if the two reads disagree on shape.
+ */
+export async function readCsvWorksheet(
+  text: string,
+  workbook: ExcelJS.Workbook = new ExcelJS.Workbook(),
+): Promise<ExcelJS.Worksheet> {
+  const ws = await workbook.csv.read(Readable.from([text]));
+  const raw = await new ExcelJS.Workbook().csv.read(Readable.from([text]), {
+    map: (datum: string) => datum,
+  });
+  if (raw.rowCount !== ws.rowCount) {
+    throw new Error("CSV rows could not be read consistently");
+  }
+  const header = raw.getRow(1);
+  let idCol = 0;
+  header.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+    if (!idCol && isEmployeeIdHeader(normalizeHeader(String(cell.value ?? "")))) {
+      idCol = colNumber;
+    }
+  });
+  if (idCol) {
+    for (let r = 2; r <= raw.rowCount; r++) {
+      const text = String(raw.getRow(r).getCell(idCol).value ?? "").trim();
+      ws.getRow(r).getCell(idCol).value = text === "" ? null : text;
+    }
+  }
+  return ws;
+}
+
 /** Parse Schedules - Restaurant CSV (UTF-8). */
 export async function parseSchedulesCsv(buf: Buffer): Promise<ParseResult> {
-  const text = buf.toString("utf8");
-  const workbook = new ExcelJS.Workbook();
-  await workbook.csv.read(Readable.from([text]));
-  const ws = workbook.worksheets[0];
-  if (!ws) throw new Error("CSV produced no worksheet");
+  const ws = await readCsvWorksheet(buf.toString("utf8"));
   ws.name = SCHEDULES_SHEET_NAME;
   return parseFromWorksheet(ws);
 }
