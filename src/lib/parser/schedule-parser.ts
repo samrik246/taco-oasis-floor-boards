@@ -13,7 +13,6 @@ export type ParsedShift = {
   externalId: string;
   firstName: string;
   lastName: string;
-  email: string | null;
   date: string;
   startAt: Date;
   endAt: Date;
@@ -138,7 +137,6 @@ function parseRow(row: RawRow): ParsedShift | null {
   const externalId = findHeader(row, "Employee ID");
   const firstName = findHeader(row, "First Name");
   const lastName = findHeader(row, "Last Name");
-  const emailRaw = findHeader(row, "Email");
   const date = findHeader(row, "Shift Start Date");
   const startTime = findHeader(row, "Shift Start Time");
   const endTime = findHeader(row, "Shift End Time");
@@ -158,7 +156,6 @@ function parseRow(row: RawRow): ParsedShift | null {
     externalId: String(externalId),
     firstName: firstName || "?",
     lastName: lastName || "?",
-    email: emailRaw || null,
     date,
     startAt: chicagoDateTime(date, startTime),
     endAt: chicagoDateTime(date, endTime),
@@ -241,7 +238,7 @@ export async function parseSchedulesCsv(buf: Buffer): Promise<ParseResult> {
 
 /**
  * Parse a When I Work Restaurant workbook (xlsx) or a Schedules CSV buffer.
- * Pay columns are never included on ParsedShift.
+ * Pay columns and staff email are never included on ParsedShift.
  */
 export async function parseScheduleWorkbook(
   input: Buffer | ArrayBuffer | Uint8Array,

@@ -58,13 +58,12 @@ export async function persistImport(
     });
 
     // Upsert employees first
-    const byExternal = new Map<string, { firstName: string; lastName: string; email: string | null }>();
+    const byExternal = new Map<string, { firstName: string; lastName: string }>();
     const positionsByExternal = new Map<string, string[]>();
     for (const s of parsed.shifts) {
       byExternal.set(s.externalId, {
         firstName: s.firstName,
         lastName: s.lastName,
-        email: s.email,
       });
       const list = positionsByExternal.get(s.externalId) ?? [];
       list.push(s.sourcePosition);
@@ -79,12 +78,11 @@ export async function persistImport(
           externalId,
           firstName: info.firstName,
           lastName: info.lastName,
-          email: info.email,
         },
+        // Staff email is never imported (Rich 3A); names stay current.
         update: {
           firstName: info.firstName,
           lastName: info.lastName,
-          email: info.email,
         },
       });
       employeeIdByExternal.set(externalId, emp.id);
