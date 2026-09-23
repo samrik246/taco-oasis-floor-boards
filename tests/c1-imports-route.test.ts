@@ -23,8 +23,8 @@ const row = (employeeId: string, firstName: string, start: string, end: string, 
   start,
   end,
 });
-const MORNING = [row("7001", "Greta", "8:00 am", "4:00 pm"), row("7002", "Hector", "9:00 am", "5:00 pm", "Cocina")];
-const AFTERNOON = [row("7001", "Greta", "8:00 am", "2:00 pm"), row("7002", "Hector", "9:00 am", "5:00 pm", "Cocina")];
+const MORNING = [row("7001", "Greta", "8:00 am", "4:00 pm"), row("7002", "Remo", "9:00 am", "5:00 pm", "Cocina")];
+const AFTERNOON = [row("7001", "Greta", "8:00 am", "2:00 pm"), row("7002", "Remo", "9:00 am", "5:00 pm", "Cocina")];
 
 let token = "";
 

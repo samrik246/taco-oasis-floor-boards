@@ -40,7 +40,7 @@ describe("A8: leading-zero IDs stay separate people across xlsx and CSV", () => 
 
     const employees = await prisma.employee.findMany({ orderBy: { externalId: "asc" } });
     expect(employees.map((e) => e.externalId)).toEqual(["0042", "42"]);
-    const ana = employees.find((e) => e.externalId === "0042")!;
-    expect(await prisma.shift.count({ where: { employeeId: ana.id } })).toBe(2);
+    const first = employees.find((e) => e.externalId === "0042")!;
+    expect(await prisma.shift.count({ where: { employeeId: first.id } })).toBe(2);
   });
 });
