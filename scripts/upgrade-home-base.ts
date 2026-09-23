@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 type LegacyAssignment = { id: string; stationId: string; hourStart: Date; employeeId: string };
-type BatchRow = { id: string };
+type BatchRow = { id: string; fingerprint: string | null };
 type BatchShift = { importBatchId: string; externalId: string; date: string; startAt: Date; endAt: Date; sourcePosition: string; board: string };
 
 function hash(rows: unknown): string {
@@ -21,6 +21,16 @@ async function hasTable(name: string): Promise<boolean> {
 async function hasColumn(table: string, column: string): Promise<boolean> {
   const rows = await prisma.$queryRawUnsafe<{ name: string }[]>(`PRAGMA table_info("${table}")`);
   return rows.some((row) => row.name === column);
+}
+
+/** ImportBatch rows; `fingerprint` is null when the column is not there yet. */
+async function legacyBatches(): Promise<BatchRow[]> {
+  if (!(await hasTable("ImportBatch"))) return [];
+  if (!(await hasColumn("ImportBatch", "fingerprint"))) {
+    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>('SELECT id FROM "ImportBatch"');
+    return rows.map((r) => ({ id: r.id, fingerprint: null }));
+  }
+  return prisma.$queryRawUnsafe<BatchRow[]>('SELECT id, fingerprint FROM "ImportBatch"');
 }
 
 async function preflight() {
@@ -45,12 +55,18 @@ async function preflight() {
   if (duplicates.length) {
     throw new Error(`Legacy database has duplicate assignment slots. Resolve these before upgrade; no data was changed.\n${duplicates.join("\n")}`);
   }
-  const batches = await prisma.$queryRawUnsafe<BatchRow[]>('SELECT id FROM "ImportBatch"');
+  const batches = await legacyBatches();
   const shifts = await prisma.$queryRawUnsafe<BatchShift[]>(
     'SELECT s.importBatchId, e.externalId, s.date, s.startAt, s.endAt, s.sourcePosition, s.board FROM "Shift" s JOIN "Employee" e ON e.id = s.employeeId WHERE s.importBatchId IS NOT NULL',
   );
   const fingerprints = new Map<string, string[]>();
+  // Stored fingerprints stay as written; a legacy backfill must not collide with them.
   for (const batch of batches) {
+    if (batch.fingerprint != null) {
+      fingerprints.set(batch.fingerprint, [...(fingerprints.get(batch.fingerprint) ?? []), batch.id]);
+    }
+  }
+  for (const batch of batches.filter((b) => b.fingerprint == null)) {
     const rows = shifts.filter((shift) => shift.importBatchId === batch.id).map((shift) => ({
       externalId: shift.externalId, date: shift.date, startAt: shift.startAt.toISOString(), endAt: shift.endAt.toISOString(), sourcePosition: shift.sourcePosition, board: shift.board,
     })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -81,7 +97,11 @@ async function backfill() {
   await prisma.$executeRawUnsafe(
     'UPDATE "Assignment" SET employeeId = (SELECT employeeId FROM "Shift" WHERE "Shift".id = "Assignment".shiftId) WHERE employeeId IS NULL',
   );
-  const batches = await prisma.$queryRawUnsafe<BatchRow[]>('SELECT id FROM "ImportBatch"');
+  // Only legacy batches with no fingerprint. A fingerprint written at import is
+  // the uploaded file's hash; after a same-day re-import (C1) a batch's linked
+  // shifts no longer equal its file, so recomputing would break the duplicate
+  // refusal and could collide (two re-imports that only changed times link no shifts).
+  const batches = (await legacyBatches()).filter((b) => b.fingerprint == null);
   const shifts = await prisma.$queryRawUnsafe<BatchShift[]>(
     'SELECT s.importBatchId, e.externalId, s.date, s.startAt, s.endAt, s.sourcePosition, s.board FROM "Shift" s JOIN "Employee" e ON e.id = s.employeeId WHERE s.importBatchId IS NOT NULL',
   );
