@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildScheduleGrid, formatShiftWindowLabel } from "@/lib/schedule/build-schedule";
 import { buildTimelineRows } from "@/components/board/timeline-rows";
+import { availableShiftsForHour } from "@/components/board/board-helpers";
 import type { ShiftDto } from "@/components/board/types";
 import { chicagoDateTime } from "@/lib/time";
 
@@ -134,5 +135,60 @@ describe("shift window label shows Chicago minutes", () => {
   it("keeps whole hours compact and shows exact minutes otherwise", () => {
     expect(formatShiftWindowLabel(iso("7:00 am"), iso("3:00 pm"))).toBe("7a–3p");
     expect(formatShiftWindowLabel(iso("9:30 am"), iso("4:15 pm"))).toBe("9:30a–4:15p");
+  });
+});
+
+describe("A6: a superseded shift shows only its assigned history hours, marked ended", () => {
+  const superseded: ShiftDto = {
+    id: "sh-old",
+    date: D,
+    startAt: iso("7:00 am"),
+    endAt: iso("3:00 pm"),
+    sourcePosition: "Caja - Regular",
+    board: "caja",
+    supersededAt: iso("12:30 pm"),
+    employee: employee("e3", "5301", "Irma"),
+    assignments: [hourAssign("green1", "9:00 am", "10:00 am")],
+  };
+  const replacement: ShiftDto = {
+    ...superseded,
+    id: "sh-new",
+    startAt: iso("1:00 pm"),
+    endAt: iso("8:00 pm"),
+    supersededAt: null,
+    assignments: [],
+  };
+
+  it("Schedule", () => {
+    const grid = buildScheduleGrid({
+      date: D,
+      shifts: [superseded, replacement],
+      stations,
+      mode: "all-day",
+      unassignedGroupLabel: "Unassigned",
+    });
+    const rows = grid.sections.flatMap((s) => s.rows);
+    const old = rows.find((r) => r.shiftId === "sh-old")!;
+    expect(old.ended).toBe(true);
+    const onShift = [...old.hourStations.entries()].filter(([, v]) => v !== undefined);
+    expect(onShift).toEqual([[9, "green1"]]);
+    expect(rows.find((r) => r.shiftId === "sh-new")!.ended).toBe(false);
+  });
+
+  it("Timeline and the people list", () => {
+    const hours = Array.from({ length: 15 }, (_, i) => 7 + i);
+    const rows = buildTimelineRows({
+      shifts: [superseded, replacement],
+      date: D,
+      hours,
+      offLabel: "off",
+      unassignedLabel: "open",
+      stationLabelFor: (id) => id,
+    });
+    const old = rows.find((r) => r.shift.id === "sh-old")!;
+    expect(old.ended).toBe(true);
+    expect(old.cells.flatMap((c, i) => (c.kind === "off" ? [] : [hours[i]]))).toEqual([9]);
+    expect(availableShiftsForHour([superseded, replacement], D, 14).map((s) => s.id)).toEqual(["sh-new"]);
+    expect(availableShiftsForHour([superseded, replacement], D, 8)).toEqual([]);
   });
 });

@@ -39,7 +39,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
         return true;
       }).sort((a, b) => a.sortOrder - b.sortOrder);
       const shifts = await prisma.shift.findMany({
-        where: { date, board },
+        where: { date, board, supersededAt: null },
         include: { assignments: true },
         orderBy: { startAt: "asc" },
       });

@@ -27,6 +27,8 @@ export type ParseResult = {
   dates: string[];
   /** True when pay-related columns were present in the header and ignored */
   strippedPayColumns: string[];
+  /** Rows with no Employee ID (open shifts), skipped and counted per date. */
+  skippedOpenShifts?: Record<string, number>;
 };
 
 type RawRow = Record<string, string>;

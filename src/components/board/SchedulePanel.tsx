@@ -268,6 +268,14 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                             </span>
                           )}
                           <span>{row.name}</span>
+                          {row.ended && (
+                            <span
+                              className="shrink-0 rounded border border-neutral-500 px-1 text-[10px] font-bold uppercase text-neutral-600"
+                              data-testid="schedule-ended"
+                            >
+                              {t.shiftEnded}
+                            </span>
+                          )}
                         </span>
                       </th>
                       <td

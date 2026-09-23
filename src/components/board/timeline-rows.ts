@@ -11,6 +11,8 @@ export type TimelineCell = {
 
 export type TimelineRow = {
   shift: ShiftDto;
+  /** Superseded by a newer import: only its assigned (history) hours show. */
+  ended: boolean;
   cells: TimelineCell[];
   /** True on a person's second and later shift of the day; the row shows its start. */
   laterShiftOfPerson: boolean;
@@ -22,6 +24,7 @@ export function personName(sh: ShiftDto): string {
 
 function shiftCoversHour(sh: ShiftDto, date: string, hour: number): boolean {
   if (sh.date !== date) return false;
+  if (sh.supersededAt) return stationAtHour(sh, date, hour) != null;
   return isHourInShift(
     chicagoHourStart(date, hour),
     new Date(sh.startAt),
@@ -94,6 +97,6 @@ export function buildTimelineRows(opts: {
         changedFromPrev: prevId != null && prevId !== stationId,
       };
     });
-    return { shift: sh, cells, laterShiftOfPerson };
+    return { shift: sh, cells, laterShiftOfPerson, ended: Boolean(sh.supersededAt) };
   });
 }

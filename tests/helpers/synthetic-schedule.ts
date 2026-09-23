@@ -109,3 +109,17 @@ export async function resetScheduleTables(prisma: PrismaClient): Promise<void> {
     });
   }
 }
+
+/** Every row of every table an import can touch, ordered by id: "nothing changed" means equal snapshots. */
+export async function dbSnapshot(prisma: PrismaClient): Promise<string> {
+  const [employees, shifts, assignments, batches, abilities] = await Promise.all([
+    prisma.employee.findMany({ orderBy: { id: "asc" } }),
+    prisma.shift.findMany({ orderBy: { id: "asc" } }),
+    prisma.assignment.findMany({ orderBy: { id: "asc" } }),
+    prisma.importBatch.findMany({ orderBy: { id: "asc" } }),
+    prisma.employeeStationAbility.findMany({
+      orderBy: [{ employeeId: "asc" }, { stationId: "asc" }],
+    }),
+  ]);
+  return JSON.stringify({ employees, shifts, assignments, batches, abilities });
+}

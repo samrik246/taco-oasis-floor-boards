@@ -94,7 +94,7 @@ export function TimelinePanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ shift, cells, laterShiftOfPerson }) => (
+              {rows.map(({ shift, cells, laterShiftOfPerson, ended }) => (
                 <tr
                   key={shift.id}
                   data-testid={`timeline-row-${shift.id}`}
@@ -111,6 +111,14 @@ export function TimelinePanel({
                         </span>
                       )}
                       <span>{personName(shift)}</span>
+                      {ended && (
+                        <span
+                          className="shrink-0 rounded border border-neutral-500 px-1 text-[10px] font-bold uppercase text-neutral-600"
+                          data-testid="timeline-ended"
+                        >
+                          {t.shiftEnded}
+                        </span>
+                      )}
                     </span>
                   </th>
                   {cells.map((cell, i) => (

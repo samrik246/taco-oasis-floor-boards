@@ -164,6 +164,18 @@ export type Messages = {
   timelineEmpty: string;
   timelineOffShift: string;
   timelineUnassigned: string;
+  /** C1: a shift a newer schedule replaced; its past hours stay as history. */
+  shiftEnded: string;
+  importPreviewTitle: string;
+  importPreviewIntro: string;
+  importCounts: (c: { added: number; changed: number; unchanged: number; removed: number }) => string;
+  importKept: (n: number) => string;
+  importOpenShifts: (n: number) => string;
+  importRemoveTitle: string;
+  importRemoveNone: string;
+  importRefusedTitle: string;
+  importConfirm: string;
+  toastScheduleUpdated: string;
   person: string;
   position: string;
   violations: (n: number) => string;
@@ -343,6 +355,18 @@ const en: Messages = {
   timelineEmpty: "No people on this board for this date.",
   timelineOffShift: "—",
   timelineUnassigned: "Open",
+  shiftEnded: "Ended",
+  importPreviewTitle: "Update the schedule?",
+  importPreviewIntro: "This file changes a day that is already on the board. Nothing changes until you confirm.",
+  importCounts: (c) =>
+    `${c.added} added · ${c.changed} changed · ${c.unchanged} unchanged · ${c.removed} removed`,
+  importKept: (n) => `${n} assignments kept`,
+  importOpenShifts: (n) => `${n} open shifts skipped (no employee)`,
+  importRemoveTitle: "These assignments no longer fit the new schedule and will be removed:",
+  importRemoveNone: "No assignments will be removed.",
+  importRefusedTitle: "Not imported. Nothing changed:",
+  importConfirm: "Confirm update",
+  toastScheduleUpdated: "Schedule updated",
   person: "Person",
   position: "Position",
   violations: (n) =>
@@ -528,6 +552,18 @@ const es: Messages = {
   timelineEmpty: "Nadie en este tablero para esta fecha.",
   timelineOffShift: "—",
   timelineUnassigned: "Libre",
+  shiftEnded: "Terminó",
+  importPreviewTitle: "¿Actualizar el horario?",
+  importPreviewIntro: "Este archivo cambia un día que ya está en el tablero. Nada cambia hasta que confirmes.",
+  importCounts: (c) =>
+    `${c.added} nuevos · ${c.changed} cambiados · ${c.unchanged} sin cambio · ${c.removed} quitados`,
+  importKept: (n) => `${n} asignaciones se quedan`,
+  importOpenShifts: (n) => `${n} turnos abiertos omitidos (sin empleado)`,
+  importRemoveTitle: "Estas asignaciones ya no caben en el nuevo horario y se quitarán:",
+  importRemoveNone: "No se quitará ninguna asignación.",
+  importRefusedTitle: "No se importó. Nada cambió:",
+  importConfirm: "Confirmar",
+  toastScheduleUpdated: "Horario actualizado",
   person: "Persona",
   position: "Puesto",
   violations: (n) =>

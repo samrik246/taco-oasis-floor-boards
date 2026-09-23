@@ -35,6 +35,7 @@ import {
   type TareaTemplateDto,
 } from "./TareasPanel";
 import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
+import { ImportPreviewModal, type ImportPreviewData } from "./ImportPreviewModal";
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
@@ -122,6 +123,10 @@ export function FloorBoard() {
   const [now, setNow] = useState(() => new Date());
   const [rushForecast, setRushForecast] = useState<RushForecast | null>(null);
   const [toast, setToast] = useState<Toast>(null);
+  const [importPreview, setImportPreview] = useState<{
+    file: File;
+    preview: ImportPreviewData;
+  } | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(
     null,
   );
@@ -460,22 +465,66 @@ export function FloorBoard() {
     if (!file) return;
     setLoading(true);
     try {
-      const form = new FormData();
-      form.set("file", file);
-      const res = await fetch("/api/imports", {
-        method: "POST",
-        headers: managerAuthHeaders(manager.token),
-        body: form,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast("err", data.error ?? t.toastUploadFailed);
+      // Preview first (C1). A file that only adds new days imports in one step.
+      const preview = await postImport(file, { mode: "preview" }, manager.token);
+      if (!preview.ok) {
+        showToast("err", preview.data.error ?? t.toastUploadFailed);
         return;
       }
-      showToast("ok", t.toastImported(data.rowCount));
-      await refreshDates();
-      await refreshPhase1();
-      bumpLedger();
+      const data = preview.data as ImportPreviewData;
+      if (data.refusals.length > 0 || data.needsConfirm) {
+        setImportPreview({ file, preview: data });
+        return;
+      }
+      await commitUpload(file, data, false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function postImport(
+    file: File,
+    fields: Record<string, string>,
+    token: string,
+  ): Promise<{ ok: boolean; data: Record<string, unknown> & { error?: string } }> {
+    const form = new FormData();
+    form.set("file", file);
+    for (const [k, v] of Object.entries(fields)) form.set(k, v);
+    const res = await fetch("/api/imports", {
+      method: "POST",
+      headers: managerAuthHeaders(token),
+      body: form,
+    });
+    return { ok: res.ok, data: await res.json() };
+  }
+
+  async function commitUpload(file: File, data: ImportPreviewData, updated: boolean) {
+    if (!manager?.token) return;
+    const res = await postImport(
+      file,
+      { mode: "commit", fingerprint: data.fingerprint, planDigest: data.planDigest },
+      manager.token,
+    );
+    if (!res.ok) {
+      showToast("err", res.data.error ?? t.toastUploadFailed);
+      return;
+    }
+    showToast(
+      "ok",
+      updated ? t.toastScheduleUpdated : t.toastImported(Number(res.data.rowCount ?? 0)),
+    );
+    await refreshDates();
+    await refreshBoard();
+    await refreshPhase1();
+    bumpLedger();
+  }
+
+  async function confirmImportPreview() {
+    if (!importPreview) return;
+    setLoading(true);
+    try {
+      await commitUpload(importPreview.file, importPreview.preview, true);
+      setImportPreview(null);
     } finally {
       setLoading(false);
     }
@@ -1444,6 +1493,14 @@ export function FloorBoard() {
         </div>
       )}
 
+      <ImportPreviewModal
+        preview={importPreview?.preview ?? null}
+        busy={loading}
+        onCancel={() => setImportPreview(null)}
+        onConfirm={() => void confirmImportPreview()}
+        locale={locale}
+        t={t}
+      />
       <MoveReasonModal
         pending={pendingMove}
         onCancel={() => setPendingMove(null)}

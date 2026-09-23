@@ -51,6 +51,10 @@ model Shift {
   board          String // caja | cocina | other
   importBatchId  String?
   importBatch    ImportBatch? @relation(fields: [importBatchId], references: [id])
+  /// Set when a later import replaced or removed this shift (C1). A superseded
+  /// shift keeps its started, assigned hours as history and takes no new future hour.
+  supersededAt        DateTime?
+  supersededByBatchId String?
   assignments    Assignment[]
 
   @@index([date, board])

@@ -25,6 +25,7 @@ export function availableShiftsForHour(
   const hourStart = chicagoHourStart(date, hour);
   return shifts
     .filter((sh) => {
+      if (sh.supersededAt) return false;
       const start = new Date(sh.startAt);
       const end = new Date(sh.endAt);
       if (!isHourInShift(hourStart, start, end)) return false;

@@ -13,6 +13,8 @@ export type ScheduleShiftLike = {
   date: string;
   startAt: string;
   endAt: string;
+  /** Replaced by a newer import: the row shows only its assigned (history) hours. */
+  supersededAt?: string | null;
   employee: {
     id: string;
     externalId: string;
@@ -70,6 +72,8 @@ export type SchedulePersonRow = {
   startLabel: string;
   /** True on a person's second and later shift of the day; the UI shows its start. */
   laterShiftOfPerson: boolean;
+  /** Superseded by a newer import: history only, marked ended. */
+  ended: boolean;
   shiftLabel: string;
   primaryStationId: string | null;
   /** Hour → stationId | null (on shift, unassigned) | undefined (off shift) */
@@ -160,12 +164,13 @@ function stationAtHour(
   hour: number,
 ): string | null | undefined {
   const hourStart = chicagoHourStart(date, hour);
-  if (!isHourInShift(hourStart, new Date(sh.startAt), new Date(sh.endAt))) {
-    return undefined;
-  }
   const hit = sh.assignments.find(
     (a) => new Date(a.hourStart).getTime() === hourStart.getTime(),
   );
+  if (sh.supersededAt) return hit?.stationId;
+  if (!isHourInShift(hourStart, new Date(sh.startAt), new Date(sh.endAt))) {
+    return undefined;
+  }
   return hit?.stationId ?? null;
 }
 
@@ -325,7 +330,7 @@ export function buildScheduleGrid(opts: {
   const hoursWithShiftCoverage: number[] = [];
   for (const hour of allHours) {
     const hourStart = chicagoHourStart(opts.date, hour);
-    const any = dayShifts.some((sh) =>
+    const any = dayShifts.some((sh) => !sh.supersededAt &&
       isHourInShift(hourStart, new Date(sh.startAt), new Date(sh.endAt)),
     );
     if (any) hoursWithShiftCoverage.push(hour);
@@ -354,6 +359,7 @@ export function buildScheduleGrid(opts: {
     return {
       shiftId: sh.id,
       laterShiftOfPerson: firstShiftByEmp.get(sh.employee.id) !== sh,
+      ended: Boolean(sh.supersededAt),
       employeeId: sh.employee.id,
       externalId: sh.employee.externalId,
       name: personName(sh),
