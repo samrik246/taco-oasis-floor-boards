@@ -3,7 +3,6 @@ import { HOUR_GRID_END, HOUR_GRID_START, TIMEZONE } from "@/lib/constants";
 import {
   chicagoHourOf,
   chicagoHourStart,
-  formatCompactHour,
   hourGridHours,
 } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
@@ -59,7 +58,9 @@ export type ScheduleBlock = {
   span: number;
 };
 
+/** One row per shift: a person with two shifts on a day has two rows. */
 export type SchedulePersonRow = {
+  shiftId: string;
   employeeId: string;
   externalId: string;
   name: string;
@@ -67,6 +68,8 @@ export type SchedulePersonRow = {
   startAt: string;
   /** Compact start, e.g. 8a or 8:30a, shown beside the name in time sort. */
   startLabel: string;
+  /** True on a person's second and later shift of the day; the UI shows its start. */
+  laterShiftOfPerson: boolean;
   shiftLabel: string;
   primaryStationId: string | null;
   /** Hour → stationId | null (on shift, unassigned) | undefined (off shift) */
@@ -118,26 +121,29 @@ export function formatStartLabel(startAt: string): string {
   return `${h12}:${String(minute).padStart(2, "0")}${suffix}`;
 }
 
-function compareScheduleRows(
-  a: { name: string; startAt: string },
-  b: { name: string; startAt: string },
-  sort: ScheduleSort,
-): number {
-  if (sort === "time") {
-    const delta = new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
-    if (delta !== 0) return delta;
-  }
-  return a.name.localeCompare(b.name);
+type RowOrderKey = { name: string; employeeId: string; startAt: string; shiftId: string };
+
+function startMs(row: { startAt: string }): number {
+  return new Date(row.startAt).getTime();
 }
 
-export function formatShiftWindowLabel(startAt: string, endAt: string): string {
-  const startH = chicagoHourOf(new Date(startAt));
-  const end = new Date(endAt);
-  let endH = chicagoHourOf(end);
-  if (end.getMinutes() > 0 || end.getSeconds() > 0) {
-    endH += 1;
+/** Name sort: person, then start. Time sort: start, then person. Shift id breaks ties. */
+function compareScheduleRows(a: RowOrderKey, b: RowOrderKey, sort: ScheduleSort): number {
+  if (sort === "time") {
+    const delta = startMs(a) - startMs(b);
+    if (delta !== 0) return delta;
   }
-  return `${formatCompactHour(startH)}–${formatCompactHour(endH)}`;
+  return (
+    a.name.localeCompare(b.name) ||
+    a.employeeId.localeCompare(b.employeeId) ||
+    startMs(a) - startMs(b) ||
+    a.shiftId.localeCompare(b.shiftId)
+  );
+}
+
+/** Shift window in Chicago wall time with exact minutes: 7a–3p, 9:30a–4:15p. */
+export function formatShiftWindowLabel(startAt: string, endAt: string): string {
+  return `${formatStartLabel(startAt)}–${formatStartLabel(endAt)}`;
 }
 
 export function chicagoYmd(date: Date): string {
@@ -302,17 +308,24 @@ export function buildScheduleGrid(opts: {
   const allHours = hourGridHours();
   const stationsById = new Map(opts.stations.map((s) => [s.id, s]));
 
-  // One row per employee (first shift if multiple)
-  const byEmp = new Map<string, ScheduleShiftLike>();
-  for (const sh of opts.shifts) {
-    if (sh.date !== opts.date) continue;
-    if (!byEmp.has(sh.employee.id)) byEmp.set(sh.employee.id, sh);
+  // One row per shift. A person with a split shift gets one row per shift.
+  const dayShifts = opts.shifts.filter((sh) => sh.date === opts.date);
+  const firstShiftByEmp = new Map<string, ScheduleShiftLike>();
+  for (const sh of dayShifts) {
+    const prev = firstShiftByEmp.get(sh.employee.id);
+    if (
+      !prev ||
+      startMs(sh) < startMs(prev) ||
+      (startMs(sh) === startMs(prev) && sh.id < prev.id)
+    ) {
+      firstShiftByEmp.set(sh.employee.id, sh);
+    }
   }
 
   const hoursWithShiftCoverage: number[] = [];
   for (const hour of allHours) {
     const hourStart = chicagoHourStart(opts.date, hour);
-    const any = [...byEmp.values()].some((sh) =>
+    const any = dayShifts.some((sh) =>
       isHourInShift(hourStart, new Date(sh.startAt), new Date(sh.endAt)),
     );
     if (any) hoursWithShiftCoverage.push(hour);
@@ -333,12 +346,14 @@ export function buildScheduleGrid(opts: {
   }
 
   const sort: ScheduleSort = opts.sort ?? "name";
-  const drafts = [...byEmp.values()].map((sh) => {
+  const drafts = dayShifts.map((sh) => {
     const hourStations = new Map<number, string | null | undefined>();
     for (const hour of allHours) {
       hourStations.set(hour, stationAtHour(sh, opts.date, hour));
     }
     return {
+      shiftId: sh.id,
+      laterShiftOfPerson: firstShiftByEmp.get(sh.employee.id) !== sh,
       employeeId: sh.employee.id,
       externalId: sh.employee.externalId,
       name: personName(sh),
@@ -349,7 +364,7 @@ export function buildScheduleGrid(opts: {
       hourStations,
     };
   });
-  const labels = personLabelsByName(drafts.map((d) => d.name));
+  const labels = personLabelsByName([...new Set(drafts.map((d) => d.name))]);
   const textKind = sort === "position" ? "person" : "position";
 
   const people: SchedulePersonRow[] = drafts
@@ -429,7 +444,7 @@ function buildSections(opts: {
       label: st.label,
       color: st.color,
       kind: "thin",
-      rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
+      rows: rows.sort((a, b) => compareScheduleRows(a, b, "name")),
     });
     groupMap.delete(st.id);
   }
@@ -450,7 +465,7 @@ function buildSections(opts: {
       label: opts.unassignedGroupLabel,
       color: null,
       kind: "thin",
-      rows: unassigned.sort((a, b) => a.name.localeCompare(b.name)),
+      rows: unassigned.sort((a, b) => compareScheduleRows(a, b, "name")),
     });
   }
   return sections;

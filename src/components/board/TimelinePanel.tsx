@@ -1,17 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import { hourGridHours, formatHourLabel, chicagoHourOf } from "@/lib/hour-grid";
+import { hourGridHours, formatHourLabel } from "@/lib/hour-grid";
 import { stationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import type { DayBoardDto, ShiftDto } from "./types";
-
-type Cell = {
-  kind: "off" | "open" | "seated";
-  stationId: string | null;
-  label: string;
-  changedFromPrev: boolean;
-};
+import { formatStartLabel } from "@/lib/schedule/build-schedule";
+import { buildTimelineRows, personName } from "./timeline-rows";
+import type { DayBoardDto } from "./types";
 
 type Props = {
   day: DayBoardDto | null;
@@ -23,35 +18,6 @@ type Props = {
   onSelectHour?: (hour: number) => void;
   managerMode?: boolean;
 };
-
-function personName(sh: ShiftDto): string {
-  return `${sh.employee.firstName} ${sh.employee.lastName}`.trim();
-}
-
-function shiftCoversHour(sh: ShiftDto, date: string, hour: number): boolean {
-  if (sh.date !== date) return false;
-  const startH = chicagoHourOf(new Date(sh.startAt));
-  const endH = chicagoHourOf(new Date(sh.endAt));
-  // endAt exclusive by hour bucket when minutes=0; treat end hour exclusive
-  const endExclusive =
-    new Date(sh.endAt).getMinutes() === 0 &&
-    new Date(sh.endAt).getSeconds() === 0
-      ? endH
-      : endH + 1;
-  return hour >= startH && hour < endExclusive;
-}
-
-function stationAtHour(
-  sh: ShiftDto,
-  date: string,
-  hour: number,
-): string | null {
-  const hit = sh.assignments.find((a) => {
-    const h = chicagoHourOf(new Date(a.hourStart));
-    return sh.date === date && h === hour;
-  });
-  return hit?.stationId ?? null;
-}
 
 /**
  * People × time × position matrix for the active board/day.
@@ -69,47 +35,14 @@ export function TimelinePanel({
 
   const rows = useMemo(() => {
     if (!day || !date) return [];
-    // One row per employee (first shift if multiple)
-    const byEmp = new Map<string, ShiftDto>();
-    for (const sh of day.shifts) {
-      const prev = byEmp.get(sh.employee.id);
-      if (!prev) byEmp.set(sh.employee.id, sh);
-    }
-    return [...byEmp.values()]
-      .sort((a, b) => personName(a).localeCompare(personName(b)))
-      .map((sh) => {
-        const cells: Cell[] = hours.map((hour, idx) => {
-          if (!shiftCoversHour(sh, date, hour)) {
-            return {
-              kind: "off",
-              stationId: null,
-              label: t.timelineOffShift,
-              changedFromPrev: false,
-            };
-          }
-          const stationId = stationAtHour(sh, date, hour);
-          const prevHour = hours[idx - 1];
-          const prevId =
-            prevHour != null && shiftCoversHour(sh, date, prevHour)
-              ? stationAtHour(sh, date, prevHour)
-              : null;
-          if (!stationId) {
-            return {
-              kind: "open",
-              stationId: null,
-              label: t.timelineUnassigned,
-              changedFromPrev: prevId != null,
-            };
-          }
-          return {
-            kind: "seated",
-            stationId,
-            label: stationLabel(locale, stationId),
-            changedFromPrev: prevId != null && prevId !== stationId,
-          };
-        });
-        return { shift: sh, cells };
-      });
+    return buildTimelineRows({
+      shifts: day.shifts,
+      date,
+      hours,
+      offLabel: t.timelineOffShift,
+      unassignedLabel: t.timelineUnassigned,
+      stationLabelFor: (id) => stationLabel(locale, id),
+    });
   }, [day, date, hours, locale, t]);
 
   return (
@@ -161,13 +94,24 @@ export function TimelinePanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ shift, cells }) => (
+              {rows.map(({ shift, cells, laterShiftOfPerson }) => (
                 <tr
-                  key={shift.employee.id}
-                  data-testid={`timeline-row-${shift.employee.externalId}`}
+                  key={shift.id}
+                  data-testid={`timeline-row-${shift.id}`}
+                  data-employee={shift.employee.externalId}
                 >
                   <th className="sticky left-0 z-10 border-b border-neutral-300 bg-white px-2 py-2 text-sm font-bold">
-                    {personName(shift)}
+                    <span className="flex items-center gap-2">
+                      {laterShiftOfPerson && (
+                        <span
+                          className="shrink-0 rounded bg-neutral-900 px-1.5 py-0.5 text-xs font-extrabold tabular-nums text-white"
+                          data-testid="timeline-start"
+                        >
+                          {formatStartLabel(shift.startAt)}
+                        </span>
+                      )}
+                      <span>{personName(shift)}</span>
+                    </span>
                   </th>
                   {cells.map((cell, i) => (
                     <td

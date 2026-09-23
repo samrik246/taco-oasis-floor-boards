@@ -246,8 +246,9 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                   ) : null}
                   {section.rows.map((row) => (
                     <tr
-                      key={row.employeeId}
-                      data-testid={`schedule-row-${row.externalId}`}
+                      key={row.shiftId}
+                      data-testid={`schedule-row-${row.shiftId}`}
+                      data-employee={row.externalId}
                       data-start={row.startLabel}
                     >
                       <th
@@ -258,7 +259,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                         scope="row"
                       >
                         <span className="flex min-h-9 items-center gap-2 leading-tight">
-                          {sort === "time" && (
+                          {(sort === "time" || row.laterShiftOfPerson) && (
                             <span
                               className="shrink-0 rounded bg-neutral-900 px-1.5 py-0.5 text-xs font-extrabold tabular-nums text-white"
                               data-testid="schedule-start"
