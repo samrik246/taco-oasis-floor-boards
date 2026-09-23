@@ -31,11 +31,11 @@ describe("A8: leading-zero IDs stay separate people across xlsx and CSV", () => 
 
   it("0042 and 42 import as two employees, and a later 0042 reuses the first", async () => {
     const xlsx = await syntheticXlsx([
-      person("0042", "2030-02-04", "Ana"),
+      person("0042", "2030-02-04", "Celia"),
       person("42", "2030-02-04", "Beto"),
     ]);
     await persistImport(await parseScheduleWorkbook(xlsx, { filename: "d1.xlsx" }), "d1.xlsx");
-    const csv = syntheticCsv([person("0042", "2030-02-05", "Ana")]);
+    const csv = syntheticCsv([person("0042", "2030-02-05", "Celia")]);
     await persistImport(await parseScheduleWorkbook(csv, { filename: "d2.csv" }), "d2.csv");
 
     const employees = await prisma.employee.findMany({ orderBy: { externalId: "asc" } });

@@ -20,10 +20,10 @@ describe("A13 / A13b: staff email is never imported, and stored emails clear onc
     const buf = syntheticCsv([
       {
         position: "Caja - Regular",
-        firstName: "Rosa",
+        firstName: "Olga",
         lastName: "Inventada",
         employeeId: "9001",
-        email: "rosa@example.invalid",
+        email: "olga@example.invalid",
         date: "2030-03-04",
         start: "9:00 am",
         end: "1:00 pm",
@@ -41,10 +41,10 @@ describe("A13 / A13b: staff email is never imported, and stored emails clear onc
     });
     await persistImport(parsed, "a13.csv");
     const emp = await prisma.employee.findUniqueOrThrow({ where: { externalId: "9001" } });
-    expect(emp.firstName).toBe("Rosa");
+    expect(emp.firstName).toBe("Olga");
     expect(emp.lastName).toBe("Inventada");
     expect(emp.email).toBe("old@example.invalid");
-    const fresh = await prisma.employee.count({ where: { email: "rosa@example.invalid" } });
+    const fresh = await prisma.employee.count({ where: { email: "olga@example.invalid" } });
     expect(fresh).toBe(0);
   });
 

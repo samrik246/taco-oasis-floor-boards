@@ -48,7 +48,7 @@ describe("import persist + day board data", () => {
     await prisma.$disconnect();
   });
 
-  it("persists employees/shifts without pay fields and supports multi-position 8304", async () => {
+  it("persists employees/shifts without pay fields and supports multi-position 0042", async () => {
     const buf = fs.readFileSync(FIXTURE_XLSX);
     const parsed = await parseScheduleWorkbook(buf, {
       filename: "wheniwork-restaurant-export-sample.xlsx",
@@ -60,18 +60,18 @@ describe("import persist + day board data", () => {
     expect(rowCount).toBe(parsed.shifts.length);
     expect(importBatchId).toBeTruthy();
 
-    const emp = await prisma.employee.findUnique({ where: { externalId: "8304" } });
+    const emp = await prisma.employee.findUnique({ where: { externalId: "0042" } });
     expect(emp).toBeTruthy();
-    const shifts8304 = await prisma.shift.findMany({
+    const shifts0042 = await prisma.shift.findMany({
       where: { employeeId: emp!.id },
     });
-    expect(shifts8304.length).toBeGreaterThan(1);
-    const positions = new Set(shifts8304.map((s) => s.sourcePosition));
+    expect(shifts0042.length).toBeGreaterThan(1);
+    const positions = new Set(shifts0042.map((s) => s.sourcePosition));
     expect(positions.has("Caja - Regular")).toBe(true);
     expect(positions.has("Caja - Nieves")).toBe(true);
 
     // Ensure no pay-like columns exist on Shift model payloads
-    const sample = shifts8304[0]!;
+    const sample = shifts0042[0]!;
     expect(sample).not.toHaveProperty("hourlyRate");
     expect(sample).not.toHaveProperty("laborCost");
   });
@@ -97,7 +97,7 @@ describe("import persist + day board data", () => {
 
   it("rejects duplicate or overlapping imports without changing shifts or manual abilities", async () => {
     const beforeShifts = await prisma.shift.count();
-    const employee = await prisma.employee.findUnique({ where: { externalId: "8304" } });
+    const employee = await prisma.employee.findUnique({ where: { externalId: "0042" } });
     expect(employee).toBeTruthy();
     await prisma.employeeStationAbility.upsert({
       where: { employeeId_stationId: { employeeId: employee!.id, stationId: "yellow" } },

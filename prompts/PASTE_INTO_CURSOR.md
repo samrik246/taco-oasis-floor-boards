@@ -83,7 +83,7 @@ Scaffold the app **in this same repo** (do not create a second repo). Keep `docs
 ## Required build slices (SPEC §9) — each ends GREEN
 1. Scaffold Next+Tailwind+Prisma+SQLite; `pnpm build`
 2. Seed caja + cocina stations
-3. XLSX parser unit tests on sample fixture (assert caja/cocina/other bucket counts ≈ 109 / 105 / 19 ±5; dates Sep 18–24 2026; employee 8304 can have multiple position rows)
+3. XLSX parser unit tests on sample fixture (assert caja/cocina/other bucket counts ≈ 109 / 105 / 19 ±5; dates Sep 18–24 2026; employee 0042 (synthetic) can have multiple position rows)
 4. Import API + DB persist (strip pay cols)
 5. Day board read API by board+date
 6. UI shell: board toggle, date, Load sample, Upload

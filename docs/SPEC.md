@@ -254,7 +254,7 @@ Agent: complete as many slices as possible; never leave failing tests.
 Using `fixtures/wheniwork-restaurant-export-sample.xlsx`:
 - `Schedules - Restaurant` has shifts spanning **2026-09-18 … 2026-09-24**
 - Position bucket counts roughly: Caja ~109, Cocina ~105, Other ~19 (assert ±5 or exact from re-parse)
-- Employee ID `8304` appears as both `Caja - Regular` and `Caja - Nieves` on different rows — both must import as separate shifts
+- Employee ID `0042` (synthetic) appears as both `Caja - Regular` and `Caja - Nieves` on different rows — both must import as separate shifts
 - `Caja - Meser@` normalizes station hint `mesero` (keep raw position string)
 
 ---
