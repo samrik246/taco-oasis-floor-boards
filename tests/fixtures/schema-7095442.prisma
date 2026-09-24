@@ -242,8 +242,6 @@ model Manager {
   name      String
   codeHash  String
   active    Boolean  @default(true)
-  /// Planning code: unlock returns LONG_MANAGER_IDLE_MS instead of MANAGER_IDLE_MS. Off for every existing manager.
-  longIdle  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

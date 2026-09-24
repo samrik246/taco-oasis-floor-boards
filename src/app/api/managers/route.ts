@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
+  managerIdleMsFor,
   managerIdleMsFromEnv,
   verifyManagerCodeHash,
 } from "@/lib/managers/codes";
@@ -12,7 +13,7 @@ import {
 
 export const runtime = "nodejs";
 
-/** Public config for client idle timer (no secrets). */
+/** Public config for client idle timer (no secrets). Always the shared setting, never a code's own timeout. */
 export async function GET() {
   return NextResponse.json({ idleMs: managerIdleMsFromEnv() });
 }
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
 
     const managers = await prisma.manager.findMany({
       where: { active: true },
-      select: { id: true, name: true, codeHash: true },
+      select: { id: true, name: true, codeHash: true, longIdle: true },
     });
 
     const match = managers.find((m) =>
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       manager: { id: match.id, name: match.name },
-      idleMs: managerIdleMsFromEnv(),
+      idleMs: managerIdleMsFor(match),
       sessionToken: signManagerSession({ id: match.id, name: match.name }),
     });
   } catch (err) {

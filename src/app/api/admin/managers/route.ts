@@ -6,13 +6,13 @@ import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const dynamic = "force-dynamic";
 
-/** Names and active flag only. Never returns codeHash or plaintext codes. */
+/** Names, active and long-idle flags only. Never returns codeHash or plaintext codes. */
 export async function GET(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
   const managers = await prisma.manager.findMany({
     orderBy: { name: "asc" },
-    select: { id: true, name: true, active: true },
+    select: { id: true, name: true, active: true, longIdle: true },
   });
   return NextResponse.json({ managers });
 }
@@ -20,6 +20,8 @@ export async function GET(req: Request) {
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
   code: z.string().min(4).max(64),
+  /** A flag only; the 10-minute duration is set on the server. */
+  longIdle: z.boolean().optional(),
 });
 
 /** Create a manager without returning their code or hash. */
@@ -39,8 +41,12 @@ export async function POST(req: Request) {
       );
     }
     const manager = await prisma.manager.create({
-      data: { name: input.name, codeHash: hashManagerCode(input.code) },
-      select: { id: true, name: true, active: true },
+      data: {
+        name: input.name,
+        codeHash: hashManagerCode(input.code),
+        longIdle: input.longIdle ?? false,
+      },
+      select: { id: true, name: true, active: true, longIdle: true },
     });
     return NextResponse.json({ manager }, { status: 201 });
   } catch (err) {
