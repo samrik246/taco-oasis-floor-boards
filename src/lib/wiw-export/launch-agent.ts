@@ -4,9 +4,12 @@
  * browser is headed). If the Mac is asleep at a slot, launchd runs the job on
  * wake, and missed slots become one run.
  *
+ * The job runs in apply mode: the When I Work schedule is the authority, so a
+ * changed day imports with no Confirm.
+ *
  * This only writes the plist text. Loading it is the onsite install step.
  */
-import { DIR_ENV } from "@/lib/import/folder-import";
+import { DIR_ENV, MODE_ENV } from "@/lib/import/folder-import";
 import { LOGIN_FILE_ENV, PROFILE_DIR_ENV } from "./run";
 
 export const WIW_EXPORT_LABEL = "com.taco-oasis.wiw-export";
@@ -33,6 +36,7 @@ export function launchAgentPlist(input: LaunchAgentInput): string {
     [DIR_ENV, input.importDir],
     [LOGIN_FILE_ENV, input.loginFile],
     [PROFILE_DIR_ENV, input.profileDir],
+    [MODE_ENV, "apply"],
   ];
   const slot = (hour: number) =>
     `<dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>0</integer></dict>`;

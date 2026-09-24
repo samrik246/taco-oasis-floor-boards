@@ -142,6 +142,7 @@ beforeEach(async () => {
     profileDir: path.join(root, "browser"),
     loginFile: path.join(root, "secrets", "wiw-login"),
     logFile: path.join(appDir, "var", "log", "wiw-export.log"),
+    importMode: "hold",
   };
   await mkdir(settings.importDir, { recursive: true });
   await mkdir(settings.profileDir, { recursive: true });
@@ -194,6 +195,73 @@ describe("B2 export week and names", () => {
       "Schedule for Sep 11, 2026 - Sep 17, 2026.xlsx",
     );
     expect(dialogDate("2030-05-31")).toBe("05/31/2030");
+  });
+});
+
+/** Active (not superseded) shifts as [Employee ID, date, start, end], sorted. */
+async function activeBoard(): Promise<string[][]> {
+  const shifts = await prisma.shift.findMany({ where: { supersededAt: null }, include: { employee: true } });
+  return shifts
+    .map((s) => [s.employee.externalId, s.date, s.startAt.toISOString(), s.endAt.toISOString()])
+    .sort((a, b) => a.join().localeCompare(b.join()));
+}
+
+describe("B2 apply mode: the When I Work schedule is the authority", () => {
+  it("apply: a changed day imports with no Confirm, exit 0, workbook deleted, the board shows the new shift", async () => {
+    await run(fakeExporter({ body: await syntheticXlsx(MORNING) }), MORNING_RUN);
+    settings = { ...settings, importMode: "apply" };
+
+    const res = await run(fakeExporter({ body: await syntheticXlsx(AFTERNOON) }), AFTERNOON_RUN);
+    expect(res).toMatchObject({ exitCode: 0, stop: null, workbookDeleted: true });
+    expect(res.importResult).toMatchObject({ outcome: "imported", code: null, mode: "apply" });
+    expect(await folder()).toEqual([]);
+    // Bruno's shift now ends at 3 pm, as the afternoon export says; Abril's is unchanged.
+    expect(await activeBoard()).toEqual(
+      [
+        ["7301", D, chicagoDateTime(D, "8:00 am").toISOString(), chicagoDateTime(D, "4:00 pm").toISOString()],
+        ["7302", D, chicagoDateTime(D, "9:00 am").toISOString(), chicagoDateTime(D, "3:00 pm").toISOString()],
+      ].sort((a, b) => a.join().localeCompare(b.join())),
+    );
+    expect(await prisma.importBatch.count()).toBe(2);
+    const log = await logText();
+    expect(log).toContain("import outcome=imported mode=apply");
+    expect(log).not.toContain("Confirm");
+    expect(log).toContain("end exit=0 workbook=deleted");
+  });
+
+  it("hold: the same change is still held, exit 2, workbook kept, board unchanged", async () => {
+    await run(fakeExporter({ body: await syntheticXlsx(MORNING) }), MORNING_RUN);
+    const before = await activeBoard();
+
+    const res = await run(fakeExporter({ body: await syntheticXlsx(AFTERNOON) }), AFTERNOON_RUN);
+    expect(res).toMatchObject({ exitCode: 2, workbookDeleted: false });
+    expect(res.importResult).toMatchObject({ outcome: "held", code: "NEEDS_CONFIRM", mode: "hold" });
+    expect(await folder()).toEqual([TARGET]);
+    expect(await activeBoard()).toEqual(before);
+  });
+
+  it("apply still refuses EMPTY, WRONG_WEEK, REFUSED and DUPLICATE with exit 3, board untouched", async () => {
+    const morning = await syntheticXlsx(MORNING);
+    await run(fakeExporter({ body: morning }), MORNING_RUN);
+    settings = { ...settings, importMode: "apply" };
+    const before = await activeBoard();
+    const batches = await prisma.importBatch.count();
+
+    const overlap = [...AFTERNOON, r("7301", "Abril", "2:00 pm", "6:00 pm")];
+    const cases: Array<[string, Buffer]> = [
+      ["EMPTY", await syntheticXlsx([])],
+      ["WRONG_WEEK", await syntheticXlsx(MORNING.map((row) => ({ ...row, date: "2030-05-27" })))],
+      ["REFUSED", await syntheticXlsx(overlap)],
+      ["DUPLICATE", morning],
+    ];
+    for (const [code, body] of cases) {
+      const res = await run(fakeExporter({ body }), AFTERNOON_RUN);
+      expect(res).toMatchObject({ exitCode: 3, workbookDeleted: true });
+      expect(res.importResult).toMatchObject({ outcome: "refused", code, mode: "apply" });
+      expect(await folder()).toEqual([]);
+      expect(await activeBoard()).toEqual(before);
+      expect(await prisma.importBatch.count()).toBe(batches);
+    }
   });
 });
 
@@ -506,6 +574,7 @@ describe("B2 settings", () => {
       loginFile: "/Users/boards/.wiw-login",
       profileDir: "/Users/boards/.wiw-browser",
       logFile: "/opt/app/var/log/wiw-export.log",
+      importMode: "hold",
     });
     for (const key of Object.keys(env)) {
       expect(() => wiwSettingsFromEnv("/opt/app", { ...env, [key]: "" })).toThrow(`${key}_NOT_SET`);
@@ -513,16 +582,33 @@ describe("B2 settings", () => {
     }
   });
 
-  it("runs hold only: a Confirm is a manager's, never this job's", () => {
-    expect(wiwSettingsFromEnv("/opt/app", { ...env, FLOOR_BOARDS_IMPORT_MODE: "hold" }).importDir).toBe("/srv/exports");
-    expect(() => wiwSettingsFromEnv("/opt/app", { ...env, FLOOR_BOARDS_IMPORT_MODE: "apply" })).toThrow(
-      "FLOOR_BOARDS_IMPORT_MODE_NOT_HOLD",
-    );
+  it("takes apply or hold; unset stays hold so a hand run changes no day on the board", () => {
+    const mode = (value: string | undefined) =>
+      wiwSettingsFromEnv("/opt/app", { ...env, FLOOR_BOARDS_IMPORT_MODE: value }).importMode;
+    expect(mode(undefined)).toBe("hold");
+    expect(mode("")).toBe("hold");
+    expect(mode("hold")).toBe("hold");
+    expect(mode("apply")).toBe("apply");
+    expect(mode(" Apply ")).toBe("apply");
+  });
+
+  it("an unknown mode refuses before any browser opens", async () => {
+    for (const value of ["confirm", "auto", "applied"]) {
+      expect(() => wiwSettingsFromEnv("/opt/app", { ...env, FLOOR_BOARDS_IMPORT_MODE: value })).toThrow(
+        "FLOOR_BOARDS_IMPORT_MODE_NOT_HOLD_OR_APPLY",
+      );
+    }
+    // The script reads the settings before it builds the exporter, so a bad mode never launches Chromium.
+    const main = (await readFile(path.join(__dirname, "..", "scripts", "wiw-export.ts"), "utf8")).split(
+      "async function main()",
+    )[1]!;
+    expect(main.indexOf("wiwSettingsFromEnv(appDir)")).toBeGreaterThan(-1);
+    expect(main.indexOf("wiwSettingsFromEnv(appDir)")).toBeLessThan(main.indexOf("playwrightExporter("));
   });
 });
 
 describe("B2 LaunchAgent", () => {
-  it("runs at 07:00 and 16:00 in the GUI session, with the three paths and no login value", () => {
+  it("runs at 07:00 and 16:00 in the GUI session, in apply mode, with the three paths and no login value", () => {
     const plist = launchAgentPlist({
       appDir: "/opt/app",
       nodePath: "/usr/local/bin/node",
@@ -541,7 +627,7 @@ describe("B2 LaunchAgent", () => {
     expect(plist).toContain("<key>FLOOR_BOARDS_IMPORT_DIR</key><string>/srv/exports</string>");
     expect(plist).toContain("<key>WIW_LOGIN_FILE</key><string>/Users/boards/.wiw-login</string>");
     expect(plist).toContain("<key>WIW_BROWSER_PROFILE</key><string>/Users/boards/.wiw-browser</string>");
-    expect(plist).not.toContain("FLOOR_BOARDS_IMPORT_MODE");
+    expect(plist).toContain("<key>FLOOR_BOARDS_IMPORT_MODE</key><string>apply</string>");
     expect(plist).not.toMatch(/password|email/i);
   });
 
