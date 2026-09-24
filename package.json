@@ -14,7 +14,7 @@
     "db:push": "prisma db push --accept-data-loss",
     "db:seed": "tsx prisma/seed.ts",
     "db:setup": "prisma db push && tsx prisma/seed.ts",
-    "fixture:xlsx": "tsx scripts/build-sample-xlsx.ts",
+    "fixture:xlsx": "TZ=America/Chicago tsx scripts/build-sample-xlsx.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

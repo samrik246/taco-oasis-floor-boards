@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,11 +26,12 @@ describe("A18: schema upgrade from d02d812 keeps every row", () => {
   let prisma: PrismaClient;
 
   beforeAll(() => {
-    // The d02d812 schema, byte for byte, from git.
-    const oldSchema = execFileSync("git", ["show", "d02d812:prisma/schema.prisma"], {
-      cwd: root,
-      encoding: "utf8",
-    });
+    // The d02d812 schema, byte for byte: a committed copy of `git show d02d812:prisma/schema.prisma`,
+    // pinned by hash, so the test does not need git history (CI checks out one commit).
+    const oldSchema = fs.readFileSync(path.join(root, "tests", "fixtures", "schema-d02d812.prisma"), "utf8");
+    expect(createHash("sha256").update(oldSchema).digest("hex")).toBe(
+      "75f17c43f9a732661406c757144f1a5740bf3cb5fe1ac2fe997f91659a7589e6",
+    );
     expect(oldSchema).not.toContain("supersededAt");
     const schemaPath = path.join(tmp, "schema.prisma");
     fs.writeFileSync(schemaPath, oldSchema);
