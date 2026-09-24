@@ -115,14 +115,15 @@ jobs:
           DEMO_MANAGER_CODES: "1"
         run: pnpm db:setup
 
+      - name: Install Playwright Chromium
+        # Before vitest: the B2 export tests drive headless Chromium against a fake page.
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Unit / integration tests (vitest)
         run: pnpm test
 
       - name: Production build
         run: pnpm build
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end tests (Playwright)
         run: pnpm test:e2e

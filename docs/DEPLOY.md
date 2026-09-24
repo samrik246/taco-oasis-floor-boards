@@ -118,6 +118,58 @@ scripts/home-base.sh launch-agent-template "$PWD"
 
 The final command writes a per-user LaunchAgent template under the app's `var/run` folder but does not load it. After owner review, copy it to `~/Library/LaunchAgents/com.taco-oasis.floor-boards.plist` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.floor-boards.plist`. The plist runs the foreground Floor Boards Node entrypoint directly; it does not call the backgrounding helper. `stop` and `restore` boot out that registered agent and verify port 3000 has no listener before replacing SQLite. This proves start-after-login only. Unattended reboot behavior remains a physical-Mac check for tomorrow; start-before-login needs a separately reviewed administrator LaunchDaemon.
 
+### When I Work export at 07:00 and 16:00 (B2)
+
+`scripts/wiw-export.ts` exports the current Friday-through-Thursday schedule from When I Work in its own headed Chromium, renames it to `Schedule_for_<friday>_<thursday>.xlsx` in `FLOOR_BOARDS_IMPORT_DIR`, and runs the folder import in hold mode. No AI agent runs it. Carve-out (CB-006): this job only; the weekly schedule and timesheet skills and the LOLA360 daily export stay supervised on Rich's Mac.
+
+Settings, all absolute paths:
+
+| Variable | What |
+| --- | --- |
+| `FLOOR_BOARDS_IMPORT_DIR` | The folder the export is saved in and imported from |
+| `WIW_LOGIN_FILE` | The locked login file (below) |
+| `WIW_BROWSER_PROFILE` | This job's own Chromium folder. Not the Tron Chrome profile |
+
+`FLOOR_BOARDS_IMPORT_MODE` must be unset or `hold`: a change to a day already on the board waits for a manager's Confirm on the upload screen before the next run.
+
+**Locked login file.** XICO fills it once on the Mac. It is outside the app folder (and so outside `var/`), outside the export and browser folders, never in git, and owned by the boards user with mode 600:
+
+```text
+email=<the When I Work sign-in email>
+password=<its password>
+```
+
+```bash
+chmod 600 /absolute/path/to/wiw-login
+```
+
+The script reads it only when the sign-in page is up, types the two fields, and clicks Sign in once. It never prints, logs, traces or screenshots them.
+
+**Each run** writes one line per step to `var/log/wiw-export.log`: codes, counts and the file name only.
+
+| Exit | Meaning | Workbook |
+| --- | --- | --- |
+| 0 | imported | deleted in the same run |
+| 2 | held, `NEEDS_CONFIRM` | kept for Confirm on this Mac; the next run deletes it |
+| 3 | refused (`DUPLICATE` is a clean no-change; `WRONG_WEEK`, `EMPTY`, `UNREADABLE`, `REFUSED` are stops) | deleted in the same run |
+| 4 | no `Schedule_for_` file | none |
+| 5 | stopped: `LOGIN`, `MFA`, `CAPTCHA` or `PAGE` (with a `reason=` code) | none saved |
+| 1 | error | deleted after the error line |
+
+A stop leaves the board on the last import. After `LOGIN` or `MFA`, sign in by hand once in the job's browser folder, then close the window:
+
+```bash
+FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… pnpm exec tsx scripts/wiw-export.ts --sign-in
+```
+
+**Timer.** Check the Mac's clock is America/Chicago, then write the LaunchAgent template (not loaded):
+
+```bash
+FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… pnpm exec tsx scripts/wiw-export.ts --launch-agent-template
+```
+
+It writes `var/run/com.taco-oasis.wiw-export.plist`: `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
+
 ## Optional: Vercel
 
 Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
