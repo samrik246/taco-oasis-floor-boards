@@ -20,15 +20,21 @@
  * absolute. The log is var/log/wiw-export.log: codes, counts and the file
  * name only.
  *
- * `pnpm exec tsx scripts/wiw-export.ts`
+ * `node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts` (the timer's line;
+ * `pnpm exec tsx` fails in the installed release folder)
  *   Exit: 0 imported, 2 held for Confirm, 3 refused, 4 no export, 5 stopped
  *   (LOGIN/MFA/CAPTCHA/PAGE), 1 error.
- * `pnpm exec tsx scripts/wiw-export.ts --sign-in`
+ * `… scripts/wiw-export.ts --sign-in`
  *   Opens this job's browser folder at the scheduler for a person to sign in
  *   by hand (and pass a code once). Reads no login file, exports nothing.
  *   Close the window when the scheduler shows.
- * `pnpm exec tsx scripts/wiw-export.ts --launch-agent-template`
+ * `… scripts/wiw-export.ts --launch-agent-template`
  *   Writes var/run/com.taco-oasis.wiw-export.plist. Does not load it.
+ * `… scripts/wiw-export.ts --mode probe-dialog`
+ *   The run's steps up to the Export Schedule click, then an ARIA snapshot of
+ *   the dialog (or the page) to var/log/wiw-probe-*.aria.yml, mode 600, and
+ *   the controls' roles and names to the log. Never clicks Export, saves or
+ *   imports nothing, writes no timer. Exit: 6 captured, 5 stopped, 1 error.
  */
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -36,6 +42,7 @@ import { prisma } from "../src/lib/db";
 import { playwrightExporter, SCHEDULER_URL } from "../src/lib/wiw-export/browser";
 import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch-agent";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
+import { runProbeDialog } from "../src/lib/wiw-export/probe";
 import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
 
 const appDir = path.resolve(__dirname, "..");
@@ -67,10 +74,23 @@ async function writeTemplate() {
   console.log(`Generated ${out} (not loaded).`);
 }
 
+async function probeDialog() {
+  const settings = wiwSettingsFromEnv(appDir);
+  const result = await runProbeDialog(settings, {
+    exporter: (probe) => playwrightExporter({ profileDir: settings.profileDir, probe }),
+    readLogin: () =>
+      readLoginFile(settings.loginFile, {
+        keepOut: [settings.appDir, settings.importDir, settings.profileDir],
+      }),
+  });
+  process.exitCode = result.exitCode;
+}
+
 async function main() {
-  const arg = process.argv[2];
+  const [arg, value, extra] = process.argv.slice(2);
   if (arg === "--sign-in") return signInByHand();
   if (arg === "--launch-agent-template") return writeTemplate();
+  if (arg === "--mode" && value === "probe-dialog" && extra === undefined) return probeDialog();
   if (arg !== undefined) throw new SettingsError("UNKNOWN_ARGUMENT");
 
   const settings = wiwSettingsFromEnv(appDir);
@@ -91,7 +111,7 @@ main()
     const line = `${new Date().toISOString()} wiw-export error=${code}`;
     console.error(line);
     process.exitCode = 1;
-    if (process.argv[2] === undefined) {
+    if (process.argv[2] === undefined || process.argv[2] === "--mode") {
       const log = path.join(appDir, "var", "log", "wiw-export.log");
       return mkdir(path.dirname(log), { recursive: true })
         .then(() => appendFile(log, `${line}\n`))

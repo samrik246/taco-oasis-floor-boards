@@ -37,7 +37,20 @@ export type BrowserOptions = {
   menuSettleMs?: number;
   /** Tests pass a context; the job launches its own. */
   launch?: () => Promise<BrowserContext>;
+  /**
+   * Probe mode: called right after the Export Schedule click, then the run
+   * ends with ProbeDone. The dialog's Export button is never clicked.
+   */
+  probe?: (page: Page, stepTimeoutMs: number) => Promise<void>;
 };
+
+/** A probe run reached the dialog step and captured it. Not an export. */
+export class ProbeDone extends Error {
+  constructor() {
+    super("PROBE_DONE");
+    this.name = "ProbeDone";
+  }
+}
 
 type Screen = "scheduler" | "login" | "mfa" | "captcha";
 
@@ -177,6 +190,10 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
       }
       await page.waitForTimeout(opts.menuSettleMs ?? 800);
       await exportItem.first().click();
+      if (opts.probe) {
+        await opts.probe(page, step);
+        throw new ProbeDone();
+      }
 
       const dialog = page.getByRole("dialog");
       try {

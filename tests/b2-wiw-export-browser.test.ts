@@ -5,12 +5,13 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { chromium, type Browser, type BrowserContext, type Route } from "@playwright/test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { playwrightExporter } from "@/lib/wiw-export/browser";
 import { WiwLogin } from "@/lib/wiw-export/login-file";
-import { ExportStop } from "@/lib/wiw-export/run";
+import { runProbeDialog, PROBE_EXIT } from "@/lib/wiw-export/probe";
+import { ExportStop, STOP_EXIT } from "@/lib/wiw-export/run";
 import { expectedDownloadName } from "@/lib/wiw-export/week";
 
 const ORIGIN = "https://wiw.test";
@@ -29,6 +30,8 @@ type Fake = {
   splitUnchecked?: boolean;
   /** Where Sign in lands before the scheduler. */
   landing?: "dashboard";
+  /** Export Schedule opens nothing. */
+  noDialog?: boolean;
 };
 
 type Seen = { print: number; clear: number; exports: number; posts: Array<{ email: string; password: string }> };
@@ -38,16 +41,21 @@ const LOGIN = `<form method="post" action="/login">
   <label>Password <input type="password" name="password"></label>
   <button type="submit">Log In</button></form>`;
 
+/** A person's name and a field value that a probe log must never carry. */
+const PERSON = "Brenda Sentinelperson";
+const FIELD_VALUE = "01/01/2000";
+
 const scheduler = (fake: Fake) => `<h1>Scheduler</h1>
+<button>${PERSON} 9a-5p</button>
 <button aria-label="More Actions" onclick="document.getElementById('menu').hidden=false">&#8942;</button>
 <div id="menu" role="menu" hidden>
   <div role="menuitem" tabindex="0" onclick="fetch('/print')">Print Schedule</div>
-  <div role="menuitem" tabindex="0" onclick="document.getElementById('dlg').hidden=false">Export Schedule</div>
+  <div role="menuitem" tabindex="0" onclick="${fake.noDialog ? "" : "document.getElementById('dlg').hidden=false"}">Export Schedule</div>
   <div role="menuitem" tabindex="0" onclick="fetch('/clear')">Clear Schedule</div>
 </div>
 <div id="dlg" role="dialog" aria-label="Export Schedule" hidden>
-  <label>Start Date <input id="s" value="01/01/2000"></label>
-  <label>End Date <input id="e" value="01/01/2000"></label>
+  <label>Start Date <input id="s" value="${FIELD_VALUE}"></label>
+  <label>End Date <input id="e" value="${FIELD_VALUE}"></label>
   <label>Schedules <select><option>All</option></select></label>
   <label><input type="checkbox" id="split" ${fake.splitUnchecked ? "" : "checked"}> Split into separate schedules</label>
   <button onclick="location.href='/download?s='+encodeURIComponent(s.value)+'&e='+encodeURIComponent(e.value)">Export</button>
@@ -255,5 +263,104 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
     const error = await exporter.exportWeek(WEEK, async () => new WiwLogin("a", "b")).catch((e: unknown) => e);
     await exporter.close();
     expect(stopOf(error)).toBe("PAGE/BROWSER");
+  });
+});
+
+describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
+  async function probe(fake: Fake) {
+    const seen: Seen = { print: 0, clear: 0, exports: 0, posts: [] };
+    const appDir = await mkdtemp(path.join(dir, "app-"));
+    const importDir = await mkdtemp(path.join(dir, "import-"));
+    const settings = {
+      appDir,
+      importDir,
+      loginFile: "/unused/wiw-login",
+      profileDir: "/unused",
+      logFile: path.join(appDir, "var", "log", "wiw-export.log"),
+    };
+    let downloads = 0;
+    const result = await runProbeDialog(settings, {
+      readLogin: async () => new WiwLogin(SECRET_EMAIL, SECRET_PASSWORD),
+      exporter: (hook) =>
+        playwrightExporter({
+          profileDir: "/unused",
+          schedulerUrl: `${ORIGIN}/scheduler`,
+          stepTimeoutMs: 2_000,
+          menuSettleMs: 50,
+          probe: hook,
+          launch: async () => {
+            const context = await browser.newContext({ acceptDownloads: true });
+            await serve(context, fake, seen);
+            context.on("page", (p) => p.on("download", () => void (downloads += 1)));
+            for (const p of context.pages()) p.on("download", () => void (downloads += 1));
+            return context;
+          },
+        }),
+    });
+    const log = await readFile(settings.logFile, "utf8");
+    return { result, seen, downloads, log, appDir, importDir };
+  }
+
+  /** Every file under a folder, relative. */
+  async function tree(root: string): Promise<string[]> {
+    const out: string[] = [];
+    for (const e of await readdir(root, { withFileTypes: true, recursive: true })) {
+      if (e.isFile()) out.push(path.relative(root, path.join(e.parentPath, e.name)));
+    }
+    return out.sort();
+  }
+
+  it("dialog: captures it, never clicks Export, saves nothing, writes no timer", async () => {
+    const res = await probe({});
+    expect(res.result.exitCode).toBe(PROBE_EXIT);
+    // Signed in from the file, then stopped at the dialog: no Export click, no download, no Print/Clear.
+    expect(res.seen.posts).toHaveLength(1);
+    expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 0 });
+    expect(res.downloads).toBe(0);
+    expect(await readdir(res.importDir)).toEqual([]);
+    // Only the log and the snapshot: no var/run plist, nothing else.
+    const files = await tree(res.appDir);
+    expect(files).toHaveLength(2);
+    expect(files[0]).toBe(path.join("var", "log", "wiw-export.log"));
+    expect(files[1]).toMatch(/^var\/log\/wiw-probe-.+\.aria\.yml$/);
+  });
+
+  it("dialog: the snapshot is mode 600 and holds the values; the log holds none", async () => {
+    const res = await probe({});
+    const file = res.result.snapshotFile!;
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const snap = await readFile(file, "utf8");
+    expect(snap).toContain(FIELD_VALUE);
+    expect(snap).toContain('textbox "Start Date"');
+
+    expect(res.log).toContain("probe dialogs=1 visible=1 scope=dialog start_label=1 end_label=1 export_button=1");
+    expect(res.log).toContain('probe control role=textbox name="Start Date"');
+    expect(res.log).toContain('probe control role=textbox name="End Date"');
+    expect(res.log).toContain('probe control role=checkbox name="Split into separate schedules" state=[checked]');
+    expect(res.log).toContain('probe control role=button name="Export"');
+    expect(res.log).toContain('probe control role=combobox name="Schedules"');
+    expect(res.log).toContain(`probe end exit=${PROBE_EXIT}`);
+    for (const secret of [FIELD_VALUE, PERSON, "Brenda", SECRET_EMAIL, SECRET_PASSWORD, "All"]) {
+      expect(res.log).not.toContain(secret);
+    }
+  });
+
+  it("no dialog: captures the page; names only export-shaped controls, counts the rest", async () => {
+    const res = await probe({ signedIn: true, noDialog: true });
+    expect(res.result.exitCode).toBe(PROBE_EXIT);
+    expect(res.seen.exports).toBe(0);
+    expect(res.log).toContain("probe dialogs=0 visible=0 scope=page start_label=0 end_label=0 export_button=0");
+    expect(res.log).toMatch(/probe control other=[1-9]/);
+    expect(res.log).not.toContain("Brenda");
+    expect((await stat(res.result.snapshotFile!)).mode & 0o777).toBe(0o600);
+    expect(await readFile(res.result.snapshotFile!, "utf8")).toContain(PERSON);
+  });
+
+  it("a stop before the menu exits 5 with no snapshot", async () => {
+    const res = await probe({ mfa: true });
+    expect(res.result.exitCode).toBe(STOP_EXIT);
+    expect(res.result.snapshotFile).toBeNull();
+    expect(res.log).toContain("probe stop=MFA");
+    expect(await tree(res.appDir)).toEqual([path.join("var", "log", "wiw-export.log")]);
   });
 });

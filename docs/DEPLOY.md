@@ -159,13 +159,21 @@ The script reads it only when the sign-in page is up, types the two fields, and 
 A stop leaves the board on the last import. After `LOGIN` or `MFA`, sign in by hand once in the job's browser folder, then close the window:
 
 ```bash
-FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… pnpm exec tsx scripts/wiw-export.ts --sign-in
+FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts --sign-in
 ```
+
+**Probe the export dialog.** From the app folder, with the same three settings, run the steps up to the Export Schedule click and capture what opened, without exporting:
+
+```bash
+FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts --mode probe-dialog
+```
+
+Exit 6: captured. The ARIA snapshot of the dialog (or of the page, if no dialog showed) is in `var/log/wiw-probe-*.aria.yml`, mode 600. It holds page text, so it stays on the Mac. The log lists dialog counts, the counts the export's own dialog checks would see (`start_label`, `end_label`, `export_button`), and the role and name of each textbox, combobox, checkbox and button, never a field value. Exit 5: stopped at sign-in or at the menu, as a run would. The probe never clicks Export, saves or imports nothing, and writes no timer.
 
 **Timer.** Check the Mac's clock is America/Chicago, then write the LaunchAgent template (not loaded):
 
 ```bash
-FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… pnpm exec tsx scripts/wiw-export.ts --launch-agent-template
+FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts --launch-agent-template
 ```
 
 It writes `var/run/com.taco-oasis.wiw-export.plist`: `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
