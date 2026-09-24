@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -283,6 +283,23 @@ describe("B2 delete rule per exit code", () => {
     expect(await folder()).toEqual([]);
     const log = await logText();
     expect(log.indexOf("import error=IMPORT")).toBeGreaterThan(log.indexOf(`saved file=${TARGET}`));
+
+    // The error line is on disk while the workbook is still there: a run cut off
+    // between the two leaves a workbook with its line, never a deletion with no line.
+    const seen: Array<[string, boolean]> = [];
+    await runWiwExport(settings, {
+      exporter: fakeExporter({ body: await syntheticXlsx(MORNING) }),
+      readLogin,
+      now: () => MORNING_RUN,
+      runImport: fakeImportThrows,
+      appendLog: async (file, text) => {
+        seen.push([text, (await folder()).includes(TARGET)]);
+        await appendFile(file, text);
+      },
+    });
+    const errorLine = seen.find(([text]) => text.includes("import error=IMPORT"));
+    expect(errorLine?.[1]).toBe(true);
+    expect(seen.at(-1)).toEqual([expect.stringContaining("end exit=1 workbook=deleted"), false]);
     expect(log).toContain("end exit=1 workbook=deleted");
     // Codes only: the error's own text is not logged.
     expect(log).not.toContain("database locked");

@@ -114,6 +114,8 @@ export type WiwExportDeps = {
   readLogin: () => Promise<WiwLogin>;
   runImport?: (dir: string, now: Date) => Promise<FolderImportResult>;
   now?: () => Date;
+  /** Appends one log line. Tests wrap it to see the folder at the moment each line is written. */
+  appendLog?: (file: string, text: string) => Promise<void>;
 };
 
 async function removeIfFile(file: string): Promise<boolean> {
@@ -154,7 +156,7 @@ export async function runWiwExport(
   const now = deps.now ?? (() => new Date());
   await mkdir(path.dirname(settings.logFile), { recursive: true });
   const log = async (line: string) => {
-    await appendFile(settings.logFile, `${now().toISOString()} wiw-export ${line}\n`);
+    await (deps.appendLog ?? appendFile)(settings.logFile, `${now().toISOString()} wiw-export ${line}\n`);
   };
 
   const week = exportWeekFor(now());
