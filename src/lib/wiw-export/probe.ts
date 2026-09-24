@@ -1,13 +1,14 @@
 /**
  * Probe mode for the When I Work export (B2): the same steps as a run up to
- * the Export Schedule click, then a capture of what opened. Used to write the
+ * the dialog wait (the Export Schedule click and its one retry included),
+ * then a capture of what opened. Used to write the
  * dialog selectors from the live page instead of from memory.
  *
- * The capture is the ARIA snapshot of the visible dialog (or of the whole
- * page if no dialog shows), written to var/log with mode 600. It holds page
+ * The capture is the ARIA snapshot of the export dialog (or of another
+ * visible dialog, or of the whole page if none shows), written to var/log with mode 600. It holds page
  * text and field values, so it stays on the Mac. The log gets counts, and the
  * role and name of each textbox, combobox, checkbox and button; never a field
- * value. Without a dialog, names are logged only for export-shaped controls
+ * value. Outside the export dialog, names are logged only for export-shaped controls
  * (a scheduler page has buttons named after people); the rest are counted.
  *
  * The dialog's Export button is never clicked, nothing is saved to the import
@@ -16,7 +17,7 @@
 import { appendFile, chmod, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { ProbeDone } from "./browser";
+import { dialogControls, exportDialog, ProbeDone } from "./browser";
 import { LoginFileError, type WiwLogin } from "./login-file";
 import { ExportStop, STOP_EXIT, type ScheduleExporter, type StopCode, type WiwExportSettings } from "./run";
 import { exportWeekFor } from "./week";
@@ -32,12 +33,15 @@ const EXPORT_SHAPED = /\b(export|start|end|dates?|split|separate|schedules?|canc
 export type ProbeControl = { role: ControlRole; name: string | null; state: string | null };
 
 export type ProbeCapture = {
-  dialogs: number;
-  visibleDialogs: number;
-  scope: "dialog" | "page";
-  /** Visible matches for the f1d603a dialog locators: which DIALOG check would fail. */
-  startLabel: number;
-  endLabel: number;
+  /** Matches for the export's own dialog locator (visible only, as the export counts). */
+  exportDialogs: number;
+  /** Any visible dialog or alertdialog. */
+  otherDialogs: number;
+  scope: "export_dialog" | "dialog" | "page";
+  /** The export's own control locators, counted the same way the export counts them. */
+  startButton: number;
+  endButton: number;
+  splitCheckbox: number;
   exportButton: number;
   snapshot: string;
 };
@@ -64,32 +68,35 @@ async function visibleCount(l: Locator): Promise<number> {
   return n;
 }
 
-/** Wait for a dialog after the Export Schedule click, then capture it (or the page). */
-export async function captureDialog(page: Page, timeoutMs: number): Promise<ProbeCapture> {
-  const dialog = page.getByRole("dialog").or(page.getByRole("alertdialog"));
-  const shown = await dialog
-    .first()
-    .waitFor({ state: "visible", timeout: timeoutMs })
-    .then(() => true)
-    .catch(() => false);
-  const dialogs = await dialog.count();
-  const visibleDialogs = await visibleCount(dialog);
+/** Capture what the export's dialog wait left on screen: its dialog, another dialog, or the page. */
+export async function captureDialog(page: Page): Promise<ProbeCapture> {
+  const own = exportDialog(page);
+  const any = page.getByRole("dialog").or(page.getByRole("alertdialog"));
+  const exportDialogs = await own.count();
+  const otherDialogs = await visibleCount(any);
+  let kind: ProbeCapture["scope"] = "page";
   let scope: Locator = page.locator("body");
-  if (shown && visibleDialogs > 0) {
-    for (const item of await dialog.all()) {
+  if (exportDialogs > 0) {
+    kind = "export_dialog";
+    scope = own.first();
+  } else {
+    for (const item of await any.all()) {
       if (await item.isVisible().catch(() => false)) {
+        kind = "dialog";
         scope = item;
         break;
       }
     }
   }
+  const c = dialogControls(scope);
   return {
-    dialogs,
-    visibleDialogs,
-    scope: shown && visibleDialogs > 0 ? "dialog" : "page",
-    startLabel: await visibleCount(scope.getByLabel(/start date/i)),
-    endLabel: await visibleCount(scope.getByLabel(/end date/i)),
-    exportButton: await visibleCount(scope.getByRole("button", { name: /^export$/i })),
+    exportDialogs,
+    otherDialogs,
+    scope: kind,
+    startButton: await c.start.count(),
+    endButton: await c.end.count(),
+    splitCheckbox: await c.split.count(),
+    exportButton: await c.submit.count(),
     snapshot: await scope.ariaSnapshot(),
   };
 }
@@ -98,20 +105,20 @@ function controlLines(capture: ProbeCapture): string[] {
   const lines: string[] = [];
   let hidden = 0;
   for (const c of controlsOf(capture.snapshot)) {
-    if (capture.scope === "page" && !(c.name && EXPORT_SHAPED.test(c.name))) {
+    if (capture.scope !== "export_dialog" && !(c.name && EXPORT_SHAPED.test(c.name))) {
       hidden += 1;
       continue;
     }
     const name = c.name === null ? "-" : JSON.stringify(c.name.replace(/\s+/g, " ").slice(0, 80));
     lines.push(`probe control role=${c.role} name=${name}${c.state ? ` state=${c.state.replace(/\s+/g, "")}` : ""}`);
   }
-  if (capture.scope === "page") lines.push(`probe control other=${hidden}`);
+  if (capture.scope !== "export_dialog") lines.push(`probe control other=${hidden}`);
   return lines;
 }
 
 export type ProbeDeps = {
   /** Built with `probe` set; the probe hook is attached here. */
-  exporter: (probe: (page: Page, step: number) => Promise<void>) => ScheduleExporter;
+  exporter: (probe: (page: Page) => Promise<void>) => ScheduleExporter;
   readLogin: () => Promise<WiwLogin>;
   now?: () => Date;
 };
@@ -125,8 +132,8 @@ export async function runProbeDialog(settings: WiwExportSettings, deps: ProbeDep
   await log(`probe start week=${week.friday}..${week.thursday}`);
 
   let capture: ProbeCapture | null = null;
-  const exporter = deps.exporter(async (page, step) => {
-    capture = await captureDialog(page, step);
+  const exporter = deps.exporter(async (page) => {
+    capture = await captureDialog(page);
   });
 
   let stop: ExportStop | null = null;
@@ -137,7 +144,7 @@ export async function runProbeDialog(settings: WiwExportSettings, deps: ProbeDep
       } catch (err) {
         throw new ExportStop("LOGIN", err instanceof LoginFileError ? err.code : "FILE");
       }
-    });
+    }, (line) => log(`probe ${line}`));
     // Unreachable with the probe hook set. Never keep a file.
     await download.discard().catch(() => undefined);
     stop = new ExportStop("PAGE", "PROBE_NOT_ATTACHED");
@@ -159,8 +166,9 @@ export async function runProbeDialog(settings: WiwExportSettings, deps: ProbeDep
   await writeFile(file, `${done.snapshot}\n`, { mode: 0o600, flag: "wx" });
   await chmod(file, 0o600);
   await log(
-    `probe dialogs=${done.dialogs} visible=${done.visibleDialogs} scope=${done.scope} ` +
-      `start_label=${done.startLabel} end_label=${done.endLabel} export_button=${done.exportButton}`,
+    `probe export_dialog=${done.exportDialogs} dialogs=${done.otherDialogs} scope=${done.scope} ` +
+      `start_button=${done.startButton} end_button=${done.endButton} split_checkbox=${done.splitCheckbox} ` +
+      `export_button=${done.exportButton}`,
   );
   for (const line of controlLines(done)) await log(line);
   await log(`probe snapshot file=${path.basename(file)} mode=600`);

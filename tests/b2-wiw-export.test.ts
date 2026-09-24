@@ -66,6 +66,8 @@ type FakeExport = {
   stop?: StopCode;
   throws?: boolean;
   signIn?: boolean;
+  /** A fixed-code line the browser steps log, such as the menu retry. */
+  note?: string;
 };
 
 type FakeExporter = ScheduleExporter & {
@@ -81,8 +83,9 @@ function fakeExporter(plan: FakeExport): FakeExporter {
     closed: 0,
     discarded: 0,
     typed: [],
-    async exportWeek(_week, login): Promise<DownloadedExport> {
+    async exportWeek(_week, login, note): Promise<DownloadedExport> {
       ex.calls += 1;
+      if (plan.note) await note?.(plan.note);
       if (plan.signIn) ex.typed.push((await login()).reveal());
       if (plan.stop) throw new ExportStop(plan.stop);
       if (plan.throws) throw new Error(`locator timed out near ${SECRET_EMAIL}`);
@@ -340,6 +343,13 @@ describe("B2 stop codes", () => {
     const log = await logText();
     expect(log).toContain("stop=PAGE reason=STEP");
     expect(log).not.toContain("locator timed out");
+  });
+
+  it("a browser step's note (the menu retry) is logged before the save", async () => {
+    const res = await run(fakeExporter({ body: await syntheticXlsx(MORNING), note: "menu retry=1" }), MORNING_RUN);
+    expect(res.exitCode).toBe(0);
+    const log = await logText();
+    expect(log).toMatch(/wiw-export menu retry=1\n[^\n]* wiw-export saved file=/);
   });
 
   it("a download under another name is PAGE: discarded, never saved or imported", async () => {

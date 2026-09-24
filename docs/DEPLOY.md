@@ -153,7 +153,7 @@ The script reads it only when the sign-in page is up, types the two fields, and 
 | 2 | held, `NEEDS_CONFIRM` | kept for Confirm on this Mac; the next run deletes it |
 | 3 | refused (`DUPLICATE` is a clean no-change; `WRONG_WEEK`, `EMPTY`, `UNREADABLE`, `REFUSED` are stops) | deleted in the same run |
 | 4 | no `Schedule_for_` file | none |
-| 5 | stopped: `LOGIN`, `MFA`, `CAPTCHA` or `PAGE` (with a `reason=` code) | none saved |
+| 5 | stopped: `LOGIN`, `MFA`, `CAPTCHA` or `PAGE` (with a `reason=` code; the dialog checks are `DIALOG_OPEN`, `DIALOG_DATE`, `DIALOG_SPLIT`, `DIALOG_EXPORT`) | none saved |
 | 1 | error | deleted after the error line |
 
 A stop leaves the board on the last import. After `LOGIN` or `MFA`, sign in by hand once in the job's browser folder, then close the window:
@@ -168,7 +168,7 @@ FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node
 FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts --mode probe-dialog
 ```
 
-Exit 6: captured. The ARIA snapshot of the dialog (or of the page, if no dialog showed) is in `var/log/wiw-probe-*.aria.yml`, mode 600. It holds page text, so it stays on the Mac. The log lists dialog counts, the counts the export's own dialog checks would see (`start_label`, `end_label`, `export_button`), and the role and name of each textbox, combobox, checkbox and button, never a field value. Exit 5: stopped at sign-in or at the menu, as a run would. The probe never clicks Export, saves or imports nothing, and writes no timer.
+Exit 6: captured. The ARIA snapshot of the export dialog (or of another dialog, or of the page, if none showed) is in `var/log/wiw-probe-*.aria.yml`, mode 600. It holds page text, so it stays on the Mac. The log lists dialog counts, the counts the export's own checks see, counted the same way the export counts them (`export_dialog`, `start_button`, `end_button`, `split_checkbox`, `export_button`), a `menu retry=1` line if the Export Schedule click was repeated, and the role and name of each textbox, combobox, checkbox and button, never a field value. Exit 5: stopped at sign-in or at the menu, as a run would. The probe never clicks Export, saves or imports nothing, and writes no timer.
 
 **Timer.** Check the Mac's clock is America/Chicago, then write the LaunchAgent template (not loaded):
 
