@@ -1,7 +1,9 @@
 /**
  * The B2 browser steps against a fake scheduler in headless Chromium. The fake
- * names its download from the dates typed into the dialog, so a wrong date
- * shows up as a wrong file name. No real When I Work page is opened.
+ * dialog is rebuilt from the live capture of 24 Sep 2026 (probe on T MAC
+ * MINI): dialog "Export Schedule", date buttons showing MM/dd/yyyy, four
+ * comboboxes, the Split checkbox and Export. The fake names its download from
+ * the dates the buttons show. No real When I Work page is opened.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { chromium, type Browser, type BrowserContext, type Route } from "@playwright/test";
@@ -12,7 +14,7 @@ import { playwrightExporter } from "@/lib/wiw-export/browser";
 import { WiwLogin } from "@/lib/wiw-export/login-file";
 import { runProbeDialog, PROBE_EXIT } from "@/lib/wiw-export/probe";
 import { ExportStop, STOP_EXIT } from "@/lib/wiw-export/run";
-import { expectedDownloadName } from "@/lib/wiw-export/week";
+import { dialogDate, expectedDownloadName } from "@/lib/wiw-export/week";
 
 const ORIGIN = "https://wiw.test";
 const WEEK = { friday: "2030-05-31", thursday: "2030-06-06" };
@@ -32,34 +34,66 @@ type Fake = {
   landing?: "dashboard";
   /** Export Schedule opens nothing. */
   noDialog?: boolean;
+  /** Export Schedule clicks lost to the menu fade before one opens the dialog. */
+  swallowClicks?: number;
+  /** The dialog opens on the week before. */
+  datesOffByWeek?: boolean;
+  /** Hidden inputs behind the date pickers that carry the same labels. */
+  hiddenDateInputs?: boolean;
 };
 
-type Seen = { print: number; clear: number; exports: number; posts: Array<{ email: string; password: string }> };
+type Seen = {
+  print: number;
+  clear: number;
+  exports: number;
+  /** Export Schedule clicks. */
+  menuClicks: number;
+  /** Date button clicks: the job never opens a date picker. */
+  datePicker: number;
+  posts: Array<{ email: string; password: string }>;
+};
+
+const seenNone = (): Seen => ({ print: 0, clear: 0, exports: 0, menuClicks: 0, datePicker: 0, posts: [] });
 
 const LOGIN = `<form method="post" action="/login">
   <label>Email <input type="email" name="email"></label>
   <label>Password <input type="password" name="password"></label>
   <button type="submit">Log In</button></form>`;
 
-/** A person's name and a field value that a probe log must never carry. */
+/** A person's name that a probe log must never carry. */
 const PERSON = "Brenda Sentinelperson";
-const FIELD_VALUE = "01/01/2000";
+/** The date the Start button shows: a value, so never in the log. */
+const SHOWN_START = dialogDate(WEEK.friday);
+/** A combobox value: never in the log. */
+const COMBO_VALUE = "Combo-sentinel-4r";
 
-const scheduler = (fake: Fake) => `<h1>Scheduler</h1>
+const combobox = (name: string) =>
+  `<button>Remove All</button><input role="combobox" aria-label="${name}" aria-expanded="false" value="${COMBO_VALUE}">`;
+
+const scheduler = (fake: Fake) => {
+  const [start, end] = fake.datesOffByWeek ? ["05/24/2030", "05/30/2030"] : [SHOWN_START, dialogDate(WEEK.thursday)];
+  const open = fake.noDialog
+    ? ""
+    : `if (++window.clicks > ${fake.swallowClicks ?? 0}) document.getElementById('dlg').hidden=false`;
+  return `<h1>Scheduler</h1>
+<script>window.clicks = 0;</script>
 <button>${PERSON} 9a-5p</button>
 <button aria-label="More Actions" onclick="document.getElementById('menu').hidden=false">&#8942;</button>
 <div id="menu" role="menu" hidden>
   <div role="menuitem" tabindex="0" onclick="fetch('/print')">Print Schedule</div>
-  <div role="menuitem" tabindex="0" onclick="${fake.noDialog ? "" : "document.getElementById('dlg').hidden=false"}">Export Schedule</div>
+  <div role="menuitem" tabindex="0" onclick="fetch('/export-item'); ${open}">Export Schedule</div>
   <div role="menuitem" tabindex="0" onclick="fetch('/clear')">Clear Schedule</div>
 </div>
 <div id="dlg" role="dialog" aria-label="Export Schedule" hidden>
-  <label>Start Date <input id="s" value="${FIELD_VALUE}"></label>
-  <label>End Date <input id="e" value="${FIELD_VALUE}"></label>
-  <label>Schedules <select><option>All</option></select></label>
-  <label><input type="checkbox" id="split" ${fake.splitUnchecked ? "" : "checked"}> Split into separate schedules</label>
-  <button onclick="location.href='/download?s='+encodeURIComponent(s.value)+'&e='+encodeURIComponent(e.value)">Export</button>
+  <button aria-label="close">&times;</button>
+  <button id="s" aria-label="Start Date" onclick="fetch('/datepicker')">${start}</button><button onclick="fetch('/datepicker')">&#128197;</button>
+  <button id="e" aria-label="End Date" onclick="fetch('/datepicker')">${end}</button><button onclick="fetch('/datepicker')">&#128197;</button>
+  ${fake.hiddenDateInputs ? `<input aria-label="Start Date" hidden><input aria-label="End Date" hidden>` : ""}
+  ${combobox("Schedules")}${combobox("Job Sites")}${combobox("Positions")}${combobox("Users")}
+  <div role="checkbox" tabindex="0" aria-checked="${fake.splitUnchecked ? "false" : "true"}">Split into separate schedules</div>
+  <button onclick="location.href='/download?s='+encodeURIComponent(s.textContent)+'&e='+encodeURIComponent(e.textContent)">Export</button>
 </div>`;
+};
 
 const MFA = `<h1>Enter the code</h1><label>Verification code <input name="verification_code" autocomplete="one-time-code"></label>`;
 const CAPTCHA = `<h1>Check</h1><iframe title="captcha" src="about:blank"></iframe>`;
@@ -78,6 +112,8 @@ async function serve(context: BrowserContext, fake: Fake, seen: Seen) {
     const p = url.pathname;
     if (p === "/print") return route.fulfill({ status: 204 }).then(() => void (seen.print += 1));
     if (p === "/clear") return route.fulfill({ status: 204 }).then(() => void (seen.clear += 1));
+    if (p === "/export-item") return route.fulfill({ status: 204 }).then(() => void (seen.menuClicks += 1));
+    if (p === "/datepicker") return route.fulfill({ status: 204 }).then(() => void (seen.datePicker += 1));
     if (p === "/login" && route.request().method() === "POST") {
       const form = new URLSearchParams(route.request().postData() ?? "");
       const post = { email: form.get("email") ?? "", password: form.get("password") ?? "" };
@@ -123,7 +159,7 @@ afterAll(async () => {
 });
 
 async function attempt(fake: Fake, opts: { stepTimeoutMs?: number } = {}) {
-  const seen: Seen = { print: 0, clear: 0, exports: 0, posts: [] };
+  const seen = seenNone();
   const readLogin = vi.fn(async () => new WiwLogin(SECRET_EMAIL, SECRET_PASSWORD));
   const exporter = playwrightExporter({
     profileDir: "/unused",
@@ -131,6 +167,7 @@ async function attempt(fake: Fake, opts: { stepTimeoutMs?: number } = {}) {
     stepTimeoutMs: opts.stepTimeoutMs ?? 5_000,
     downloadTimeoutMs: 5_000,
     menuSettleMs: 50,
+    dialogRetryMs: 300,
     launch: async () => {
       const context = await browser.newContext({ acceptDownloads: true });
       await serve(context, fake, seen);
@@ -140,8 +177,9 @@ async function attempt(fake: Fake, opts: { stepTimeoutMs?: number } = {}) {
   let error: unknown = null;
   let saved: string | null = null;
   let name: string | null = null;
+  const notes: string[] = [];
   try {
-    const dl = await exporter.exportWeek(WEEK, readLogin);
+    const dl = await exporter.exportWeek(WEEK, readLogin, async (line) => void notes.push(line));
     name = dl.suggestedName;
     saved = path.join(dir, `${Date.now()}-${Math.random()}.xlsx`);
     await dl.saveAs(saved);
@@ -151,7 +189,7 @@ async function attempt(fake: Fake, opts: { stepTimeoutMs?: number } = {}) {
   } finally {
     await exporter.close();
   }
-  return { seen, readLogin, error, saved, name };
+  return { seen, readLogin, error, saved, name, notes };
 }
 
 const stopOf = (e: unknown) => (e instanceof ExportStop ? `${e.code}${e.reason ? `/${e.reason}` : ""}` : String(e));
@@ -162,8 +200,9 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
     expect(res.error).toBeNull();
     expect(res.name).toBe(expectedDownloadName(WEEK));
     expect(await readFile(res.saved!, "utf8")).toBe("FAKE-XLSX");
-    expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 1 });
+    expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 1, menuClicks: 1, datePicker: 0 });
     expect(res.readLogin).not.toHaveBeenCalled();
+    expect(res.notes).toEqual([]);
   });
 
   it("sign-in page: types the two fields once, clicks Sign in, then exports", async () => {
@@ -182,7 +221,7 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
 
   it("LOGIN: a rejected sign-in stops after one try", async () => {
     const readLogin = async () => new WiwLogin(SECRET_EMAIL, "wrong");
-    const seen: Seen = { print: 0, clear: 0, exports: 0, posts: [] };
+    const seen = seenNone();
     const exporter = playwrightExporter({
       profileDir: "/unused",
       schedulerUrl: `${ORIGIN}/scheduler`,
@@ -207,7 +246,7 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
   });
 
   it("LOGIN: a login file that cannot be read stops before anything is typed", async () => {
-    const seen: Seen = { print: 0, clear: 0, exports: 0, posts: [] };
+    const seen = seenNone();
     const exporter = playwrightExporter({
       profileDir: "/unused",
       schedulerUrl: `${ORIGIN}/scheduler`,
@@ -247,6 +286,33 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
     expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 0 });
   });
 
+  it("menu fade: a swallowed Export Schedule click is clicked once more, logged, then exports", async () => {
+    const res = await attempt({ signedIn: true, swallowClicks: 1 });
+    expect(res.error).toBeNull();
+    expect(res.name).toBe(expectedDownloadName(WEEK));
+    expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 1, menuClicks: 2, datePicker: 0 });
+    expect(res.notes).toEqual(["menu retry=1"]);
+  });
+
+  it("PAGE: no dialog after the one retry stops DIALOG_OPEN, two clicks only", async () => {
+    const res = await attempt({ signedIn: true, noDialog: true }, { stepTimeoutMs: 1_000 });
+    expect(stopOf(res.error)).toBe("PAGE/DIALOG_OPEN");
+    expect(res.seen).toMatchObject({ print: 0, clear: 0, exports: 0, menuClicks: 2 });
+    expect(res.notes).toEqual(["menu retry=1"]);
+  });
+
+  it("PAGE: the dialog on another week stops DIALOG_DATE; the date pickers are never opened", async () => {
+    const res = await attempt({ signedIn: true, datesOffByWeek: true });
+    expect(stopOf(res.error)).toBe("PAGE/DIALOG_DATE");
+    expect(res.seen).toMatchObject({ exports: 0, datePicker: 0 });
+  });
+
+  it("hidden inputs carrying the date labels do not count", async () => {
+    const res = await attempt({ signedIn: true, hiddenDateInputs: true });
+    expect(res.error).toBeNull();
+    expect(res.seen.exports).toBe(1);
+  });
+
   it("PAGE: Split into separate schedules unchecked stops without exporting", async () => {
     const res = await attempt({ signedIn: true, splitUnchecked: true });
     expect(stopOf(res.error)).toBe("PAGE/DIALOG_SPLIT");
@@ -268,7 +334,7 @@ describe("B2 browser steps (fake scheduler)", { timeout: 30_000 }, () => {
 
 describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
   async function probe(fake: Fake) {
-    const seen: Seen = { print: 0, clear: 0, exports: 0, posts: [] };
+    const seen = seenNone();
     const appDir = await mkdtemp(path.join(dir, "app-"));
     const importDir = await mkdtemp(path.join(dir, "import-"));
     const settings = {
@@ -287,6 +353,7 @@ describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
           schedulerUrl: `${ORIGIN}/scheduler`,
           stepTimeoutMs: 2_000,
           menuSettleMs: 50,
+          dialogRetryMs: 300,
           probe: hook,
           launch: async () => {
             const context = await browser.newContext({ acceptDownloads: true });
@@ -330,17 +397,20 @@ describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
     const file = res.result.snapshotFile!;
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     const snap = await readFile(file, "utf8");
-    expect(snap).toContain(FIELD_VALUE);
-    expect(snap).toContain('textbox "Start Date"');
+    expect(snap).toContain(SHOWN_START);
+    expect(snap).toContain('button "Start Date"');
 
-    expect(res.log).toContain("probe dialogs=1 visible=1 scope=dialog start_label=1 end_label=1 export_button=1");
-    expect(res.log).toContain('probe control role=textbox name="Start Date"');
-    expect(res.log).toContain('probe control role=textbox name="End Date"');
+    expect(res.log).toContain(
+      "probe export_dialog=1 dialogs=1 scope=export_dialog start_button=1 end_button=1 split_checkbox=1 export_button=1",
+    );
+    expect(res.log).toContain('probe control role=button name="Start Date"');
+    expect(res.log).toContain('probe control role=button name="End Date"');
     expect(res.log).toContain('probe control role=checkbox name="Split into separate schedules" state=[checked]');
     expect(res.log).toContain('probe control role=button name="Export"');
     expect(res.log).toContain('probe control role=combobox name="Schedules"');
     expect(res.log).toContain(`probe end exit=${PROBE_EXIT}`);
-    for (const secret of [FIELD_VALUE, PERSON, "Brenda", SECRET_EMAIL, SECRET_PASSWORD, "All"]) {
+    expect(res.log).not.toContain("menu retry");
+    for (const secret of [SHOWN_START, PERSON, "Brenda", SECRET_EMAIL, SECRET_PASSWORD, COMBO_VALUE]) {
       expect(res.log).not.toContain(secret);
     }
   });
@@ -349,7 +419,10 @@ describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
     const res = await probe({ signedIn: true, noDialog: true });
     expect(res.result.exitCode).toBe(PROBE_EXIT);
     expect(res.seen.exports).toBe(0);
-    expect(res.log).toContain("probe dialogs=0 visible=0 scope=page start_label=0 end_label=0 export_button=0");
+    expect(res.log).toContain("probe menu retry=1");
+    expect(res.log).toContain(
+      "probe export_dialog=0 dialogs=0 scope=page start_button=0 end_button=0 split_checkbox=0 export_button=0",
+    );
     expect(res.log).toMatch(/probe control other=[1-9]/);
     expect(res.log).not.toContain("Brenda");
     expect((await stat(res.result.snapshotFile!)).mode & 0o777).toBe(0o600);

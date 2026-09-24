@@ -50,9 +50,13 @@ export type ScheduleExporter = {
   /**
    * Download this week's export. Calls `login()` only when the sign-in page is
    * up. Throws ExportStop at a sign-in it cannot pass, a code, a CAPTCHA or a
-   * page that does not match the steps.
+   * page that does not match the steps. `note` takes fixed-code log lines only.
    */
-  exportWeek(week: ExportWeek, login: () => Promise<WiwLogin>): Promise<DownloadedExport>;
+  exportWeek(
+    week: ExportWeek,
+    login: () => Promise<WiwLogin>,
+    note?: (line: string) => Promise<void>,
+  ): Promise<DownloadedExport>;
   close(): Promise<void>;
 };
 
@@ -183,7 +187,7 @@ export async function runWiwExport(
           } catch (err) {
             throw new ExportStop("LOGIN", err instanceof LoginFileError ? err.code : "FILE");
           }
-        });
+        }, log);
       } catch (err) {
         // A step that threw without a stop code is still a page that did not match.
         const stop = err instanceof ExportStop ? err : new ExportStop("PAGE", "STEP");

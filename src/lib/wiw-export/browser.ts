@@ -8,9 +8,16 @@
  *
  * Steps: open the scheduler; if the sign-in page is up, type the two fields
  * from the locked file once and click Sign in; open More Actions, wait for the
- * menu to settle, click Export Schedule (never Print or Clear); set Start and
- * End to this Friday and Thursday; leave the filters on All and Split checked;
- * click Export once and wait for the file.
+ * menu to settle, click Export Schedule (never Print or Clear), once more if
+ * the fade swallowed the click; read the Start and End buttons, which When I
+ * Work opens on the displayed week, and check they show this Friday and
+ * Thursday (the date pickers are never opened); leave the filters on All and
+ * Split checked; click Export once and wait for the file.
+ *
+ * The dialog selectors come from the live capture of 24 Sep 2026 (probe on
+ * T MAC MINI): dialog "Export Schedule", buttons "Start Date" and "End Date"
+ * showing MM/dd/yyyy, checkbox "Split into separate schedules", button
+ * "Export". Role locators skip hidden elements.
  *
  * Any screen these steps do not expect stops the run with a code: LOGIN, MFA,
  * CAPTCHA or PAGE. No tracing, no screenshots, no video, and no page text or
@@ -35,13 +42,15 @@ export type BrowserOptions = {
   downloadTimeoutMs?: number;
   /** The More Actions menu fades in; a click mid-fade is swallowed. */
   menuSettleMs?: number;
+  /** Wait for the dialog before clicking Export Schedule once more. */
+  dialogRetryMs?: number;
   /** Tests pass a context; the job launches its own. */
   launch?: () => Promise<BrowserContext>;
   /**
-   * Probe mode: called right after the Export Schedule click, then the run
+   * Probe mode: called after the dialog wait (retry included), then the run
    * ends with ProbeDone. The dialog's Export button is never clicked.
    */
-  probe?: (page: Page, stepTimeoutMs: number) => Promise<void>;
+  probe?: (page: Page) => Promise<void>;
 };
 
 /** A probe run reached the dialog step and captured it. Not an export. */
@@ -117,10 +126,40 @@ async function signIn(page: Page, login: WiwLogin, timeoutMs: number): Promise<v
   if (!gone) throw new ExportStop("LOGIN", "REJECTED");
 }
 
-async function setDate(field: Locator, value: string): Promise<void> {
-  await field.fill(value);
-  await field.press("Tab").catch(() => undefined);
-  if ((await field.inputValue()) !== value) throw new ExportStop("PAGE", "DIALOG_DATE");
+/** The export dialog, as captured: role dialog, name Export Schedule. */
+export function exportDialog(page: Page): Locator {
+  return page.getByRole("dialog", { name: "Export Schedule", exact: true });
+}
+
+/** The dialog controls the export checks. Visible matches only (role locators). */
+export function dialogControls(box: Locator) {
+  return {
+    start: box.getByRole("button", { name: "Start Date", exact: true }),
+    end: box.getByRole("button", { name: "End Date", exact: true }),
+    split: box.getByRole("checkbox", { name: /^split into separate schedules$/i }),
+    submit: box.getByRole("button", { name: /^export$/i }),
+  };
+}
+
+const SHOWN_DATE = /\b\d{2}\/\d{2}\/\d{4}\b/g;
+
+/** The one MM/dd/yyyy date a date button shows, or null. Never clicks it. */
+async function shownDate(button: Locator): Promise<string | null> {
+  const text = (await button.innerText().catch(() => "")) || ((await button.getAttribute("value").catch(() => null)) ?? "");
+  const found = text.match(SHOWN_DATE) ?? [];
+  return found.length === 1 ? found[0]! : null;
+}
+
+async function checkDate(button: Locator, expected: string): Promise<void> {
+  if ((await button.count()) !== 1 || (await shownDate(button)) !== expected) throw new ExportStop("PAGE", "DIALOG_DATE");
+}
+
+async function shows(l: Locator, timeoutMs: number): Promise<boolean> {
+  return l
+    .first()
+    .waitFor({ state: "visible", timeout: timeoutMs })
+    .then(() => true)
+    .catch(() => false);
 }
 
 function wrap(download: Download): DownloadedExport {
@@ -147,7 +186,7 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
     });
 
   return {
-    async exportWeek(week: ExportWeek, readLogin: () => Promise<WiwLogin>) {
+    async exportWeek(week: ExportWeek, readLogin: () => Promise<WiwLogin>, note?: (line: string) => Promise<void>) {
       try {
         context = await launch();
       } catch {
@@ -190,29 +229,31 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
       }
       await page.waitForTimeout(opts.menuSettleMs ?? 800);
       await exportItem.first().click();
+
+      // The fade can swallow the click: no dialog, menu still open. Click the same item once more.
+      const dialog = exportDialog(page);
+      let opened = await shows(dialog, opts.dialogRetryMs ?? 3_000);
+      if (!opened && (await exportItem.first().isVisible().catch(() => false)) && (await dialog.count()) === 0) {
+        await note?.("menu retry=1");
+        await exportItem.first().click();
+        opened = await shows(dialog, step);
+      } else if (!opened) {
+        opened = await shows(dialog, step);
+      }
       if (opts.probe) {
-        await opts.probe(page, step);
+        await opts.probe(page);
         throw new ProbeDone();
       }
+      if (!opened) throw new ExportStop("PAGE", "DIALOG_OPEN");
 
-      const dialog = page.getByRole("dialog");
-      try {
-        await dialog.first().waitFor({ state: "visible", timeout: step });
-      } catch {
-        throw new ExportStop("PAGE", "DIALOG");
-      }
       const box = dialog.first();
-      const start = box.getByLabel(/start date/i);
-      const end = box.getByLabel(/end date/i);
-      if ((await start.count()) !== 1 || (await end.count()) !== 1) throw new ExportStop("PAGE", "DIALOG");
-      await setDate(start, dialogDate(week.friday));
-      await setDate(end, dialogDate(week.thursday));
+      const { start, end, split, submit } = dialogControls(box);
+      await checkDate(start, dialogDate(week.friday));
+      await checkDate(end, dialogDate(week.thursday));
 
-      const split = box.getByLabel(/split into separate schedules/i);
       if ((await split.count()) !== 1 || !(await split.isChecked())) throw new ExportStop("PAGE", "DIALOG_SPLIT");
 
-      const submit = box.getByRole("button", { name: /^export$/i });
-      if ((await submit.count()) !== 1) throw new ExportStop("PAGE", "DIALOG");
+      if ((await submit.count()) !== 1) throw new ExportStop("PAGE", "DIALOG_EXPORT");
       const downloaded = page.waitForEvent("download", { timeout: opts.downloadTimeoutMs ?? 120_000 });
       await submit.click();
       try {
