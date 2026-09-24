@@ -20,7 +20,8 @@ export type ViolationCode =
   | "STATION_NOT_FOUND"
   | "ASSIGNMENT_NOT_FOUND"
   | "INVALID_HOUR"
-  | "SWAP_SAME_ASSIGNMENT";
+  | "SWAP_SAME_ASSIGNMENT"
+  | "SHIFT_SUPERSEDED";
 
 export type RuleViolation = {
   code: ViolationCode;

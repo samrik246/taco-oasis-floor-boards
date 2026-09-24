@@ -40,6 +40,8 @@ export type ShiftDto = {
   endAt: string;
   sourcePosition: string;
   board: string;
+  /** Set when a newer import replaced this shift; only its history hours show (C1). */
+  supersededAt?: string | null;
   employee: EmployeeDto;
   assignments: AssignmentDto[];
 };

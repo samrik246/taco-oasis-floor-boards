@@ -39,7 +39,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
         return true;
       }).sort((a, b) => a.sortOrder - b.sortOrder);
       const shifts = await prisma.shift.findMany({
-        where: { date, board },
+        where: { date, board, supersededAt: null },
         include: { assignments: true },
         orderBy: { startAt: "asc" },
       });
@@ -73,7 +73,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
         const hourEnd = chicagoHourEnd(date, hour);
         const t = hourStart.getTime();
         const available = shifts.filter((sh) => {
-          if (!isHourInShift(hourStart, sh.startAt, sh.endAt)) return false;
+          if (!isHourInShift(hourStart, sh.startAt, sh.endAt, hourEnd)) return false;
           return !personHour.has(`${sh.employeeId}:${t}`);
         });
 

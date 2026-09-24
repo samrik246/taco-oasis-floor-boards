@@ -5,7 +5,7 @@
 import ExcelJS from "exceljs";
 import fs from "node:fs";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { readCsvWorksheet } from "../src/lib/parser/schedule-parser";
 
 async function csvToSheet(
   workbook: ExcelJS.Workbook,
@@ -13,10 +13,8 @@ async function csvToSheet(
   csvPath: string,
 ) {
   const text = fs.readFileSync(csvPath, "utf8");
-  const temp = new ExcelJS.Workbook();
-  await temp.csv.read(Readable.from([text]));
-  const src = temp.worksheets[0];
-  if (!src) throw new Error(`No worksheet from ${csvPath}`);
+  // Same reader as the upload path, so Employee ID cells stay text (`0042`).
+  const src = await readCsvWorksheet(text);
   const dest = workbook.addWorksheet(sheetName);
   src.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     const values = row.values;

@@ -68,7 +68,7 @@ export function RushPanel({ day, date, board, locale, t, now }: Props) {
     if (!forecast || mode !== "rest-of-day" || !date) return null;
     const allHours = hourGridHours();
     const covered: number[] = [];
-    const shifts = day?.shifts ?? [];
+    const shifts = (day?.shifts ?? []).filter((sh) => !sh.supersededAt);
     for (const hour of allHours) {
       const hourStart = chicagoHourStart(date, hour);
       const any = shifts.some((sh) =>

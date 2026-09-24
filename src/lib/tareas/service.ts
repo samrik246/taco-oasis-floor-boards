@@ -11,7 +11,8 @@ import {
   type SuggestionCandidate,
   type SuggestionSlot,
 } from "@/lib/suggestions";
-import { chicagoHourStart } from "@/lib/hour-grid";
+import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
+import { isHourInShift } from "@/lib/rules/shift-window";
 import type { AbilityLevel } from "@/lib/rules/types";
 
 export async function ensureTareaTemplates() {
@@ -198,18 +199,23 @@ export async function buildTareaSuggestions(args: {
     args.board ??
     (template?.board === "cocina" ? "cocina" : "caja");
 
-  const shifts = await prisma.shift.findMany({
-    where: {
-      board,
-      date: args.date,
-      startAt: { lte: hourStart },
-      endAt: { gt: hourStart },
-    },
-    include: {
-      employee: { include: { abilities: true } },
-      assignments: { where: { hourStart } },
-    },
-  });
+  const hourEnd = chicagoHourEnd(args.date, args.hour);
+  // Coarse DB window, then the one overlap rule (C1): a :30 starter is on shift.
+  const shifts = (
+    await prisma.shift.findMany({
+      where: {
+        board,
+        date: args.date,
+        supersededAt: null,
+        startAt: { lt: hourEnd },
+        endAt: { gt: hourStart },
+      },
+      include: {
+        employee: { include: { abilities: true } },
+        assignments: { where: { hourStart } },
+      },
+    })
+  ).filter((sh) => isHourInShift(hourStart, sh.startAt, sh.endAt, hourEnd));
 
   const workingCounts = await prisma.tareaAssignment.groupBy({
     by: ["employeeId"],

@@ -22,7 +22,12 @@ export async function GET(_request: Request, context: RouteContext) {
         orderBy: { sortOrder: "asc" },
       }),
       prisma.shift.findMany({
-        where: { board, date },
+        // A superseded shift shows only while it holds history (started, assigned hours).
+        where: {
+          board,
+          date,
+          OR: [{ supersededAt: null }, { assignments: { some: {} } }],
+        },
         include: {
           employee: {
             include: {
@@ -57,6 +62,7 @@ export async function GET(_request: Request, context: RouteContext) {
         endAt: sh.endAt.toISOString(),
         sourcePosition: sh.sourcePosition,
         board: sh.board,
+        supersededAt: sh.supersededAt ? sh.supersededAt.toISOString() : null,
         employee: {
           id: sh.employee.id,
           externalId: sh.employee.externalId,

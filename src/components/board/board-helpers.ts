@@ -23,8 +23,19 @@ export function availableShiftsForHour(
   hour: number,
 ): ShiftDto[] {
   const hourStart = chicagoHourStart(date, hour);
+  // A person already seated this hour on any of their shifts (for example on a
+  // superseded shift's history hour) is not available on another one.
+  const seated = new Set(
+    shifts
+      .filter((sh) =>
+        sh.assignments.some((a) => new Date(a.hourStart).getTime() === hourStart.getTime()),
+      )
+      .map((sh) => sh.employee.id),
+  );
   return shifts
     .filter((sh) => {
+      if (seated.has(sh.employee.id)) return false;
+      if (sh.supersededAt) return false;
       const start = new Date(sh.startAt);
       const end = new Date(sh.endAt);
       if (!isHourInShift(hourStart, start, end)) return false;

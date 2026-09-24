@@ -94,7 +94,7 @@ Hours matrix by day — can ignore in v1 parser; do not fail import if present.
 
 ### 4.1 Shift window (hard)
 For each assignment cell `(employee, date, hourStart)`:
-- Allowed iff `shiftStart <= hourStart < shiftEnd` (match existing Sheets convention: inclusive start, exclusive end).
+- ~~Allowed iff `shiftStart <= hourStart < shiftEnd`~~ **Superseded by C1 (2026-09-23) for partial hours:** a grid hour is on-shift iff `[hourStart, hourEnd)` overlaps `[shiftStart, shiftEnd)` by at least one minute (both half-open, so back-to-back shifts do not overlap). One function, `src/lib/rules/shift-window.ts`, serves assignment, both grids, Rush coverage and the people list. Ledger minutes per assignment = that overlap. Stored assignments stay whole clock hours; minutes outside the 7–21 grid stay off the board.
 - Parse times in venue local timezone **America/Chicago**.
 - Hour grid default: **7:00–22:00** in 1-hour buckets (configurable constant).
 
@@ -254,7 +254,7 @@ Agent: complete as many slices as possible; never leave failing tests.
 Using `fixtures/wheniwork-restaurant-export-sample.xlsx`:
 - `Schedules - Restaurant` has shifts spanning **2026-09-18 … 2026-09-24**
 - Position bucket counts roughly: Caja ~109, Cocina ~105, Other ~19 (assert ±5 or exact from re-parse)
-- Employee ID `8304` appears as both `Caja - Regular` and `Caja - Nieves` on different rows — both must import as separate shifts
+- Employee ID `0042` (synthetic) appears as both `Caja - Regular` and `Caja - Nieves` on different rows — both must import as separate shifts
 - `Caja - Meser@` normalizes station hint `mesero` (keep raw position string)
 
 ---

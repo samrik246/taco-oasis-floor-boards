@@ -11,6 +11,8 @@ export type AssignParams = {
   date: string;
   /** Chicago wall hour 7–21 */
   hour: number;
+  /** Injectable clock (tests). */
+  now?: Date;
 };
 
 export type AssignResult =
@@ -24,6 +26,20 @@ export type AssignmentDto = {
   hourStart: string;
   hourEnd: string;
 };
+
+const supersededViolation: RuleViolation = {
+  code: "SHIFT_SUPERSEDED",
+  message: "This shift was replaced by a newer schedule. Assign the person's current shift instead.",
+};
+
+/** A superseded shift keeps its started hours as history and takes no future hour (C1). */
+function refusesFutureHour(
+  shift: { supersededAt: Date | null },
+  hourStart: Date,
+  now: Date,
+): boolean {
+  return shift.supersededAt != null && now.getTime() < hourStart.getTime();
+}
 
 const conflictViolation = (code: "STATION_FULL" | "PERSON_ALREADY_ASSIGNED"): RuleViolation =>
   code === "STATION_FULL"
@@ -77,6 +93,9 @@ export async function createAssignment(
     return await prisma.$transaction(async (tx) => {
       const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
       if (!shift) return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] } as const;
+      if (refusesFutureHour(shift, hourStart, params.now ?? new Date())) {
+        return { ok: false, status: 422, violations: [supersededViolation] } as const;
+      }
       const station = await tx.station.findUnique({ where: { id: params.stationId } });
       if (!station) return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] } as const;
       const [occupancy, personAssignments, ability] = await Promise.all([
@@ -85,7 +104,7 @@ export async function createAssignment(
         tx.employeeStationAbility.findUnique({ where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } } }),
       ]);
       const violations = validateAssignment({
-        hourStart, shiftStart: shift.startAt, shiftEnd: shift.endAt,
+        hourStart, hourEnd, shiftStart: shift.startAt, shiftEnd: shift.endAt,
         stationId: station.id, stationBoard: station.board, shiftBoard: shift.board,
         maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
         abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
@@ -133,6 +152,7 @@ export async function deleteAssignment(
 export async function swapAssignments(
   assignmentIdA: string,
   assignmentIdB: string,
+  now: Date = new Date(),
 ): Promise<
   | { ok: true; assignments: [AssignmentDto, AssignmentDto] }
   | { ok: false; status: 404 | 422; violations: RuleViolation[] }
@@ -185,6 +205,9 @@ export async function swapAssignments(
         { station: currentB.station, shift: currentA.shift, hourStart: currentB.hourStart },
       ] as const;
       for (const p of plan) {
+        if (refusesFutureHour(p.shift, p.hourStart, now)) {
+          return { ok: false, status: 422, violations: [supersededViolation] } as const;
+        }
         const ability = await tx.employeeStationAbility.findUnique({
       where: {
         employeeId_stationId: {
@@ -214,6 +237,7 @@ export async function swapAssignments(
 
         const violations = validateAssignment({
       hourStart: p.hourStart,
+      hourEnd: new Date(p.hourStart.getTime() + 60 * 60_000),
       shiftStart: p.shift.startAt,
       shiftEnd: p.shift.endAt,
       stationId: p.station.id,

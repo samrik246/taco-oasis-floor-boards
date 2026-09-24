@@ -1,5 +1,6 @@
 import { TIMEZONE } from "@/lib/constants";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { shiftOverlapMinutes } from "@/lib/rules/shift-window";
 import type {
   EmployeeHoursLedger,
   LedgerStationRow,
@@ -50,10 +51,21 @@ export function chicagoWeekBounds(dateYmd: string): {
   };
 }
 
-/** Minutes between two Date instants (assignment duration). */
+/** Minutes between two Date instants (tarea duration). */
 export function assignmentMinutes(hourStart: Date, hourEnd: Date): number {
   const ms = hourEnd.getTime() - hourStart.getTime();
   return Math.max(0, Math.round(ms / 60_000));
+}
+
+/**
+ * Ledger minutes for one station assignment: the overlap of its clock hour
+ * with its shift (C1). A 16:00–16:30 shift assigned at hour 16 counts 30.
+ */
+export function assignmentLedgerMinutes(
+  a: { hourStart: Date; hourEnd: Date },
+  shift: { startAt: Date; endAt: Date },
+): number {
+  return shiftOverlapMinutes(a.hourStart, a.hourEnd, shift.startAt, shift.endAt);
 }
 
 /**
@@ -79,7 +91,7 @@ export async function getEmployeeWeekHours(
       shift: { employeeId },
       hourStart: { gte: rangeStart, lte: rangeEnd },
     },
-    include: { station: true },
+    include: { station: true, shift: { select: { startAt: true, endAt: true } } },
   });
 
   const byStationMap = new Map<
@@ -88,7 +100,7 @@ export async function getEmployeeWeekHours(
   >();
 
   for (const a of assignments) {
-    const mins = assignmentMinutes(a.hourStart, a.hourEnd);
+    const mins = assignmentLedgerMinutes(a, a.shift);
     const prev = byStationMap.get(a.stationId);
     if (prev) {
       prev.minutes += mins;
