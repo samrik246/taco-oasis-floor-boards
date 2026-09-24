@@ -36,7 +36,7 @@ type TareaRow = {
   sortOrder: number;
 };
 
-type ManagerRow = { id: string; name: string; active: boolean };
+type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean };
 
 type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers";
 
@@ -744,6 +744,7 @@ function ManagersTab({
   const [rows, setRows] = useState<ManagerRow[]>([]);
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
+  const [newLongIdle, setNewLongIdle] = useState(false);
   const [replacementCodes, setReplacementCodes] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -764,7 +765,7 @@ function ManagersTab({
     const res = await fetch("/api/admin/managers", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth },
-      body: JSON.stringify({ name: newName, code: newCode }),
+      body: JSON.stringify({ name: newName, code: newCode, longIdle: newLongIdle }),
     });
     if (!res.ok) {
       onError(await readError(res));
@@ -772,6 +773,7 @@ function ManagersTab({
     }
     setNewName("");
     setNewCode("");
+    setNewLongIdle(false);
     await load();
   }
 
@@ -814,6 +816,16 @@ function ManagersTab({
           onChange={(event) => setNewCode(event.target.value)}
           data-testid="manager-new-code"
         />
+        <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            className="h-5 w-5"
+            checked={newLongIdle}
+            onChange={(event) => setNewLongIdle(event.target.checked)}
+            data-testid="manager-new-long-idle"
+          />
+          Stays unlocked 10 minutes (planning)
+        </label>
         <button
           type="button"
           className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white"
@@ -827,7 +839,10 @@ function ManagersTab({
       <ul className="flex flex-col gap-1" data-testid="manager-list">
         {rows.map((row) => (
           <li key={row.id} className="flex flex-wrap items-center gap-2 rounded border p-2" data-testid={`manager-${row.name}`}>
-            <span className="font-semibold">{row.name} · {row.active ? "active" : "inactive"}</span>
+            <span className="font-semibold">
+              {row.name} · {row.active ? "active" : "inactive"}
+              {row.longIdle ? " · 10 min unlock" : ""}
+            </span>
             <input
               className="min-h-10 rounded border px-2"
               type="password"

@@ -47,3 +47,14 @@ export function managerIdleMsFromEnv(
   if (!Number.isFinite(n) || n < 100) return DEFAULT_MANAGER_IDLE_MS;
   return Math.floor(n);
 }
+
+/** Idle timeout for a manager with `longIdle` set (10 minutes). Not an env setting; the client never sends it. */
+export const LONG_MANAGER_IDLE_MS = 600_000;
+
+/** Idle timeout returned from unlock: 10 minutes for a `longIdle` code, else the shared setting. */
+export function managerIdleMsFor(
+  manager: { longIdle: boolean },
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return manager.longIdle ? LONG_MANAGER_IDLE_MS : managerIdleMsFromEnv(env);
+}
