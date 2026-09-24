@@ -343,6 +343,7 @@ describe("B2 probe-dialog mode (fake scheduler)", { timeout: 30_000 }, () => {
       loginFile: "/unused/wiw-login",
       profileDir: "/unused",
       logFile: path.join(appDir, "var", "log", "wiw-export.log"),
+      importMode: "hold" as const,
     };
     let downloads = 0;
     const result = await runProbeDialog(settings, {

@@ -7,29 +7,33 @@
  * The weekly schedule skill, the weekly timesheet skill, and the LOLA360 daily
  * export stay supervised on Rich's Mac, one person-started run at a time.
  *
- * Each run: delete a workbook a held run left behind; open the scheduler in
- * this job's own Chromium folder (headed); sign in from the locked login file
- * only if the sign-in page is up; export this Friday through Thursday; rename
- * it to `Schedule_for_<friday>_<thursday>.xlsx` in FLOOR_BOARDS_IMPORT_DIR;
- * run the folder import in hold mode; delete the workbook unless it is held
- * for a manager's Confirm (the next run deletes it). A sign-in it cannot pass,
+ * Each run: delete a leftover workbook; open the scheduler in this job's own
+ * Chromium folder (headed); sign in from the locked login file only if the
+ * sign-in page is up; export this Friday through Thursday; rename it to
+ * `Schedule_for_<friday>_<thursday>.xlsx` in FLOOR_BOARDS_IMPORT_DIR; run the
+ * folder import; delete the workbook. The When I Work schedule is the
+ * authority: the timer sets FLOOR_BOARDS_IMPORT_MODE=apply, so a changed day
+ * imports with no Confirm. Empty, wrong-week, unreadable and refused exports
+ * still stop and never touch the board. A sign-in it cannot pass,
  * a code, a CAPTCHA or a changed page stops the run (LOGIN, MFA, CAPTCHA,
  * PAGE) and the board keeps the last import.
  *
  * Settings: FLOOR_BOARDS_IMPORT_DIR, WIW_LOGIN_FILE, WIW_BROWSER_PROFILE, all
- * absolute. The log is var/log/wiw-export.log: codes, counts and the file
+ * absolute; FLOOR_BOARDS_IMPORT_MODE apply (the timer's) or hold (unset; a
+ * changed day is held and the workbook kept until the next run). The log is var/log/wiw-export.log: codes, counts and the file
  * name only.
  *
  * `node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts` (the timer's line;
  * `pnpm exec tsx` fails in the installed release folder)
- *   Exit: 0 imported, 2 held for Confirm, 3 refused, 4 no export, 5 stopped
+ *   Exit: 0 imported, 2 held (hold mode only), 3 refused, 4 no export, 5 stopped
  *   (LOGIN/MFA/CAPTCHA/PAGE), 1 error.
  * `… scripts/wiw-export.ts --sign-in`
  *   Opens this job's browser folder at the scheduler for a person to sign in
  *   by hand (and pass a code once). Reads no login file, exports nothing.
  *   Close the window when the scheduler shows.
  * `… scripts/wiw-export.ts --launch-agent-template`
- *   Writes var/run/com.taco-oasis.wiw-export.plist. Does not load it.
+ *   Writes var/run/com.taco-oasis.wiw-export.plist, with
+ *   FLOOR_BOARDS_IMPORT_MODE=apply. Does not load it.
  * `… scripts/wiw-export.ts --mode probe-dialog`
  *   The run's steps up to the Export Schedule click, then an ARIA snapshot of
  *   the dialog (or the page) to var/log/wiw-probe-*.aria.yml, mode 600, and

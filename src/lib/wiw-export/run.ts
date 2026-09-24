@@ -1,7 +1,8 @@
 /**
  * One timed run of the When I Work export (B2): sweep a leftover workbook,
  * export this Friday-through-Thursday, rename it into the import folder, run
- * the folder import in hold mode, then delete the workbook per the delete rule.
+ * the folder import in the job's mode (the timer writes apply), then delete the
+ * workbook per the delete rule.
  *
  * The log gets one line per step: codes, counts and the file name. Never a
  * login field, a person's name, an Employee ID, an email or an error's text.
@@ -14,6 +15,7 @@ import {
   formatSummary,
   MODE_ENV,
   runFolderImport,
+  type FolderImportMode,
   type FolderImportResult,
 } from "@/lib/import/folder-import";
 import { LoginFileError, type WiwLogin } from "./login-file";
@@ -66,6 +68,8 @@ export type WiwExportSettings = {
   loginFile: string;
   profileDir: string;
   logFile: string;
+  /** apply: a changed day imports on its own. hold: it waits for a manager's Confirm. */
+  importMode: FolderImportMode;
 };
 
 export class SettingsError extends Error {
@@ -84,21 +88,26 @@ function absoluteDir(env: Record<string, string | undefined>, key: string): stri
 
 /**
  * Settings from the environment. The import folder, login file and browser
- * folder have no default. The job imports in hold mode only: a Confirm is a
- * manager's (Rich 1A), so FLOOR_BOARDS_IMPORT_MODE other than hold refuses.
+ * folder have no default. The When I Work schedule is the authority (Rich,
+ * 24 Sep): the timer sets FLOOR_BOARDS_IMPORT_MODE=apply, so a changed day
+ * imports with no Confirm. Unset stays hold, so a hand run changes no day
+ * already on the board. Any other value refuses.
  */
 export function wiwSettingsFromEnv(
   appDir: string,
   env: Record<string, string | undefined> = process.env,
 ): WiwExportSettings {
   const mode = (env[MODE_ENV] ?? "").trim().toLowerCase();
-  if (mode !== "" && mode !== "hold") throw new SettingsError(`${MODE_ENV}_NOT_HOLD`);
+  if (mode !== "" && mode !== "hold" && mode !== "apply") {
+    throw new SettingsError(`${MODE_ENV}_NOT_HOLD_OR_APPLY`);
+  }
   return {
     appDir,
     importDir: absoluteDir(env, DIR_ENV),
     loginFile: absoluteDir(env, LOGIN_FILE_ENV),
     profileDir: absoluteDir(env, PROFILE_DIR_ENV),
     logFile: path.join(appDir, "var", "log", "wiw-export.log"),
+    importMode: mode === "apply" ? "apply" : "hold",
   };
 }
 
@@ -134,8 +143,8 @@ async function removeIfFile(file: string): Promise<boolean> {
 }
 
 /**
- * The workbook a held run left for Confirm is deleted at the next run (1A), as
- * is a half-saved download. Only this job's names: `Schedule_for_*` and its own
+ * A workbook a held (hold-mode) run left for Confirm is deleted at the next
+ * run, as is a half-saved download. Only this job's names: `Schedule_for_*` and its own
  * hidden part files.
  */
 async function sweepLeftovers(dir: string): Promise<number> {
@@ -148,7 +157,7 @@ async function sweepLeftovers(dir: string): Promise<number> {
   return n;
 }
 
-/** Delete rule per import outcome: held waits for Confirm; everything else goes now. */
+/** Delete rule per import outcome: held (hold mode only) waits for Confirm; everything else goes now. */
 export function keepsWorkbook(result: FolderImportResult | null): boolean {
   return result?.outcome === "held";
 }
@@ -213,7 +222,7 @@ export async function runWiwExport(
     }
 
     const runImport =
-      deps.runImport ?? ((dir: string, at: Date) => runFolderImport({ dir, mode: "hold" }, { now: at }));
+      deps.runImport ?? ((dir: string, at: Date) => runFolderImport({ dir, mode: settings.importMode }, { now: at }));
     let result: FolderImportResult;
     try {
       result = await runImport(settings.importDir, now());

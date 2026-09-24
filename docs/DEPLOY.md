@@ -120,7 +120,7 @@ The final command writes a per-user LaunchAgent template under the app's `var/ru
 
 ### When I Work export at 07:00 and 16:00 (B2)
 
-`scripts/wiw-export.ts` exports the current Friday-through-Thursday schedule from When I Work in its own headed Chromium, renames it to `Schedule_for_<friday>_<thursday>.xlsx` in `FLOOR_BOARDS_IMPORT_DIR`, and runs the folder import in hold mode. No AI agent runs it. Carve-out (CB-006): this job only; the weekly schedule and timesheet skills and the LOLA360 daily export stay supervised on Rich's Mac.
+`scripts/wiw-export.ts` exports the current Friday-through-Thursday schedule from When I Work in its own headed Chromium, renames it to `Schedule_for_<friday>_<thursday>.xlsx` in `FLOOR_BOARDS_IMPORT_DIR`, and runs the folder import in the mode the timer sets (`apply`). No AI agent runs it. Carve-out (CB-006): this job only; the weekly schedule and timesheet skills and the LOLA360 daily export stay supervised on Rich's Mac.
 
 Settings, all absolute paths:
 
@@ -130,7 +130,7 @@ Settings, all absolute paths:
 | `WIW_LOGIN_FILE` | The locked login file (below) |
 | `WIW_BROWSER_PROFILE` | This job's own Chromium folder. Not the Tron Chrome profile |
 
-`FLOOR_BOARDS_IMPORT_MODE` must be unset or `hold`: a change to a day already on the board waits for a manager's Confirm on the upload screen before the next run.
+The When I Work schedule is the authority. The timer template sets `FLOOR_BOARDS_IMPORT_MODE=apply`, so a change to a day already on the board imports on its own, with no manager Confirm. Empty, wrong-week, unreadable and refused exports still stop and leave the board as it was. Unset or `hold` (a hand run without the setting) holds a changed day instead; any other value stops the run with `FLOOR_BOARDS_IMPORT_MODE_NOT_HOLD_OR_APPLY` before a browser opens.
 
 **Locked login file.** XICO fills it once on the Mac. It is outside the app folder (and so outside `var/`), outside the export and browser folders, never in git, and owned by the boards user with mode 600:
 
@@ -150,7 +150,7 @@ The script reads it only when the sign-in page is up, types the two fields, and 
 | Exit | Meaning | Workbook |
 | --- | --- | --- |
 | 0 | imported | deleted in the same run |
-| 2 | held, `NEEDS_CONFIRM` | kept for Confirm on this Mac; the next run deletes it |
+| 2 | held, `NEEDS_CONFIRM` (hold mode only; the timer's apply mode never holds) | kept for Confirm on this Mac; the next run deletes it |
 | 3 | refused (`DUPLICATE` is a clean no-change; `WRONG_WEEK`, `EMPTY`, `UNREADABLE`, `REFUSED` are stops) | deleted in the same run |
 | 4 | no `Schedule_for_` file | none |
 | 5 | stopped: `LOGIN`, `MFA`, `CAPTCHA` or `PAGE` (with a `reason=` code; the dialog checks are `DIALOG_OPEN`, `DIALOG_DATE`, `DIALOG_SPLIT`, `DIALOG_EXPORT`) | none saved |
@@ -176,7 +176,7 @@ Exit 6: captured. The ARIA snapshot of the export dialog (or of another dialog, 
 FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node_modules/tsx/dist/cli.mjs scripts/wiw-export.ts --launch-agent-template
 ```
 
-It writes `var/run/com.taco-oasis.wiw-export.plist`: `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
+It writes `var/run/com.taco-oasis.wiw-export.plist`: `FLOOR_BOARDS_IMPORT_MODE=apply`, `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
 
 ## Optional: Vercel
 
