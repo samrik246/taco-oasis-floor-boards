@@ -177,6 +177,14 @@ jobs:
             echo "::error::Remote deploy must quiesce the app before touching SQLite."
             exit 1
           }
+          # B2: the timer runs <app>/scripts/wiw-export.ts, which imports through
+          # the folder import. Both must be packed (checked again on the tarball).
+          for script in scripts/wiw-export.ts scripts/import-from-folder.ts; do
+            /usr/bin/sed 's/^ *//' "$WORKFLOW" | /usr/bin/grep -Fx "$script" > /dev/null || {
+              echo "::error::RUNTIME_PATHS must pack ${script}."
+              exit 1
+            }
+          done
 
       - name: Pack production artifact (standalone-ish bundle)
         if: github.event_name != 'pull_request'
@@ -193,9 +201,11 @@ jobs:
             prisma/schema.prisma
             prisma/seed.ts
             scripts/home-base.sh
+            scripts/import-from-folder.ts
             scripts/readiness-check.ts
             scripts/remote-deploy.sh
             scripts/upgrade-home-base.ts
+            scripts/wiw-export.ts
             src/lib
             fixtures/historical-hourly-sales.json
             fixtures/wheniwork-restaurant-export-sample.xlsx
@@ -225,6 +235,13 @@ jobs:
             echo "::error::Production artifact must not include SQLite database files."
             exit 1
           fi
+          tar -tzf taco-oasis-floor-boards.tgz > "$STAGE.files"
+          for script in scripts/wiw-export.ts scripts/import-from-folder.ts; do
+            /usr/bin/grep -Fxq "./${script}" "$STAGE.files" || {
+              echo "::error::Production artifact is missing ${script}."
+              exit 1
+            }
+          done
           ls -lh taco-oasis-floor-boards.tgz
           echo "Packed artifact for SHA ${{ github.sha }}"
 
