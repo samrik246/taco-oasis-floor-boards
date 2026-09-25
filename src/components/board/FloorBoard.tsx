@@ -774,15 +774,14 @@ export function FloorBoard() {
       personBusy: number;
       superseded: number;
     };
-    const occupied =
-      summary.stationOccupied + summary.personBusy + summary.superseded;
+    const occupied = summary.stationOccupied + summary.personBusy;
     const seated = summary.placed + summary.alreadyThere;
-    const message =
-      occupied > 0
-        ? t.assignedPartial(summary.placed, occupied)
-        : summary.placed > 0
-          ? t.assignedWholeShift(summary.placed)
-          : t.assignedAlready(summary.alreadyThere);
+    const message = t.assignedPartial({
+      placed: summary.placed,
+      occupied,
+      alreadyThere: summary.alreadyThere,
+      superseded: summary.superseded,
+    });
     showCardFeedback(stationId, seated > 0 ? "ok" : "err", message);
     setSelectedShiftId(null);
     const shift = day?.shifts.find((s) => s.id === shiftId);

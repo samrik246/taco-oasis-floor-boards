@@ -46,6 +46,29 @@ describe("i18n board locale", () => {
     expect(abilityLevelLabel("es", "forbidden")).toBe("Prohibida");
     expect(abilityLevelLabel("en", "forbidden")).toBe("Forbidden");
   });
+
+  it("joins the whole-shift card parts in order, dropping zero counts", () => {
+    const breakdown = {
+      placed: 3,
+      occupied: 3, // stationOccupied 2 + personBusy 1, never + superseded
+      alreadyThere: 2,
+      superseded: 1,
+    };
+    expect(messagesFor("es").assignedPartial(breakdown)).toBe(
+      "Asignado 3 h, 3 h ocupadas, 2 h ya asignadas, reemplazados 1",
+    );
+    expect(messagesFor("en").assignedPartial(breakdown)).toBe(
+      "Assigned 3 h, 3 h busy, 2 h already assigned, superseded 1",
+    );
+    expect(
+      messagesFor("es").assignedPartial({
+        placed: 0,
+        occupied: 0,
+        alreadyThere: 5,
+        superseded: 0,
+      }),
+    ).toBe("5 h ya asignadas");
+  });
 });
 
 describe("manager codes", () => {

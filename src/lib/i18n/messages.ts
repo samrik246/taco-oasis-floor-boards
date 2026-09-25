@@ -198,7 +198,12 @@ export type Messages = {
   assignModeShift: string;
   assignModeHour: string;
   assignedWholeShift: (hours: number) => string;
-  assignedPartial: (placed: number, occupied: number) => string;
+  assignedPartial: (c: {
+    placed: number;
+    occupied: number;
+    alreadyThere: number;
+    superseded: number;
+  }) => string;
   assignedAlready: (hours: number) => string;
   copyYesterday: string;
   copyLastWeek: string;
@@ -429,8 +434,15 @@ const en: Messages = {
   assignModeShift: "Whole shift",
   assignModeHour: "One hour",
   assignedWholeShift: (hours) => `Assigned ${hours} h`,
-  assignedPartial: (placed, occupied) =>
-    `Assigned ${placed} h, ${occupied} h busy`,
+  assignedPartial: (c) => {
+    const parts: string[] = [];
+    if (c.placed > 0) parts.push(`Assigned ${c.placed} h`);
+    if (c.occupied > 0) parts.push(`${c.occupied} h busy`);
+    if (c.alreadyThere > 0)
+      parts.push(`${c.alreadyThere} h already assigned`);
+    if (c.superseded > 0) parts.push(`superseded ${c.superseded}`);
+    return parts.join(", ");
+  },
   assignedAlready: (hours) => `Already assigned ${hours} h`,
   copyYesterday: "Copy yesterday",
   copyLastWeek: "Copy last week",
@@ -670,8 +682,15 @@ const es: Messages = {
   assignModeShift: "Turno completo",
   assignModeHour: "Por hora",
   assignedWholeShift: (hours) => `Asignado ${hours} h`,
-  assignedPartial: (placed, occupied) =>
-    `Asignado ${placed} h, ${occupied} h ocupadas`,
+  assignedPartial: (c) => {
+    const parts: string[] = [];
+    if (c.placed > 0) parts.push(`Asignado ${c.placed} h`);
+    if (c.occupied > 0) parts.push(`${c.occupied} h ocupadas`);
+    if (c.alreadyThere > 0)
+      parts.push(`${c.alreadyThere} h ya asignadas`);
+    if (c.superseded > 0) parts.push(`reemplazados ${c.superseded}`);
+    return parts.join(", ");
+  },
   assignedAlready: (hours) => `Ya asignado ${hours} h`,
   copyYesterday: "Copiar ayer",
   copyLastWeek: "Copiar semana pasada",
