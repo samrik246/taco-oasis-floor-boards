@@ -43,3 +43,9 @@ export function expectedDownloadName(week: ExportWeek): string {
 export function dialogDate(ymd: string): string {
   return format(parseISO(ymd), "MM/dd/yyyy");
 }
+
+/** The Friday-through-Thursday after `week`. */
+export function followingWeek(week: ExportWeek): ExportWeek {
+  const next = (ymd: string) => format(addDays(parseISO(ymd), 7), "yyyy-MM-dd");
+  return { friday: next(week.friday), thursday: next(week.thursday) };
+}
