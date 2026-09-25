@@ -104,9 +104,15 @@ describe("listPositionMapRows / savePositionMapRow — Back office", () => {
   });
 
   it("still lists a saved key whose shifts have aged out", async () => {
-    await prisma.positionStationMap.create({ data: { position: "Caja Manager", stationId: "mana" } });
-    const row = (await listPositionMapRows()).find((r) => r.position === "Caja Manager");
-    expect(row).toEqual({ position: "Caja Manager", board: null, eligible: false, stationId: "mana" });
+    // A synthetic, never-imported position string — this asserts on a key
+    // that has genuinely no live shift anywhere, not "Caja Manager" (other
+    // test files' fixture-imported data shares this suite's SQLite file and
+    // may legitimately place real "Caja Manager" shifts on this same date).
+    await prisma.positionStationMap.create({
+      data: { position: "Posmap Test Stale Key", stationId: "mana" },
+    });
+    const row = (await listPositionMapRows()).find((r) => r.position === "Posmap Test Stale Key");
+    expect(row).toEqual({ position: "Posmap Test Stale Key", board: null, eligible: false, stationId: "mana" });
   });
 
   it("saves a mapping for an eligible position on the matching board", async () => {
