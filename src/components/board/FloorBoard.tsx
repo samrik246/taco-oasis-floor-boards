@@ -178,6 +178,9 @@ export function FloorBoard() {
     string | null
   >(null);
   const [suggestions, setSuggestions] = useState<SuggestionDto[]>([]);
+  const [chipSuggestions, setChipSuggestions] = useState<
+    Record<string, { shiftId: string; firstName: string; lastName: string } | null>
+  >({});
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
@@ -444,6 +447,36 @@ export function FloorBoard() {
     void refreshSuggestions();
   }, [refreshSuggestions]);
 
+  // Planner I: the Sugerido chip only makes sense in manager mode, for the
+  // selected hour's empty stations. Recomputed from the server, not derived
+  // client-side, since the write path rechecks the same thing anyway.
+  const refreshChipSuggestions = useCallback(async () => {
+    if (!isManager || !manager?.token || !day || readonly || offline) {
+      setChipSuggestions({});
+      return;
+    }
+    const empty = day.stations.filter(
+      (station) =>
+        assignmentsAtStationHour(day.shifts, station.id, date, hour).length === 0,
+    );
+    const entries = await Promise.all(
+      empty.map(async (station) => {
+        const res = await fetch(
+          `/api/assignments/suggest?board=${encodeURIComponent(board)}&date=${encodeURIComponent(date)}&hour=${hour}&stationId=${encodeURIComponent(station.id)}`,
+          { headers: managerAuthHeaders(manager.token) },
+        );
+        if (!res.ok) return [station.id, null] as const;
+        const data = await res.json();
+        return [station.id, data.candidate] as const;
+      }),
+    );
+    setChipSuggestions(Object.fromEntries(entries));
+  }, [isManager, manager, day, date, hour, board, readonly, offline]);
+
+  useEffect(() => {
+    void refreshChipSuggestions();
+  }, [refreshChipSuggestions]);
+
   useEffect(() => {
     const id = window.setInterval(() => {
       void refreshDates();
@@ -537,6 +570,93 @@ export function FloorBoard() {
       bumpLedger();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function placeFixed() {
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token || !date) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/assignments/fixed", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...managerAuthHeaders(manager.token),
+        },
+        body: JSON.stringify({ board, date }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("err", t.toastFixedFailed);
+        return;
+      }
+      showToast("ok", t.fixedSummary(data.summary));
+      await refreshBoard();
+      bumpLedger();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleStar(employeeId: string, stationId: string) {
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
+      return;
+    }
+    const res = await fetch("/api/abilities/favorite", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(manager.token),
+      },
+      body: JSON.stringify({ employeeId, stationId }),
+    });
+    if (!res.ok) {
+      showToast("err", t.toastFavoriteFailed);
+      return;
+    }
+    await refreshBoard();
+  }
+
+  async function tapSuggested(stationId: string, shiftId: string) {
+    if (readonly || offline || !isManager || !manager?.token || !date) return;
+    setSavingStationId(stationId);
+    try {
+      const res = await fetch("/api/assignments/suggest", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...managerAuthHeaders(manager.token),
+        },
+        body: JSON.stringify({ board, date, hour, stationId, shiftId }),
+      });
+      if (!res.ok) {
+        showCardFeedback(stationId, "err", t.toastAssignRejected);
+        return;
+      }
+      const data = await res.json();
+      showCardFeedback(
+        stationId,
+        "ok",
+        t.assignedWholeShift((data.summary as { placed: number }).placed),
+      );
+      await refreshBoard();
+      bumpLedger();
+    } finally {
+      setSavingStationId(null);
     }
   }
 
@@ -1300,6 +1420,17 @@ export function FloorBoard() {
               >
                 {t.copyLastWeek}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="min-h-11 border-2"
+                onClick={() => void placeFixed()}
+                disabled={loading || !date}
+                data-testid="place-fixed"
+              >
+                {t.placeFixed}
+              </Button>
             </>
           )}
         </div>
@@ -1509,13 +1640,13 @@ export function FloorBoard() {
                   : null;
                 const selected = selectedShiftId === sh.id;
                 return (
-                  <li key={sh.id}>
+                  <li key={sh.id} className="flex items-stretch gap-1">
                     <button
                       type="button"
                       onClick={() => onPersonTap(sh)}
                       data-testid={`available-${sh.employee.externalId}`}
                       className={cn(
-                        "flex w-full min-h-14 flex-col items-start rounded-md border-2 px-3 py-2 text-left active:opacity-90",
+                        "flex min-h-14 flex-1 flex-col items-start rounded-md border-2 px-3 py-2 text-left active:opacity-90",
                         selected
                           ? "border-neutral-900 bg-neutral-900 text-white"
                           : "border-neutral-500 bg-neutral-50 active:bg-neutral-200",
@@ -1543,6 +1674,20 @@ export function FloorBoard() {
                         </span>
                       )}
                     </button>
+                    {selectedStationId && isManager && level !== "forbidden" && (
+                      <button
+                        type="button"
+                        className="min-h-11 min-w-11 rounded-md border-2 border-neutral-500 bg-white text-lg active:bg-neutral-200"
+                        onClick={() =>
+                          void toggleStar(sh.employee.id, selectedStationId)
+                        }
+                        aria-label={t.favoriteToggleLabel}
+                        title={t.favoriteToggleLabel}
+                        data-testid={`favorite-${sh.employee.externalId}`}
+                      >
+                        {level === "preferred" ? "★" : "☆"}
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -1660,6 +1805,25 @@ export function FloorBoard() {
                           {readonly ? t.empty : t.tapToAssign}
                         </button>
                       )}
+                      {occupied.length === 0 &&
+                        isManager &&
+                        chipSuggestions[station.id] && (
+                          <button
+                            type="button"
+                            className="min-h-11 rounded-md border-2 border-dashed border-emerald-800 bg-emerald-50 px-2 text-xs font-bold text-emerald-950 active:bg-emerald-100"
+                            onClick={() =>
+                              void tapSuggested(
+                                station.id,
+                                chipSuggestions[station.id]!.shiftId,
+                              )
+                            }
+                            data-testid={`sugerido-${station.id}`}
+                          >
+                            {t.suggestedChip(
+                              `${chipSuggestions[station.id]!.firstName} ${chipSuggestions[station.id]!.lastName}`,
+                            )}
+                          </button>
+                        )}
                       {occupied.map(({ shift, assignment }) => (
                         <div
                           key={assignment.id}

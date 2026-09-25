@@ -12,6 +12,7 @@ import {
 } from "../src/lib/managers/codes";
 import { historicalSaleRows } from "../src/lib/rush/historical-sales";
 import { STATION_SHORT_CODES } from "../src/lib/schedule/station-codes";
+import { seedPositionStationMap } from "../src/lib/assignments/position-map-seed";
 
 const prisma = new PrismaClient();
 
@@ -159,11 +160,15 @@ async function main() {
     });
   }
 
+  const { added: mapAdded, stationMissing: mapStationMissing } =
+    await seedPositionStationMap(prisma);
+
   const count = await prisma.station.count();
   const tareas = await prisma.tareaTemplate.count();
   const questions = await prisma.performanceQuestion.count();
+  const mapRows = await prisma.positionStationMap.count();
   console.log(
-    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, ${sales.length} historical hourly sales, traffic meters.`,
+    `Seeded ${count} stations, ${tareas} tarea templates, ${questions} performance questions, ${managers} managers, ${sales.length} historical hourly sales, traffic meters, ${mapRows} position-station map rows (${mapAdded} added this run, ${mapStationMissing} station missing).`,
   );
 }
 

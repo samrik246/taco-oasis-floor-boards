@@ -210,6 +210,19 @@ export type Messages = {
     alreadyThere: number;
     forbidden: number;
   }) => string;
+  placeFixed: string;
+  toastFixedFailed: string;
+  fixedSummary: (c: {
+    placed: number;
+    alreadyThere: number;
+    stationOccupied: number;
+    personBusy: number;
+    forbidden: number;
+    superseded: number;
+  }) => string;
+  favoriteToggleLabel: string;
+  toastFavoriteFailed: string;
+  suggestedChip: (name: string) => string;
 };
 
 const en: Messages = {
@@ -432,6 +445,20 @@ const en: Messages = {
     if (c.forbidden > 0) parts.push(`forbidden ${c.forbidden}`);
     return parts.join(", ");
   },
+  placeFixed: "Place fixed",
+  toastFixedFailed: "Place fixed failed",
+  fixedSummary: (c) => {
+    const parts = [`Placed ${c.placed}`];
+    if (c.alreadyThere > 0) parts.push(`already there ${c.alreadyThere}`);
+    if (c.stationOccupied > 0) parts.push(`occupied ${c.stationOccupied}`);
+    if (c.personBusy > 0) parts.push(`busy elsewhere ${c.personBusy}`);
+    if (c.forbidden > 0) parts.push(`forbidden ${c.forbidden}`);
+    if (c.superseded > 0) parts.push(`superseded ${c.superseded}`);
+    return parts.join(", ");
+  },
+  favoriteToggleLabel: "Favorite at this station",
+  toastFavoriteFailed: "Could not update favorite",
+  suggestedChip: (name) => `Suggested: ${name}`,
 };
 
 const es: Messages = {
@@ -659,6 +686,20 @@ const es: Messages = {
     if (c.forbidden > 0) parts.push(`prohibidas ${c.forbidden}`);
     return parts.join(", ");
   },
+  placeFixed: "Colocar fijos",
+  toastFixedFailed: "No se pudo colocar fijos",
+  fixedSummary: (c) => {
+    const parts = [`Colocados ${c.placed}`];
+    if (c.alreadyThere > 0) parts.push(`ya asignados ${c.alreadyThere}`);
+    if (c.stationOccupied > 0) parts.push(`ocupados ${c.stationOccupied}`);
+    if (c.personBusy > 0) parts.push(`ocupado en otro lado ${c.personBusy}`);
+    if (c.forbidden > 0) parts.push(`prohibidos ${c.forbidden}`);
+    if (c.superseded > 0) parts.push(`reemplazados ${c.superseded}`);
+    return parts.join(", ");
+  },
+  favoriteToggleLabel: "Favorito en esta estación",
+  toastFavoriteFailed: "No se pudo actualizar el favorito",
+  suggestedChip: (name) => `Sugerido: ${name}`,
 };
 
 export const MESSAGES: Record<Locale, Messages> = { en, es };

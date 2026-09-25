@@ -38,6 +38,17 @@ model Station {
   shortCode     String   @default("")
   abilities     EmployeeStationAbility[]
   assignments   Assignment[]
+  positionMaps  PositionStationMap[]
+}
+
+/// Planner G: the When I Work position string a shift imports as, mapped to
+/// the station Colocar fijos should place it on. A null stationId (or the
+/// row being absent) both mean "do not place" — set in Back office.
+model PositionStationMap {
+  position  String   @id
+  stationId String?
+  station   Station? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  updatedAt DateTime @updatedAt
 }
 
 model Shift {
