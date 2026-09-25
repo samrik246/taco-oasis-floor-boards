@@ -6,7 +6,9 @@
  * Same steps as a run up to the dialog wait (sign-in and menu unchanged).
  * Then, in the open Export Schedule dialog:
  * - read the Start and End buttons (this week, as the export expects);
- * - click Start Date, record whether a date picker opened, and try to pick
+ * - set End before Start when moving later (When I Work disables Start days
+ *   after End), Start before End when moving back; for each,
+ *   click the date button, record whether a date picker opened, and try to pick
  *   the following Friday: type it if the picker is a text field, else click
  *   the day in the calendar, paging forward at most twice;
  * - the same for End Date and the following Thursday;
@@ -70,7 +72,7 @@ export type FieldTry = {
   picker: "dialog" | "page" | "none";
   route: "typed" | "calendar" | "already" | "none";
   pages: number;
-  result: "set" | "not_found" | "refused_click" | "error";
+  result: "set" | "not_found" | "refused_click" | "disabled" | "error";
   shownAfter: Shown;
 };
 
@@ -116,7 +118,14 @@ async function firstVisible(l: Locator): Promise<Locator | null> {
 }
 
 /** Click only a control whose name and text carry none of the forbidden words. */
-export async function safeClick(l: Locator): Promise<boolean> {
+export type ClickResult = "clicked" | "refused" | "disabled";
+
+/**
+ * Click only a control whose name and text carry none of the forbidden words,
+ * and never a disabled one: `click()` on a disabled control waits out the
+ * whole timeout (the 30 s stall of the first live run, a disabled Next month).
+ */
+export async function safeClick(l: Locator): Promise<ClickResult> {
   const label = [
     await l.getAttribute("aria-label").catch(() => null),
     await l.getAttribute("title").catch(() => null),
@@ -124,9 +133,13 @@ export async function safeClick(l: Locator): Promise<boolean> {
   ]
     .filter(Boolean)
     .join(" ");
-  if (FORBIDDEN.test(label)) return false;
+  if (FORBIDDEN.test(label)) return "refused";
+  const disabled =
+    (await l.isDisabled({ timeout: 1_000 }).catch(() => false)) ||
+    (await l.getAttribute("aria-disabled").catch(() => null)) === "true";
+  if (disabled) return "disabled";
   await l.click();
-  return true;
+  return "clicked";
 }
 
 /** Accessible names a calendar gives one day. */
@@ -135,7 +148,7 @@ function dayName(ymd: string): RegExp {
   const day = format(d, "d");
   const months = `${format(d, "MMMM")}|${format(d, "MMM")}`;
   return new RegExp(
-    `(\\b(${months})\\s+${day}(st|nd|rd|th)?,?\\s+${format(d, "yyyy")}\\b)|${format(d, "yyyy-MM-dd")}|${format(d, "MM/dd/yyyy")}`,
+    `(\\b(${months})\\s+${day}(st|nd|rd|th)?,?\\s+${format(d, "yyyy")}\\b)|(^|\\s)${day}\\s+(${months})\\s+${format(d, "yyyy")}\\b|${format(d, "yyyy-MM-dd")}|${format(d, "MM/dd/yyyy")}`,
     "i",
   );
 }
@@ -260,12 +273,14 @@ async function trySet(
   try {
     const opened = await step(steps, `${name}.open`, async () => {
       await markVisible(page);
-      if (!(await safeClick(button.first()))) return "refused" as const;
+      const clicked = await safeClick(button.first());
+      if (clicked !== "clicked") return clicked;
       await page.waitForTimeout(800);
       return openedPicker(page, box);
     });
-    if (opened === "refused") {
-      out.result = "refused_click";
+    if (opened === "refused" || opened === "disabled") {
+      if (opened === "disabled") await steps.log(`step_disabled=${name}.open`);
+      out.result = opened === "refused" ? "refused_click" : "disabled";
       return out;
     }
     if (opened) counts.pickerOpens += 1;
@@ -299,7 +314,10 @@ async function trySet(
       while (!day && out.pages < 2) {
         const moved = await step(steps, `${name}.${back ? "prev" : "next"}`, async () => {
           const arrow = await firstVisible(opened.picker.getByRole("button", { name: word }).or(opened.picker.locator(attr)));
-          if (!arrow || !(await safeClick(arrow))) return false;
+          if (!arrow) return false;
+          const clicked = await safeClick(arrow);
+          if (clicked === "disabled") await steps.log(`step_disabled=${name}.${back ? "prev" : "next"}`);
+          if (clicked !== "clicked") return false;
           await page.waitForTimeout(400);
           return true;
         });
@@ -309,15 +327,16 @@ async function trySet(
       }
       if (day) {
         const clicked = await step(steps, `${name}.day`, async () => {
-          if (!(await safeClick(day))) return false;
-          await page.waitForTimeout(500);
-          return true;
+          const r = await safeClick(day);
+          if (r === "disabled") await steps.log(`step_disabled=${name}.day`);
+          if (r === "clicked") await page.waitForTimeout(500);
+          return r;
         });
-        if (!clicked) out.result = "refused_click";
+        if (clicked !== "clicked") out.result = clicked === "disabled" ? "disabled" : "refused_click";
       }
     }
     out.shownAfter = await step(steps, `${name}.read`, () => readShown(box));
-    if (out.result !== "refused_click" && (field === "start" ? out.shownAfter.start : out.shownAfter.end) === want) {
+    if (out.result === "not_found" && (field === "start" ? out.shownAfter.start : out.shownAfter.end) === want) {
       out.result = "set";
     }
   } catch (err) {
@@ -387,10 +406,48 @@ export function weekOf(shown: Shown | "failed", thisWeek: ExportWeek, nextWeek: 
   return "other";
 }
 
+/**
+ * Both dates, in the order the picker allows. When I Work disables Start days
+ * after End (and End days before Start): moving later sets End first, moving
+ * earlier sets Start first.
+ */
+async function setWeek(
+  page: Page,
+  box: Locator,
+  target: ExportWeek,
+  files: Files,
+  counts: { pickerOpens: number },
+  steps: Steps,
+  tag = "",
+  startFirst = false,
+): Promise<FieldTry[]> {
+  const shown = await readShown(box).catch(() => ({ start: null, end: null }) as Shown);
+  const later = shown.end === null || target.thursday > isoOf(shown.end);
+  const order: Array<["start" | "end", string]> = later && !startFirst
+    ? [["end", target.thursday], ["start", target.friday]]
+    : [["start", target.friday], ["end", target.thursday]];
+  await steps.log(`${tag ? "restore " : ""}order=${order.map(([f]) => f).join(",")}`);
+  const tries: FieldTry[] = [];
+  for (const [field, ymd] of order) {
+    if (!(await box.isVisible().catch(() => false))) break;
+    tries.push(await trySet(page, box, field, ymd, files, counts, steps, tag));
+  }
+  return tries;
+}
+
 export async function captureNextWeek(
   page: Page,
   week: ExportWeek,
-  opts: { logDir: string; stamp: string; step: number; menuSettleMs: number; actionTimeoutMs: number; steps: Steps },
+  opts: {
+    logDir: string;
+    stamp: string;
+    step: number;
+    menuSettleMs: number;
+    actionTimeoutMs: number;
+    steps: Steps;
+    /** Tests only: the first live run's Start-then-End order. */
+    startFirst?: boolean;
+  },
 ): Promise<NextWeekCapture | null> {
   const { steps } = opts;
   const dialog = exportDialog(page);
@@ -409,11 +466,7 @@ export async function captureNextWeek(
     await save(files, "1-dialog-open.txt", `${await box.innerText().catch(() => "")}\n`);
   }).catch(() => undefined);
 
-  const tries: FieldTry[] = [];
-  tries.push(await trySet(page, box, "start", nextWeek.friday, files, counts, steps));
-  if (await box.isVisible().catch(() => false)) {
-    tries.push(await trySet(page, box, "end", nextWeek.thursday, files, counts, steps));
-  }
+  const tries = await setWeek(page, box, nextWeek, files, counts, steps, "", opts.startFirst);
   const open = await box.isVisible().catch(() => false);
   const after = open ? await step(steps, "after.read", () => readShown(box)).catch(() => none) : none;
   if (open) {
@@ -434,10 +487,7 @@ export async function captureNextWeek(
     const box2 = await reopen(page, opts.step, opts.menuSettleMs, steps);
     const restoreTries: FieldTry[] = [];
     if (box2) {
-      restoreTries.push(await trySet(page, box2, "start", week.friday, files, counts, steps, "restore-"));
-      if (await box2.isVisible().catch(() => false)) {
-        restoreTries.push(await trySet(page, box2, "end", week.thursday, files, counts, steps, "restore-"));
-      }
+      restoreTries.push(...(await setWeek(page, box2, week, files, counts, steps, "restore-")));
       if (await box2.isVisible().catch(() => false)) await safeClose(page, box2, steps);
     }
     const check = await reopenAndRead(page, opts.step, opts.menuSettleMs, steps);
@@ -468,6 +518,8 @@ export type NextWeekDeps = {
   menuSettleMs?: number;
   /** Per-action timeout inside the dialog. */
   actionTimeoutMs?: number;
+  /** Tests only: set Start before End, as the first live run did. */
+  startFirst?: boolean;
 };
 
 const d = (s: string | null) => s ?? "-";
@@ -495,6 +547,7 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
       menuSettleMs: deps.menuSettleMs ?? 800,
       actionTimeoutMs: deps.actionTimeoutMs ?? 5_000,
       steps: { log, errors: [] },
+      startFirst: deps.startFirst,
     });
   });
 
