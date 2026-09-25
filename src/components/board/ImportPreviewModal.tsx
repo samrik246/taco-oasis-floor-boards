@@ -58,6 +58,16 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
               <h3 className="text-sm font-bold">{d.date}</h3>
               <p className="text-sm tabular-nums">{t.importCounts(d)}</p>
               <p className="text-sm tabular-nums">{t.importKept(d.assignmentsKept)}</p>
+              {d.assignmentsToTransfer.length > 0 && (
+                <div className="text-sm">
+                  <p className="font-medium tabular-nums">{t.importTransferred(d.assignmentsToTransfer.length)}</p>
+                  <ul className="ml-4 list-disc text-xs" data-testid="import-transfers">
+                    {d.assignmentsToTransfer.map((cell, i) => (
+                      <li key={i}>{formatHourLabel(cell.hour)} · {stationLabel(locale, cell.stationId, cell.stationId)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {d.skippedOpenShifts > 0 && (
                 <p className="text-sm tabular-nums">{t.importOpenShifts(d.skippedOpenShifts)}</p>
               )}

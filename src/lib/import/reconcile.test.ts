@@ -20,14 +20,15 @@ function next(start: string, end: string, externalId = "6001", sourcePosition = 
   };
 }
 
-function old(id: string, start: string, end: string, assignments: ExistingShift["assignments"] = []): ExistingShift {
+function old(id: string, start: string, end: string, assignments: ExistingShift["assignments"] = [],
+             externalId = "6001", sourcePosition = "Caja - Regular"): ExistingShift {
   return {
     id,
-    externalId: "6001",
+    externalId,
     date: D,
     startAt: t(start),
     endAt: t(end),
-    sourcePosition: "Caja - Regular",
+    sourcePosition,
     board: "caja",
     assignments,
   };
@@ -76,6 +77,52 @@ describe("reconcile pairing", () => {
     expect(a.digest).not.toBe(b.digest);
     const c = plan([old("a", "8:00 am", "4:00 pm", [hour("9:00 am", "10:00 am")])], [next("8:00 am", "12:00 pm")]);
     expect(c.digest).toBe(a.digest);
+  });
+});
+
+describe("shift takeover matching", () => {
+  const cell = (id: string, hour: string, end: string) => ({
+    id, stationId: "purple1", hourStart: t(hour), hourEnd: t(end),
+  });
+
+  it("transfers only future cells for one exact incoming replacement", () => {
+    const p = plan(
+      [old("out", "8:00 am", "6:00 pm", [cell("worked", "11:00 am", "12:00 pm"), cell("future", "2:00 pm", "3:00 pm")])],
+      [next("8:00 am", "6:00 pm", "6002")],
+      t("12:30 pm"),
+    );
+    expect(p.actions).toHaveLength(1);
+    expect(p.actions[0]).toMatchObject({ kind: "takeover", old: { id: "out" },
+      next: { externalId: "6002" }, removeAssignments: [{ id: "future" }] });
+    expect(p.dates[0]).toMatchObject({ added: 1, removed: 1, assignmentsKept: 1,
+      assignmentsToRemove: [], assignmentsToTransfer: [{ board: "caja", stationId: "purple1", hour: 14 }] });
+  });
+
+  it("leaves unrelated additions and removals separate", () => {
+    for (const incoming of [
+      next("9:00 am", "6:00 pm", "6002"),
+      next("8:00 am", "6:00 pm", "6002", "Caja - Nieves"),
+    ]) {
+      const p = plan([old("out", "8:00 am", "6:00 pm", [cell("future", "2:00 pm", "3:00 pm")])],
+        [incoming], t("12:30 pm"));
+      expect(p.actions.map((a) => a.kind).sort()).toEqual(["added", "removed"]);
+      expect(p.dates[0]!.assignmentsToTransfer).toEqual([]);
+      expect(p.dates[0]!.assignmentsToRemove).toEqual([{ board: "caja", stationId: "purple1", hour: 14 }]);
+    }
+  });
+
+  it("does not guess among multiple outgoing or incoming candidates", () => {
+    const outgoing = [old("out-a", "8:00 am", "6:00 pm", [], "6001"),
+      old("out-b", "8:00 am", "6:00 pm", [], "6003")];
+    const incoming = [next("8:00 am", "6:00 pm", "6002"), next("8:00 am", "6:00 pm", "6004")];
+    for (const [olds, news] of [
+      [outgoing, incoming.slice(0, 1)],
+      [outgoing.slice(0, 1), incoming],
+    ] as const) {
+      const p = plan(olds, news);
+      expect(p.actions.some((a) => a.kind === "takeover")).toBe(false);
+      expect(p.dates[0]!.assignmentsToTransfer).toEqual([]);
+    }
   });
 });
 

@@ -32,7 +32,10 @@ export type FolderImportSettings = {
   mode: FolderImportMode;
 };
 
-export type DateCounts = Omit<DatePreview, "assignmentsToRemove"> & { assignmentsToRemove: number };
+export type DateCounts = Omit<DatePreview, "assignmentsToRemove" | "assignmentsToTransfer"> & {
+  assignmentsToRemove: number;
+  assignmentsToTransfer: number;
+};
 
 export type FolderImportOutcome =
   | "imported"
@@ -113,7 +116,8 @@ function coversToday(parsed: ParseResult, today: string): boolean {
 }
 
 function counts(dates: DatePreview[]): DateCounts[] {
-  return dates.map((d) => ({ ...d, assignmentsToRemove: d.assignmentsToRemove.length }));
+  return dates.map((d) => ({ ...d, assignmentsToRemove: d.assignmentsToRemove.length,
+    assignmentsToTransfer: d.assignmentsToTransfer.length }));
 }
 
 function tally(codes: string[]): Record<string, number> {
@@ -193,7 +197,7 @@ export function formatSummary(r: FolderImportResult): string[] {
   ];
   for (const d of r.dates) {
     lines.push(
-      `date=${d.date} added=${d.added} changed=${d.changed} replaced=${d.replaced} unchanged=${d.unchanged} removed=${d.removed} openShiftsSkipped=${d.skippedOpenShifts} assignmentsKept=${d.assignmentsKept} assignmentsRemoved=${d.assignmentsToRemove}`,
+      `date=${d.date} added=${d.added} changed=${d.changed} replaced=${d.replaced} unchanged=${d.unchanged} removed=${d.removed} openShiftsSkipped=${d.skippedOpenShifts} assignmentsKept=${d.assignmentsKept} assignmentsRemoved=${d.assignmentsToRemove} assignmentsTransferred=${d.assignmentsToTransfer}`,
     );
   }
   for (const [code, n] of Object.entries(r.refusals)) lines.push(`refusal=${code} count=${n}`);

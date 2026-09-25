@@ -24,6 +24,12 @@ With “contains Cocina OR equals Produccion OR equals Picar Carne”, cocina≈
 
 **Decision for beta:** Cocina board = Position **contains** `Cocina` (case-insensitive). `Produccion` and `Picar Carne` import as `board=other` (hide from floor boards by default; keep for later mapping UI). Cocina station seeds still include `produccion` and `picar`.
 
+## Station plan when a shift changes employees
+
+On schedule re-import, a replacement employee inherits the outgoing employee's station hours when exactly one removed shift and one added shift have the same date, board, source position, start and end time. A matching pair must have different employee IDs. Multiple outgoing or incoming candidates are ambiguous, so the import leaves them as ordinary removal and addition without transferring a station plan. A different position or time window is likewise not evidence of a takeover.
+
+Only future assignment cells transfer to the new shift. Cells whose hour has started remain on the superseded shift as the outgoing employee's worked history. The preview reports the number of cells to transfer separately from cells to remove. During Confirm, station capacity, shift window, ability and person-hour rules are checked for each inherited cell. A conflict refuses and rolls back the entire import; it does not silently drop or partially transfer the station plan. Dates not in the file and unrelated shifts retain their existing assignments.
+
 ## Sample xlsx fixture
 GitHub Contents API cannot push the binary reliably. In-repo CSV pair is source; `scripts/build-sample-xlsx.ts` regenerates `fixtures/wheniwork-restaurant-export-sample.xlsx` for ExcelJS tests. Generated xlsx is committed when present.
 

@@ -7,7 +7,9 @@
  * other times is changed in place when every started, assigned hour still
  * overlaps the new window (history case 1), otherwise it is replaced: the old
  * shift is superseded and a new one added (history case 2). Leftovers are
- * added or removed (removed = superseded). Started hours are history and are
+ * added or removed (removed = superseded). A unique replacement of one
+ * person's shift by another person's identical date, board, position and
+ * window inherits future station hours. Started hours are history and are
  * never deleted. A future assignment the new file invalidates is listed
  * (station + hour, no names) and removed on Confirm.
  */
@@ -39,7 +41,8 @@ export type PlanAction =
   | { kind: "changed"; old: ExistingShift; next: ParsedShift; removeAssignments: ExistingAssignment[] }
   | { kind: "replaced"; old: ExistingShift; next: ParsedShift; removeAssignments: ExistingAssignment[] }
   | { kind: "removed"; old: ExistingShift; removeAssignments: ExistingAssignment[] }
-  | { kind: "added"; next: ParsedShift };
+  | { kind: "added"; next: ParsedShift }
+  | { kind: "takeover"; old: ExistingShift; next: ParsedShift; removeAssignments: ExistingAssignment[] };
 
 export type RemovedAssignmentView = { board: string; stationId: string; hour: number };
 
@@ -54,11 +57,14 @@ export type DatePreview = {
   skippedOpenShifts: number;
   assignmentsKept: number;
   assignmentsToRemove: RemovedAssignmentView[];
+  /** Future cells moved to an unambiguous replacement employee. */
+  assignmentsToTransfer: RemovedAssignmentView[];
 };
 
 export type Refusal =
   | { code: "BOARD_WIPE"; board: string; date: string; message: string }
-  | { code: "PERSON_OVERLAP"; date: string; externalId: string; message: string };
+  | { code: "PERSON_OVERLAP"; date: string; externalId: string; message: string }
+  | { code: "TAKEOVER_CONFLICT"; board: string; date: string; message: string };
 
 export type ReconcilePlan = {
   actions: PlanAction[];
@@ -152,6 +158,43 @@ function groupKey(externalId: string, sourcePosition: string): string {
   return JSON.stringify([externalId, sourcePosition]);
 }
 
+function takeoverKey(shift: ExistingShift | ParsedShift): string {
+  return JSON.stringify([
+    shift.date, shift.board, shift.sourcePosition,
+    shift.startAt.toISOString(), shift.endAt.toISOString(),
+  ]);
+}
+
+/** Match only a single outgoing and incoming shift at the exact same job and time. */
+function pairTakeovers(actions: PlanAction[], now: Date): PlanAction[] {
+  const removed = new Map<string, Extract<PlanAction, { kind: "removed" }>[]>();
+  const added = new Map<string, Extract<PlanAction, { kind: "added" }>[]>();
+  for (const action of actions) {
+    if (action.kind === "removed") {
+      const key = takeoverKey(action.old);
+      removed.set(key, [...(removed.get(key) ?? []), action]);
+    } else if (action.kind === "added") {
+      const key = takeoverKey(action.next);
+      added.set(key, [...(added.get(key) ?? []), action]);
+    }
+  }
+  const pairs = new Map<PlanAction, PlanAction>();
+  const pairedAdds = new Set<PlanAction>();
+  for (const [key, olds] of removed) {
+    const news = added.get(key);
+    if (olds.length !== 1 || news?.length !== 1) continue;
+    const old = olds[0]!;
+    const incoming = news[0]!;
+    if (old.old.externalId === incoming.next.externalId) continue;
+    pairs.set(old, {
+      kind: "takeover", old: old.old, next: incoming.next,
+      removeAssignments: old.old.assignments.filter((a) => !hasStarted(a, now)),
+    });
+    pairedAdds.add(incoming);
+  }
+  return actions.flatMap((action) => pairedAdds.has(action) ? [] : [pairs.get(action) ?? action]);
+}
+
 function personOverlaps(shifts: ParsedShift[]): Refusal[] {
   const byPersonDate = new Map<string, ParsedShift[]>();
   for (const s of shifts) {
@@ -237,30 +280,36 @@ export function planReconcile(opts: {
       for (const n of newLeft) dateActions.push({ kind: "added", next: n });
     }
 
-    const count = (k: PlanAction["kind"]) => dateActions.filter((a) => a.kind === k).length;
+    const resolvedActions = pairTakeovers(dateActions, opts.now);
+    const count = (k: PlanAction["kind"]) => resolvedActions.filter((a) => a.kind === k).length;
     const toRemove: RemovedAssignmentView[] = [];
+    const toTransfer: RemovedAssignmentView[] = [];
     let kept = 0;
-    for (const a of dateActions) {
+    for (const a of resolvedActions) {
       if (a.kind === "added") continue;
       const removeIds = new Set("removeAssignments" in a ? a.removeAssignments.map((r) => r.id) : []);
       for (const asg of a.old.assignments) {
-        if (removeIds.has(asg.id)) toRemove.push(assignmentView(a.old.board, asg));
+        if (removeIds.has(asg.id)) {
+          (a.kind === "takeover" ? toTransfer : toRemove).push(assignmentView(a.old.board, asg));
+        }
         else kept += 1;
       }
     }
     toRemove.sort((x, y) => x.board.localeCompare(y.board) || x.hour - y.hour || x.stationId.localeCompare(y.stationId));
+    toTransfer.sort((x, y) => x.board.localeCompare(y.board) || x.hour - y.hour || x.stationId.localeCompare(y.stationId));
     previews.push({
       date,
-      added: count("added"),
+      added: count("added") + count("takeover"),
       changed: count("changed") + count("replaced"),
       replaced: count("replaced"),
       unchanged: count("unchanged"),
-      removed: count("removed"),
+      removed: count("removed") + count("takeover"),
       skippedOpenShifts: opts.skippedOpenShifts?.[date] ?? 0,
       assignmentsKept: kept,
       assignmentsToRemove: toRemove,
+      assignmentsToTransfer: toTransfer,
     });
-    actions.push(...dateActions);
+    actions.push(...resolvedActions);
   }
 
   return {
