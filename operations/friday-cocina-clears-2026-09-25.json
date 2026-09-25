@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "release": "c05fa9b3d5b89c41d669eb624bc5e14929aa07bd",
+  "operations": [
+    {"type":"clear","employeeExternalId":"1490","assignmentId":"cmugx9x4g004kh9a9x0sa12j6","date":"2026-09-25","hour":11,"fromStationId":"pdf_tf2r","reason":"Other"},
+    {"type":"clear","employeeExternalId":"1490","assignmentId":"cmugx9x4h004nh9a913s298ru","date":"2026-09-25","hour":12,"fromStationId":"pdf_tf2r","reason":"Other"},
+    {"type":"clear","employeeExternalId":"1490","assignmentId":"cmugx9x4j004qh9a9huih8klg","date":"2026-09-25","hour":13,"fromStationId":"pdf_tf2r","reason":"Other"},
+    {"type":"clear","employeeExternalId":"1490","assignmentId":"cmugx9x4k004th9a9dzoedbfq","date":"2026-09-25","hour":14,"fromStationId":"pdf_tf2r","reason":"Other"},
+    {"type":"clear","employeeExternalId":"2488","assignmentId":"cmugzv0z300b4h9a95websf24","date":"2026-09-25","hour":11,"fromStationId":"pdf_rngn","reason":"Other"},
+    {"type":"clear","employeeExternalId":"2488","assignmentId":"cmugx9x4o0052h9a90snvyd49","date":"2026-09-25","hour":12,"fromStationId":"pdf_tsrea","reason":"Other"},
+    {"type":"clear","employeeExternalId":"2488","assignmentId":"cmugx9x4q0055h9a95psllfg4","date":"2026-09-25","hour":13,"fromStationId":"pdf_tsrea","reason":"Other"},
+    {"type":"clear","employeeExternalId":"2488","assignmentId":"cmugx9x4r0058h9a975mlbafi","date":"2026-09-25","hour":14,"fromStationId":"pdf_tsrea","reason":"Other"},
+    {"type":"clear","employeeExternalId":"9348","assignmentId":"cmugx9x3l002wh9a9z4k2dnpz","date":"2026-09-25","hour":16,"fromStationId":"pdf_tsrea","reason":"Other"},
+    {"type":"clear","employeeExternalId":"9348","assignmentId":"cmugx9x3n002zh9a9mnfo0lth","date":"2026-09-25","hour":17,"fromStationId":"pdf_tsrea","reason":"Other"},
+    {"type":"clear","employeeExternalId":"9348","assignmentId":"cmugx9x3o0032h9a9cyd492ps","date":"2026-09-25","hour":21,"fromStationId":"pdf_tsrea","reason":"Other"}
+  ]
+}

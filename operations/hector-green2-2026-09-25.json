@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "release": "c05fa9b3d5b89c41d669eb624bc5e14929aa07bd",
+  "operations": [
+    {
+      "type": "ability",
+      "employeeExternalId": "2473",
+      "stationId": "green2",
+      "from": "forbidden",
+      "to": "ok"
+    }
+  ]
+}
