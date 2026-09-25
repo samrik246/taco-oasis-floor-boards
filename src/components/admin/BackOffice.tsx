@@ -38,7 +38,16 @@ type TareaRow = {
 
 type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean };
 
-type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers";
+type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers" | "positions";
+
+type PositionMapRow = {
+  position: string;
+  board: "caja" | "cocina" | null;
+  eligible: boolean;
+  stationId: string | null;
+};
+
+type StationOption = { id: string; board: string; label: string };
 
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -164,6 +173,7 @@ export function BackOffice() {
             ["seats", "Seat plan"],
             ["sales", "Sales %"],
             ["managers", "Managers"],
+            ["positions", "Positions"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -211,6 +221,9 @@ export function BackOffice() {
         <SalesTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "managers" && <ManagersTab auth={auth} onError={setError} />}
+      {tab === "positions" && (
+        <PositionsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+      )}
     </main>
   );
 }
@@ -874,6 +887,108 @@ function ManagersTab({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * Planner G: the When I Work position -> station map Colocar fijos reads.
+ * Every position string on a non-superseded shift, plus every saved key. A
+ * string on "other", or spanning both boards, has no dropdown and is not
+ * placed by fijos until its shifts settle onto one real board.
+ */
+function PositionsTab({
+  auth,
+  onError,
+  onSaved,
+}: {
+  auth: Record<string, string>;
+  onError: (msg: string) => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [rows, setRows] = useState<PositionMapRow[]>([]);
+  const [stations, setStations] = useState<StationOption[]>([]);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/admin/position-map", { headers: auth });
+    if (!res.ok) {
+      onError(await readError(res));
+      return;
+    }
+    const data = (await res.json()) as { rows: PositionMapRow[]; stations: StationOption[] };
+    setRows(data.rows);
+    setStations(data.stations);
+  }, [auth, onError]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save(position: string, stationId: string | null) {
+    const res = await fetch("/api/admin/position-map", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ position, stationId }),
+    });
+    if (!res.ok) {
+      onError(await readError(res));
+      return;
+    }
+    onSaved(`Saved "${position}"`);
+    await load();
+  }
+
+  return (
+    <section className="flex flex-col gap-2" data-testid="positions-tab">
+      {rows.map((row) => {
+        const options = stations.filter((s) => s.board === row.board);
+        return (
+          <div
+            key={row.position}
+            className="grid gap-2 rounded border-2 border-neutral-300 p-2 md:grid-cols-[1fr_10rem_auto]"
+            data-testid={`position-row-${row.position}`}
+          >
+            <span className="font-semibold">
+              {row.position}
+              {!row.eligible && (
+                <span className="ml-2 text-xs font-medium text-neutral-500">
+                  (not on one board — can&apos;t be mapped)
+                </span>
+              )}
+            </span>
+            <select
+              className="min-h-10 rounded border-2 px-2 disabled:opacity-50"
+              value={row.stationId ?? ""}
+              disabled={!row.eligible}
+              data-testid={`position-select-${row.position}`}
+              onChange={(e) =>
+                setRows((prev) =>
+                  prev.map((item) =>
+                    item.position === row.position
+                      ? { ...item, stationId: e.target.value || null }
+                      : item,
+                  ),
+                )
+              }
+            >
+              <option value="">None</option>
+              {options.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="min-h-10 rounded bg-neutral-900 px-3 font-bold text-white disabled:opacity-50"
+              disabled={!row.eligible}
+              onClick={() => void save(row.position, row.stationId)}
+              data-testid={`position-save-${row.position}`}
+            >
+              Save
+            </button>
+          </div>
+        );
+      })}
     </section>
   );
 }

@@ -15,6 +15,7 @@ import {
   abilityBadgeClass,
   assignmentsAtStationHour,
   availableShiftsForHour,
+  shiftsForWholeDay,
   displayName,
   filterByAbilityLevel,
   sortShiftsByAbilityForStation,
@@ -455,22 +456,16 @@ export function FloorBoard() {
       setChipSuggestions({});
       return;
     }
-    const empty = day.stations.filter(
-      (station) =>
-        assignmentsAtStationHour(day.shifts, station.id, date, hour).length === 0,
+    const res = await fetch(
+      `/api/assignments/suggest?board=${encodeURIComponent(board)}&date=${encodeURIComponent(date)}&hour=${hour}`,
+      { headers: managerAuthHeaders(manager.token) },
     );
-    const entries = await Promise.all(
-      empty.map(async (station) => {
-        const res = await fetch(
-          `/api/assignments/suggest?board=${encodeURIComponent(board)}&date=${encodeURIComponent(date)}&hour=${hour}&stationId=${encodeURIComponent(station.id)}`,
-          { headers: managerAuthHeaders(manager.token) },
-        );
-        if (!res.ok) return [station.id, null] as const;
-        const data = await res.json();
-        return [station.id, data.candidate] as const;
-      }),
-    );
-    setChipSuggestions(Object.fromEntries(entries));
+    if (!res.ok) {
+      setChipSuggestions({});
+      return;
+    }
+    const data = await res.json();
+    setChipSuggestions(data.candidates ?? {});
   }, [isManager, manager, day, date, hour, board, readonly, offline]);
 
   useEffect(() => {
@@ -487,7 +482,15 @@ export function FloorBoard() {
 
   const available = useMemo(() => {
     if (!day || !date) return [];
-    let list = availableShiftsForHour(day.shifts, date, hour);
+    // Turno completo lists the whole open day, one row per shift id — a
+    // split day shows both halves, and someone already seated at the
+    // selected hour can still be tapped, since whole-shift placement only
+    // skips the individual hours that are actually taken. Por hora keeps
+    // the free-at-this-hour list.
+    let list =
+      assignMode === "shift"
+        ? shiftsForWholeDay(day.shifts)
+        : availableShiftsForHour(day.shifts, date, hour);
     if (selectedStationId) {
       list = sortShiftsByAbilityForStation(list, selectedStationId);
       list = filterByAbilityLevel(list, selectedStationId, abilityFilter);
@@ -498,7 +501,7 @@ export function FloorBoard() {
       }
     }
     return list;
-  }, [day, date, hour, selectedStationId, abilityFilter]);
+  }, [day, date, hour, selectedStationId, abilityFilter, assignMode]);
 
   const violations = useMemo(
     () => (day ? findBoardViolations(day) : []),

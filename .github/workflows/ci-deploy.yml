@@ -204,6 +204,7 @@ jobs:
             scripts/import-from-folder.ts
             scripts/readiness-check.ts
             scripts/remote-deploy.sh
+            scripts/seed-position-map.ts
             scripts/upgrade-home-base.ts
             scripts/wiw-export.ts
             src/lib
@@ -236,7 +237,7 @@ jobs:
             exit 1
           fi
           tar -tzf taco-oasis-floor-boards.tgz > "$STAGE.files"
-          for script in scripts/wiw-export.ts scripts/import-from-folder.ts; do
+          for script in scripts/wiw-export.ts scripts/import-from-folder.ts scripts/seed-position-map.ts; do
             /usr/bin/grep -Fxq "./${script}" "$STAGE.files" || {
               echo "::error::Production artifact is missing ${script}."
               exit 1

@@ -3,7 +3,11 @@ import { PrismaClient } from "@prisma/client";
 import { ALL_STATIONS } from "@/lib/stations";
 import { createEmployee } from "@/lib/employees/service";
 import { createAssignment } from "@/lib/assignments/service";
-import { freeFavoriteFor, suggestAssign } from "@/lib/assignments/suggest";
+import {
+  freeFavoriteFor,
+  freeFavoritesForHour,
+  suggestAssign,
+} from "@/lib/assignments/suggest";
 import { chicagoDateTime } from "@/lib/time";
 
 const prisma = new PrismaClient();
@@ -160,5 +164,23 @@ describe("freeFavoriteFor / suggestAssign — Planner I", () => {
     expect(result.ok).toBe(false);
     const rows = await prisma.assignment.count({ where: { employeeId, stationId: "green1" } });
     expect(rows).toBe(0);
+  });
+
+  it("freeFavoritesForHour matches freeFavoriteFor for every station, in one call", async () => {
+    const freeId = await makeEmployee("suggest-batch-free");
+    const takenId = await makeEmployee("suggest-batch-taken");
+    await makeShift(freeId, "10:00 am", "2:00 pm");
+    const takenShift = await makeShift(takenId, "10:00 am", "2:00 pm");
+    await prisma.employeeStationAbility.create({ data: { employeeId: freeId, stationId: "green1", level: "preferred" } });
+    await prisma.employeeStationAbility.create({ data: { employeeId: takenId, stationId: "purple1", level: "preferred" } });
+    await createAssignment({ shiftId: takenShift.id, stationId: "purple1", date: DATE, hour: 11 });
+
+    const batch = await freeFavoritesForHour({ board: "caja", date: DATE, hour: 11 });
+    expect(batch.green1?.employeeId).toBe(freeId);
+    expect(batch.purple1).toBeNull(); // station occupied
+    expect(batch.yellow ?? null).toBeNull(); // no favorite there
+
+    const single = await freeFavoriteFor({ board: "caja", date: DATE, hour: 11, stationId: "green1" });
+    expect(single?.employeeId).toBe(batch.green1?.employeeId);
   });
 });

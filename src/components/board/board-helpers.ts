@@ -46,6 +46,20 @@ export function availableShiftsForHour(
     .sort((a, b) => displayName(a).localeCompare(displayName(b)));
 }
 
+/**
+ * Every non-superseded shift for the open board/date, one row per shift id —
+ * Planner A's Turno completo list. Unlike `availableShiftsForHour`, not
+ * filtered by the selected hour or by whether the person is already seated
+ * that hour: a split day shows both halves, and someone already seated at
+ * the selected hour can still be tapped, since whole-shift placement skips
+ * only the individual hours that are actually taken.
+ */
+export function shiftsForWholeDay(shifts: ShiftDto[]): ShiftDto[] {
+  return shifts
+    .filter((sh) => !sh.supersededAt)
+    .sort((a, b) => displayName(a).localeCompare(displayName(b)));
+}
+
 /** Assignments at a given station + hour. */
 export function assignmentsAtStationHour(
   shifts: ShiftDto[],

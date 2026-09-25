@@ -309,7 +309,12 @@ export async function copyDayAssignments(
     }
 
     const targetShifts = await prisma.shift.findMany({
-      where: { employeeId: source.employeeId, date: params.targetDate },
+      where: {
+        employeeId: source.employeeId,
+        date: params.targetDate,
+        board: params.board,
+        supersededAt: null,
+      },
     });
     const targetShift = targetShifts.find((s) =>
       isHourInShift(targetHourStart, s.startAt, s.endAt, targetHourEnd),
@@ -330,6 +335,8 @@ export async function copyDayAssignments(
       summary.copied += 1;
     } else if (result.violations.some((v) => v.code === "FORBIDDEN_ABILITY")) {
       summary.forbidden += 1;
+    } else if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
+      summary.alreadyThere += 1;
     } else {
       summary.occupied += 1;
     }

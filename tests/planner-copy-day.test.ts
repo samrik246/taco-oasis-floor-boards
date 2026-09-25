@@ -209,6 +209,66 @@ describe("copyDayAssignments — Planner B", () => {
     expect(result.summary).toEqual({ copied: 0, noShift: 0, occupied: 0, alreadyThere: 0, forbidden: 0 });
   });
 
+  it("picks the non-superseded target shift, never the superseded one it replaced (reimport)", async () => {
+    const employeeId = await makeEmployee("copy-day-reimport");
+    const sourceShift = await makeShift(employeeId, SOURCE_DATE, "10:00 am", "2:00 pm");
+    await createAssignment({ shiftId: sourceShift.id, stationId: "green1", date: SOURCE_DATE, hour: 11 });
+
+    // A reimport superseded the target day's old shift and created a new
+    // one whose window also covers hour 11 — the copy must never attach to
+    // the superseded row, regardless of which one the query returns first.
+    const oldTargetShift = await makeShift(employeeId, TARGET_DATE, "9:00 am", "5:00 pm");
+    await prisma.shift.update({
+      where: { id: oldTargetShift.id },
+      data: { supersededAt: chicagoDateTime(TARGET_DATE, "8:00 am") },
+    });
+    const newTargetShift = await makeShift(employeeId, TARGET_DATE, "10:00 am", "2:00 pm");
+
+    const result = await copyDayAssignments({ board: "caja", sourceDate: SOURCE_DATE, targetDate: TARGET_DATE });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.summary.copied).toBe(1);
+    const targetRow = await prisma.assignment.findFirst({
+      where: { stationId: "green1", hourStart: chicagoDateTime(TARGET_DATE, "11:00 am") },
+    });
+    expect(targetRow?.shiftId).toBe(newTargetShift.id);
+  });
+
+  it("never picks a target shift on the other board", async () => {
+    const employeeId = await makeEmployee("copy-day-other-board");
+    const sourceShift = await makeShift(employeeId, SOURCE_DATE, "10:00 am", "2:00 pm", "caja");
+    await createAssignment({ shiftId: sourceShift.id, stationId: "green1", date: SOURCE_DATE, hour: 11 });
+    // Only a cocina shift exists on the target day — copying for caja must
+    // find no eligible shift, not misattach to the wrong board's row.
+    await makeShift(employeeId, TARGET_DATE, "10:00 am", "2:00 pm", "cocina");
+
+    const result = await copyDayAssignments({ board: "caja", sourceDate: SOURCE_DATE, targetDate: TARGET_DATE });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.summary.noShift).toBe(1);
+    expect(result.summary.copied).toBe(0);
+  });
+
+  it("a person already seated somewhere else on the target day counts as alreadyThere, not occupied", async () => {
+    const employeeId = await makeEmployee("copy-day-busy-elsewhere");
+    const sourceShift = await makeShift(employeeId, SOURCE_DATE, "10:00 am", "2:00 pm");
+    await createAssignment({ shiftId: sourceShift.id, stationId: "green1", date: SOURCE_DATE, hour: 11 });
+    const targetShift = await makeShift(employeeId, TARGET_DATE, "10:00 am", "2:00 pm");
+    // Already seated at a different station on the target day, same hour.
+    await createAssignment({ shiftId: targetShift.id, stationId: "purple1", date: TARGET_DATE, hour: 11 });
+
+    const result = await copyDayAssignments({ board: "caja", sourceDate: SOURCE_DATE, targetDate: TARGET_DATE });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.summary.alreadyThere).toBe(1);
+    expect(result.summary.occupied).toBe(0);
+    expect(result.summary.copied).toBe(0);
+    const greenRows = await prisma.assignment.count({
+      where: { stationId: "green1", hourStart: chicagoDateTime(TARGET_DATE, "11:00 am") },
+    });
+    expect(greenRows).toBe(0);
+  });
+
   it("refuses to copy a day onto itself", async () => {
     const result = await copyDayAssignments({ board: "caja", sourceDate: SOURCE_DATE, targetDate: SOURCE_DATE });
     expect(result.ok).toBe(false);

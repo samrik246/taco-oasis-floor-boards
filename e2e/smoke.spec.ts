@@ -201,6 +201,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("meter-cliente")).toBeVisible();
     await lockManager(page);
 
+    // Planner A: Turno completo (whole-shift) is the default, but this step
+    // demonstrates the classic one-hour assign+clear+reason flow, which
+    // needs the free-at-this-hour list.
+    await page.getByTestId("assign-mode-hour").click();
     await page.getByTestId("hour-12").click();
 
     const available = page.getByTestId("available-list").locator("button");
@@ -361,5 +365,26 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("readonly-badge")).toBeVisible();
     await expect(page.getByTestId("load-sample")).toBeDisabled();
     await expect(page.getByTestId("traffic-toggle")).toBeDisabled();
+
+    // Planner G Back office: the position -> station map editor sets and
+    // saves one row, and the value persists on reload.
+    await page.goto("/back-office");
+    await page.getByTestId("back-office-code").fill("2468");
+    await page.getByTestId("back-office-submit").click();
+    await expect(page.getByTestId("back-office-app")).toBeVisible();
+    await page.getByTestId("back-office-tab-positions").click();
+    await expect(page.getByTestId("position-row-Caja Manager")).toBeVisible();
+    await page.getByTestId("position-select-Caja Manager").selectOption("green1");
+    await page.getByTestId("position-save-Caja Manager").click();
+    await expect(page.getByTestId("back-office-toast")).toContainText(
+      /Saved "Caja Manager"/i,
+    );
+
+    await page.reload();
+    await expect(page.getByTestId("back-office-app")).toBeVisible();
+    await page.getByTestId("back-office-tab-positions").click();
+    await expect(page.getByTestId("position-select-Caja Manager")).toHaveValue(
+      "green1",
+    );
   });
 });
