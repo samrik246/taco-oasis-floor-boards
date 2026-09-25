@@ -114,6 +114,7 @@ export function FloorBoard() {
   const t = messagesFor(locale);
 
   const [dates, setDates] = useState<string[]>([]);
+  const [nextOn, setNextOn] = useState(false);
   const [date, setDate] = useState<string>("");
   const [hour, setHour] = useState<number>(() => preferredBoardHour(new Date()));
   const [day, setDay] = useState<DayBoardDto | null>(null);
@@ -367,6 +368,20 @@ export function FloorBoard() {
   useEffect(() => {
     void refreshDates();
   }, [refreshDates]);
+
+  // SQUARE NEXT link shows only on a host that names a source (dark by default).
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/upcoming/status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((b: { enabled?: boolean }) => {
+        if (!cancel) setNextOn(b.enabled === true);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (syncedUrlBoardRef.current === requestedBoard) return;
@@ -1010,6 +1025,15 @@ export function FloorBoard() {
           >
             Back office
           </a>
+          {nextOn && (
+            <a
+              href="/next"
+              className="text-sm font-bold underline"
+              data-testid="open-next"
+            >
+              Tacos4Groups
+            </a>
+          )}
 
           <span
             className="text-base font-semibold tabular-nums sm:ml-auto sm:text-lg"

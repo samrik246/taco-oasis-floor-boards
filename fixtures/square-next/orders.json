@@ -1,0 +1,136 @@
+{
+  "orders": [
+    {
+      "id_tail": "AgIeZY",
+      "fulfill_type": "PICKUP",
+      "event_date": "2026-10-15",
+      "event_time": "10:00",
+      "ready_time": "10:00",
+      "guests": 15,
+      "lines": [
+        {
+          "item_name": "Taco Tray",
+          "variation": "Regular",
+          "modifiers": "1 x STEAK - asada, 1 x No Drink",
+          "qty": 5
+        },
+        {
+          "item_name": "Taco Tray",
+          "variation": "Regular",
+          "modifiers": "1 x PORK - pastor, 1 x No Drink",
+          "qty": 5
+        },
+        {
+          "item_name": "Taco Tray",
+          "variation": "Regular",
+          "modifiers": "1 x CHICKEN - pollo, 1 x Green & red sauce, 1 x Cilantro, onion, & lime, 1 x No Drink",
+          "qty": 5
+        },
+        {
+          "item_name": "Rice Tray",
+          "variation": "Regular",
+          "modifiers": "",
+          "qty": 13
+        },
+        {
+          "item_name": "Beans Tray",
+          "variation": "Regular",
+          "modifiers": "",
+          "qty": 13
+        },
+        {
+          "item_name": "Aguas Frescas Gallon",
+          "variation": "Regular",
+          "modifiers": "1 x melon",
+          "qty": 1
+        },
+        {
+          "item_name": "Aguas Frescas Gallon",
+          "variation": "Regular",
+          "modifiers": "1 x piña",
+          "qty": 1
+        },
+        {
+          "item_name": "Dips for Chips",
+          "variation": "Regular",
+          "modifiers": "1 x Chunky Salsa",
+          "qty": 14
+        }
+      ]
+    },
+    {
+      "id_tail": "hj35YY",
+      "fulfill_type": "DELIVERY",
+      "event_date": "2026-09-28",
+      "event_time": "10:50",
+      "ready_time": "10:50",
+      "guests": 20,
+      "lines": [
+        {
+          "item_name": "Tea by the Gallon",
+          "variation": "Regular",
+          "modifiers": "1 x Sweet Tea",
+          "qty": 1
+        },
+        {
+          "item_name": "Tea by the Gallon",
+          "variation": "Regular",
+          "modifiers": "1 x Unsweet Tea",
+          "qty": 1
+        },
+        {
+          "item_name": "Fajita Buffet",
+          "variation": "Regular",
+          "modifiers": "1 x Beef, 1 x Corn, 1 x grilled onion, 1 x bell peppers, 1 x sour cream, 1 x Cheese, 1 x avocado, 1 x pico, 1 x tortillas, 1 x Lettuce, 1 x Beans & Rice, 1 x No Drink",
+          "qty": 10
+        },
+        {
+          "item_name": "Fajita Buffet",
+          "variation": "Regular",
+          "modifiers": "1 x Chicken, 1 x Flour, 1 x grilled onion, 1 x bell peppers, 1 x sour cream, 1 x Cheese, 1 x avocado, 1 x pico, 1 x tortillas, 1 x Lettuce, 1 x Chips and Queso, 1 x No Drink",
+          "qty": 10
+        }
+      ]
+    },
+    {
+      "id_tail": "sr0GZY",
+      "fulfill_type": "DELIVERY",
+      "event_date": "2026-09-23",
+      "event_time": "10:50",
+      "ready_time": "10:50",
+      "guests": 40,
+      "lines": [
+        {
+          "item_name": "Taco Buffet",
+          "variation": "Regular",
+          "modifiers": "1 x STEAK - asada, 1 x No Sides, 1 x No Drink",
+          "qty": 20
+        },
+        {
+          "item_name": "Taco Buffet",
+          "variation": "Regular",
+          "modifiers": "1 x BARBACOA, 1 x No Sides, 1 x No Drink",
+          "qty": 10
+        },
+        {
+          "item_name": "Taco Buffet",
+          "variation": "Regular",
+          "modifiers": "1 x CHICKEN - pollo, 1 x No Sides, 1 x No Drink",
+          "qty": 10
+        },
+        {
+          "item_name": "Just Chips",
+          "variation": "Regular",
+          "modifiers": "1 x No Dip",
+          "qty": 25
+        },
+        {
+          "item_name": "Dips for Chips",
+          "variation": "Regular",
+          "modifiers": "1 x Chunky Salsa",
+          "qty": 25
+        }
+      ]
+    }
+  ]
+}
