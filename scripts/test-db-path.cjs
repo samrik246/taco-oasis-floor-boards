@@ -6,7 +6,9 @@ const INSTALLED_DB = "/Users/dan/.buzz/COLOR_BOARDS_APP/var/data/floor-boards.db
 function safeDatabasePath(env = process.env) {
   const root = env.FLOOR_BOARDS_TEST_ROOT;
   const url = env.DATABASE_URL;
-  if (!root || !path.isAbsolute(root) || !root.startsWith("/private/tmp/color-boards-test-")) {
+  const tempDir = fs.realpathSync("/tmp");
+  if (!root || !path.isAbsolute(root) || path.dirname(root) !== tempDir ||
+      !/^color-boards-test-[A-Za-z0-9]+$/.test(path.basename(root))) {
     throw new Error("TEST_DB_ROOT_NOT_DISPOSABLE");
   }
   if (!url || !url.startsWith("file:/") || /[?#]/.test(url)) {

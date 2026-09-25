@@ -4,7 +4,8 @@ set -eu
 case "${1:-}" in
   ''|--preflight-only) mode=preflight ;;
   --run-full-suite) mode=full ;;
-  *) echo 'usage: sh scripts/validate-test-db-isolation.sh [--preflight-only|--run-full-suite]' >&2; exit 2 ;;
+  --watch) mode=watch ;;
+  *) echo 'usage: sh scripts/validate-test-db-isolation.sh [--preflight-only|--run-full-suite|--watch]' >&2; exit 2 ;;
 esac
 if [ "$#" -gt 1 ]; then
   echo 'too many arguments' >&2
@@ -13,7 +14,8 @@ fi
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 cd "$repo_dir"
-test_root=$(mktemp -d /private/tmp/color-boards-test-XXXXXXXX)
+temp_base=$(CDPATH= cd /tmp && pwd -P)
+test_root=$(mktemp -d "$temp_base/color-boards-test-XXXXXXXX")
 mkdir "$test_root/tmp"
 export FLOOR_BOARDS_TEST_ROOT="$test_root"
 export TMPDIR="$test_root/tmp"
@@ -71,10 +73,14 @@ fi
 echo "relative database refused"
 echo "path-only evidence: $test_root/database-paths.jsonl"
 
-if [ "$mode" = full ]; then
-  # package.json's `pnpm test` overrides DATABASE_URL with file:./dev.db.
-  # Run the same unscoped Vitest suite directly, inside this guarded process
-  # tree, after the main schema and child routes have passed the preflight.
+if [ "$mode" = full ] || [ "$mode" = watch ]; then
+  # Seed only the disposable main database after every path has passed preflight.
+  DEMO_MANAGER_CODES=1 pnpm exec tsx prisma/seed.ts
   export MANAGER_SESSION_SECRET='test-only-manager-session-secret-000000'
+fi
+if [ "$mode" = full ]; then
   exec ./node_modules/.bin/vitest run --reporter=dot
+fi
+if [ "$mode" = watch ]; then
+  exec ./node_modules/.bin/vitest
 fi
