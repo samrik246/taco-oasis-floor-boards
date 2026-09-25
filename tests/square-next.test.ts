@@ -21,7 +21,9 @@ import {
 import { monthGrid, weekDays, addMonths } from "@/lib/upcoming/calendar";
 import { OrderDetail } from "@/components/next/OrderDetail";
 import { NEXT_COPY } from "@/components/next/next-copy";
-import { OrderChip, OrderRow } from "@/components/next/NextOrders";
+import { MonthCell } from "@/components/next/NextOrders";
+import { OrderCard } from "@/components/next/parts";
+import { dayHeading, monthTitle, relativeDay, shortDay, time12, urgency } from "@/components/next/format";
 import { DEFAULT_PREFS, parsePrefs } from "@/components/next/prefs";
 
 /**
@@ -45,6 +47,9 @@ function renderedStrings(html: string): string {
   const text = html.replace(/<[^>]*>/g, " ");
   return [text, ...attrs].join("\n");
 }
+
+/** A fixed Chicago day for rendered-date tests. */
+const TODAY = "2026-09-24";
 
 const REAL = JSON.parse(
   readFileSync(path.join(process.cwd(), "fixtures/square-next/orders.json"), "utf8"),
@@ -174,23 +179,27 @@ describe("SQUARE NEXT rendered page", () => {
     for (const locale of ["es", "en"] as const) {
       for (const order of orders) {
         const html = renderToStaticMarkup(
-          createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t: NEXT_COPY[locale] }),
+          createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t: NEXT_COPY[locale], locale, today: TODAY }),
         );
         const strings = renderedStrings(html);
         expect(leaks(strings), `${order.id_tail} ${locale}`).toEqual([]);
         expect(strings).not.toContain("Maria");
-        expect(strings).toContain(order.event_time);
-        expect(strings).toContain(order.event_date);
+        expect(strings).toContain(time12(order.event_time));
+        expect(strings).toContain(dayHeading(order.event_date, TODAY, locale));
         for (const line of order.lines) expect(strings).toContain(line.item_name);
       }
     }
     const hj = orders.find((o) => o.id_tail === "hj35YY")!;
     const html = renderToStaticMarkup(
-      createElement(OrderDetail, { order: hj, columns: DEFAULT_PREFS.columns, t: NEXT_COPY.es }),
+      createElement(OrderDetail, { order: hj, columns: DEFAULT_PREFS.columns, t: NEXT_COPY.es, locale: "es", today: TODAY }),
     );
     expect(html).toContain("ENTREGA");
     expect(html).toContain("20 (confirmar)");
-    expect(html).toContain("10:50");
+    expect(html).toContain("10:50 am");
+    expect(html).toContain("Lunes 28 de septiembre");
+    expect(html).toContain("en 4 días");
+    // Modifiers are one bullet per line, not a comma paragraph.
+    expect(html).toContain("<li>1 x Beef</li><li>1 x Corn</li>");
   });
 
   it("every surface that shows the guest count carries the not-final label", () => {
@@ -201,16 +210,18 @@ describe("SQUARE NEXT rendered page", () => {
       const label = `(${t.confirm})`;
       for (const order of orders) {
         const surfaces = {
-          chip: createElement(OrderChip, { order, t, showGuests: true, onOpen: noop }),
-          row: createElement(OrderRow, { order, t, columns: DEFAULT_PREFS.columns, onOpen: noop }),
-          detail: createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t }),
+          card: createElement(OrderCard, { order, t, locale, today: TODAY, columns: DEFAULT_PREFS.columns, zebra: false, onOpen: noop }),
+          detail: createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t, locale, today: TODAY }),
         };
         for (const [name, el] of Object.entries(surfaces)) {
           const text = renderToStaticMarkup(el).replace(/<[^>]*>/g, "");
           expect(text, `${name} ${order.id_tail} ${locale}`).toContain(`${order.guests} ${label}`);
-          // The bare count never appears without its label.
-          const bare = text.split(`${order.guests} ${label}`).join("");
-          expect(bare, `${name} ${order.id_tail} ${locale}`).not.toMatch(new RegExp(`(^|[^0-9:-])${order.guests}([^0-9:-]|$)`));
+          // Wherever the guest word is printed, the count after it carries the label.
+          const after = text.split(t.guests).slice(1);
+          expect(after.length, `${name} ${order.id_tail} ${locale}`).toBeGreaterThan(0);
+          for (const seg of after) {
+            expect(seg.trimStart(), `${name} ${order.id_tail} ${locale}`).toMatch(new RegExp(`^${order.guests} \\(${t.confirm}\\)`));
+          }
         }
       }
     }
@@ -355,6 +366,104 @@ describe("SQUARE NEXT calendar and tablet choices", () => {
       locale: "en",
       columns: { ...DEFAULT_PREFS.columns, guests: false },
     });
-    expect(parsePrefs(JSON.stringify({ view: "year", locale: "fr" })).view).toBe("month");
+    expect(parsePrefs(JSON.stringify({ view: "year", locale: "fr" })).view).toBe("list");
+    expect(DEFAULT_PREFS.view).toBe("list");
+  });
+});
+
+describe("SQUARE NEXT readable design", () => {
+  const noop = () => {};
+  const { orders } = fencePayload(REAL);
+  const byTail = (tail: string) => orders.find((o) => o.id_tail === tail)!;
+
+  it("says dates and times in kitchen words from a fixed Chicago day", () => {
+    expect(relativeDay("2026-09-28", "2026-09-28", "es")).toBe("HOY");
+    expect(relativeDay("2026-09-27", "2026-09-28", "es")).toBe("MAÑANA");
+    expect(relativeDay("2026-09-24", "2026-09-28", "es")).toBe("en 4 días");
+    expect(relativeDay("2026-09-28", "2026-09-28", "en")).toBe("TODAY");
+    expect(relativeDay("2026-09-27", "2026-09-28", "en")).toBe("TOMORROW");
+    expect(relativeDay("2026-09-24", "2026-10-15", "en")).toBe("in 21 days");
+    expect(relativeDay("2026-12-31", "2027-01-01", "es")).toBe("MAÑANA");
+    expect(urgency("2026-09-28", "2026-09-28")).toBe("today");
+    expect(urgency("2026-09-27", "2026-09-28")).toBe("tomorrow");
+    expect(urgency("2026-09-24", "2026-09-28")).toBe("later");
+    expect(time12("10:50")).toBe("10:50 am");
+    expect(time12("13:05")).toBe("1:05 pm");
+    expect(time12("00:10")).toBe("12:10 am");
+    expect(time12("12:00")).toBe("12:00 pm");
+    expect(shortDay("2026-09-28", TODAY, "es")).toBe("lun 28 sep");
+    expect(shortDay("2027-01-04", TODAY, "en")).toBe("Mon 4 Jan 2027");
+    expect(dayHeading("2026-09-28", TODAY, "es")).toBe("Lunes 28 de septiembre");
+    expect(dayHeading("2026-10-15", TODAY, "en")).toBe("Thursday, October 15");
+    expect(dayHeading("2027-01-04", TODAY, "es")).toBe("Lunes 4 de enero de 2027");
+    expect(monthTitle("2026-10-15", "es")).toBe("octubre 2026");
+  });
+
+  it("colors every card and detail band by fulfill type, with the word printed beside it", () => {
+    const expected = {
+      DELIVERY: { bar: "border-l-blue-700", ink: "text-blue-800", es: "ENTREGA", en: "DELIVERY" },
+      PICKUP: { bar: "border-l-green-700", ink: "text-green-800", es: "RECOGER", en: "PICKUP" },
+    } as const;
+    for (const locale of ["es", "en"] as const) {
+      const t = NEXT_COPY[locale];
+      for (const order of orders) {
+        const want = expected[order.fulfill_type];
+        const card = renderToStaticMarkup(
+          createElement(OrderCard, { order, t, locale, today: TODAY, columns: DEFAULT_PREFS.columns, zebra: false, onOpen: noop }),
+        );
+        const detail = renderToStaticMarkup(
+          createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t, locale, today: TODAY }),
+        );
+        for (const [name, html] of [["card", card], ["detail", detail]] as const) {
+          expect(html, `${name} ${order.id_tail} ${locale}`).toContain(want.bar);
+          expect(html, `${name} ${order.id_tail} ${locale}`).toContain(want.ink);
+          expect(html.replace(/<[^>]*>/g, " "), `${name} ${order.id_tail} ${locale}`).toContain(want[locale]);
+        }
+      }
+    }
+  });
+
+  it("marks HOY red and MAÑANA amber, with the word", () => {
+    const hj = byTail("hj35YY");
+    const at = (today: string) =>
+      renderToStaticMarkup(
+        createElement(OrderCard, { order: hj, t: NEXT_COPY.es, locale: "es", today, columns: DEFAULT_PREFS.columns, zebra: true, onOpen: noop }),
+      );
+    const onDay = at("2026-09-28");
+    expect(onDay).toContain('data-urgency="today"');
+    expect(onDay).toContain("border-red-700");
+    expect(onDay).toContain(">HOY<");
+    const dayBefore = at("2026-09-27");
+    expect(dayBefore).toContain('data-urgency="tomorrow"');
+    expect(dayBefore).toContain("border-amber-700");
+    expect(dayBefore).toContain(">MAÑANA<");
+    expect(dayBefore).toContain("bg-neutral-100");
+  });
+
+  it("a month cell shows the day and the order count, never the guest sentence", () => {
+    const html = renderToStaticMarkup(
+      createElement(MonthCell, { day: "2026-09-28", today: TODAY, inMonth: true, count: 1, t: NEXT_COPY.es, onOpenDay: noop }),
+    );
+    const text = html.replace(/<[^>]*>/g, " ");
+    expect(text).toContain("28");
+    expect(text).toContain("1 pedido");
+    expect(text).not.toContain("confirmar");
+    expect(text).not.toContain("Personas");
+    expect(html).toMatch(/^<button/);
+    const empty = renderToStaticMarkup(
+      createElement(MonthCell, { day: "2026-09-29", today: TODAY, inMonth: true, count: 0, t: NEXT_COPY.es, onOpenDay: noop }),
+    );
+    expect(empty).toMatch(/^<div/);
+  });
+
+  it("NEXT components use no text class under 20px", () => {
+    const dir = path.join(process.cwd(), "src/components/next");
+    for (const name of readdirSync(dir)) {
+      const src = readFileSync(path.join(dir, name), "utf8");
+      expect(src, name).not.toMatch(/\btext-(xs|sm|base|lg)\b/);
+      for (const m of src.matchAll(/text-\[(\d+)px\]/g)) {
+        expect(Number(m[1]), `${name} ${m[0]}`).toBeGreaterThanOrEqual(20);
+      }
+    }
   });
 });

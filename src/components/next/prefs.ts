@@ -15,7 +15,7 @@ export type NextPrefs = {
 export const NEXT_COLUMNS: NextColumn[] = ["guests", "fulfill", "ready", "modifiers"];
 
 export const DEFAULT_PREFS: NextPrefs = {
-  view: "month",
+  view: "list",
   locale: "es",
   columns: { guests: true, fulfill: true, ready: true, modifiers: true },
 };
@@ -25,7 +25,7 @@ export function parsePrefs(raw: string | null): NextPrefs {
   if (!raw) return DEFAULT_PREFS;
   try {
     const p = JSON.parse(raw) as Partial<NextPrefs>;
-    const view: NextView = p.view === "week" || p.view === "list" ? p.view : "month";
+    const view: NextView = p.view === "week" || p.view === "month" ? p.view : "list";
     const locale: Locale = p.locale === "en" ? "en" : "es";
     const columns = { ...DEFAULT_PREFS.columns };
     for (const c of NEXT_COLUMNS) {
