@@ -115,6 +115,12 @@ function coversToday(parsed: ParseResult, today: string): boolean {
   return dates[0]! <= today && today <= dates[dates.length - 1]!;
 }
 
+/** A named week's file: every date (shifts and open shifts) falls inside that Friday through Thursday. */
+function insideWeek(parsed: ParseResult, week: { friday: string; thursday: string }): boolean {
+  const dates = [...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {})];
+  return dates.length > 0 && dates.every((d) => week.friday <= d && d <= week.thursday);
+}
+
 function counts(dates: DatePreview[]): DateCounts[] {
   return dates.map((d) => ({ ...d, assignmentsToRemove: d.assignmentsToRemove.length,
     assignmentsToTransfer: d.assignmentsToTransfer.length }));
@@ -126,15 +132,31 @@ function tally(codes: string[]): Record<string, number> {
   return out;
 }
 
+export type FolderImportOptions = {
+  now?: Date;
+  /**
+   * Import this file by its own path instead of the newest in the folder.
+   * The export job names each week's file itself (B2 next week).
+   */
+  file?: string;
+  /**
+   * The Friday-through-Thursday the file must cover: every date inside it.
+   * Unset: the file must bracket today, as before.
+   */
+  week?: { friday: string; thursday: string };
+};
+
 export async function runFolderImport(
   settings: FolderImportSettings,
-  opts: { now?: Date } = {},
+  opts: FolderImportOptions = {},
 ): Promise<FolderImportResult> {
   const now = opts.now ?? new Date();
   const base = { mode: settings.mode, rowCount: 0, dates: [], refusals: {} };
 
-  const file = await newestExport(settings.dir);
-  if (!file) return { ...base, outcome: "no-file", file: null, code: null };
+  const file = opts.file ?? (await newestExport(settings.dir));
+  if (!file || !(await stat(file).then((i) => i.isFile(), () => false))) {
+    return { ...base, outcome: "no-file", file: null, code: null };
+  }
   const name = path.basename(file);
   const refused = (code: string, extra: Partial<FolderImportResult> = {}): FolderImportResult => ({
     ...base,
@@ -152,7 +174,7 @@ export async function runFolderImport(
     return refused("UNREADABLE");
   }
   if (parsed.shifts.length === 0) return refused("EMPTY");
-  if (!coversToday(parsed, restaurantDate(now))) {
+  if (opts.week ? !insideWeek(parsed, opts.week) : !coversToday(parsed, restaurantDate(now))) {
     return refused("WRONG_WEEK", { rowCount: parsed.shifts.length });
   }
 

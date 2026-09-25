@@ -18,6 +18,13 @@
  * a code, a CAPTCHA or a changed page stops the run (LOGIN, MFA, CAPTCHA,
  * PAGE) and the board keeps the last import.
  *
+ * Then the following Friday through Thursday, only when this week imported
+ * or came back DUPLICATE: export it, import that file by its own path and
+ * week (every date inside it), delete it. The exit code stays this week's; a
+ * miss logs `next=skipped reason=<code>`. Until the browser step for that
+ * week is written from the next-week probe, every run logs
+ * `next=skipped reason=NO_BROWSER_STEP`.
+ *
  * Settings: FLOOR_BOARDS_IMPORT_DIR, WIW_LOGIN_FILE, WIW_BROWSER_PROFILE, all
  * absolute; FLOOR_BOARDS_IMPORT_MODE apply (the timer's) or hold (unset; a
  * changed day is held and the workbook kept until the next run). The log is var/log/wiw-export.log: codes, counts and the file
