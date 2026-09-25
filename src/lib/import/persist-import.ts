@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
 import { seedAbilitiesFromPositions } from "@/lib/rules/abilities";
+import { validateAssignment } from "@/lib/rules/assign";
+import type { AbilityLevel } from "@/lib/rules/types";
+import { chicagoHourOf } from "@/lib/hour-grid";
 import {
   planReconcile,
   type DatePreview,
@@ -66,6 +69,14 @@ const DUPLICATE_MESSAGE =
   "This exact schedule was already imported. Nothing changed: no shifts, assignments or abilities were touched.";
 
 type Tx = Prisma.TransactionClient;
+
+function takeoverConflict(board: string, date: string, stationId: string, hour: number, detail: string): ImportRefusedError {
+  const refusal: Refusal = {
+    code: "TAKEOVER_CONFLICT", board, date,
+    message: `The replacement shift cannot inherit ${stationId} at ${hour}:00 on ${date}: ${detail}. Nothing changed. Review the board and import again.`,
+  };
+  return new ImportRefusedError(refusal.message, "REFUSED", [refusal]);
+}
 
 async function loadExisting(tx: Tx | typeof prisma, dates: string[]): Promise<ExistingShift[]> {
   const rows = await tx.shift.findMany({
@@ -267,11 +278,59 @@ export async function commitImport(
         case "added":
           toCreate.add(a.next);
           break;
+        case "takeover":
+          await supersede(a.old.id);
+          toCreate.add(a.next);
+          break;
       }
     }
     // New shifts in the order the export lists them.
+    const created = new Map<(typeof parsed.shifts)[number], Awaited<ReturnType<typeof createShift>>>();
     for (const n of parsed.shifts) {
-      if (toCreate.has(n)) await createShift(n);
+      if (toCreate.has(n)) created.set(n, await createShift(n));
+    }
+
+    // Re-create only future station cells on an unambiguous incoming shift.
+    // Started cells stay on the superseded shift as the outgoing person's history.
+    for (const action of plan.actions) {
+      if (action.kind !== "takeover") continue;
+      const incoming = created.get(action.next);
+      if (!incoming) throw new Error("Missing created takeover shift");
+      for (const cell of action.removeAssignments) {
+        const hour = chicagoHourOf(cell.hourStart);
+        const station = await tx.station.findUnique({ where: { id: cell.stationId } });
+        if (!station) throw takeoverConflict(action.next.board, action.next.date, cell.stationId, hour, "station missing");
+        const ability = await tx.employeeStationAbility.findUnique({
+          where: { employeeId_stationId: { employeeId: incoming.employeeId, stationId: cell.stationId } },
+        });
+        const occupancy = await tx.assignment.count({ where: { stationId: cell.stationId, hourStart: cell.hourStart } });
+        const personBusy = await tx.assignment.count({ where: { employeeId: incoming.employeeId, hourStart: cell.hourStart } });
+        const violations = validateAssignment({
+          hourStart: cell.hourStart, hourEnd: cell.hourEnd,
+          shiftStart: incoming.startAt, shiftEnd: incoming.endAt,
+          stationId: station.id, stationBoard: station.board, shiftBoard: incoming.board,
+          maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
+          abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+          personAlreadyAssignedAtHour: personBusy > 0, chicagoHour: hour,
+        });
+        if (violations.length > 0) {
+          throw takeoverConflict(action.next.board, action.next.date, cell.stationId, hour,
+            violations.map((v) => v.code).join(", "));
+        }
+        try {
+          await tx.assignment.create({
+            data: {
+              shiftId: incoming.id, employeeId: incoming.employeeId,
+              stationId: cell.stationId, hourStart: cell.hourStart, hourEnd: cell.hourEnd,
+            },
+          });
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+            throw takeoverConflict(action.next.board, action.next.date, cell.stationId, hour, "station or person already assigned");
+          }
+          throw error;
+        }
+      }
     }
 
     return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };

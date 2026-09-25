@@ -345,6 +345,66 @@ describe("C1 same-day re-import (reconcile)", () => {
     });
     expect(await dbSnapshot(prisma)).toBe(before);
   });
+
+  it("a unique employee takeover inherits future stations and preserves worked history and unrelated rows", async () => {
+    await resetScheduleTables(prisma);
+    const morning = [
+      r("5301", "Outgoing", "8:00 am", "6:00 pm"),
+      r("5309", "Unrelated", "8:00 am", "4:00 pm", { position: "Cocina" }),
+      r("5310", "Tomorrow", "9:00 am", "5:00 pm", { date: D2 }),
+    ];
+    await commitImport(await parse(morning, "takeover-before.csv"), "takeover-before.csv", { now: NOW });
+    const outgoing = await shiftOf("5301");
+    const tomorrow = await shiftOf("5310", D2);
+    const worked = await assign("5301", "purple1", 11);
+    const future = await assign("5301", "purple1", 14);
+    const unrelated = await assign("5309", "fryer", 10);
+    const parsed = await parse([
+      r("5302", "Incoming", "8:00 am", "6:00 pm"),
+      morning[1]!,
+    ], "takeover-after.csv");
+    const preview = await previewImport(parsed, { now: NOW });
+    expect(preview.dates[0]!.assignmentsToTransfer).toEqual([
+      { board: "caja", stationId: "purple1", hour: 14 },
+    ]);
+    expect(preview.dates[0]!.assignmentsToRemove).toEqual([]);
+    await commitImport(parsed, "takeover-after.csv", {
+      now: NOW, expected: { fingerprint: preview.fingerprint, planDigest: preview.planDigest },
+    });
+
+    const oldRow = await prisma.shift.findUniqueOrThrow({ where: { id: outgoing.id }, include: { assignments: true } });
+    const incoming = await shiftOf("5302");
+    const incomingCells = await prisma.assignment.findMany({ where: { shiftId: incoming.id } });
+    expect(oldRow.supersededAt).not.toBeNull();
+    expect(oldRow.assignments.map((a) => a.id)).toEqual([worked]);
+    expect(incomingCells).toMatchObject([{ stationId: "purple1", hourStart: chicagoDateTime(D, "2:00 pm") }]);
+    expect(incomingCells[0]!.id).not.toBe(future);
+    expect((await getEmployeeWeekHours(outgoing.employeeId, D))!.totalMinutes).toBe(60);
+    expect((await getEmployeeWeekHours(incoming.employeeId, D))!.totalMinutes).toBe(60);
+    expect(await prisma.assignment.findUnique({ where: { id: unrelated } })).not.toBeNull();
+    expect((await shiftOf("5310", D2)).id).toBe(tomorrow.id);
+    await expectInvariants();
+  });
+
+  it("refuses a takeover when the incoming person's station ability forbids an inherited cell", async () => {
+    await resetScheduleTables(prisma);
+    await commitImport(await parse([r("5321", "Outgoing", "8:00 am", "6:00 pm")], "before.csv"),
+      "before.csv", { now: NOW });
+    await assign("5321", "purple1", 14);
+    const incoming = await prisma.employee.create({
+      data: { externalId: "5322", firstName: "Incoming", lastName: "Ejemplo" },
+    });
+    await prisma.employeeStationAbility.create({
+      data: { employeeId: incoming.id, stationId: "purple1", level: "forbidden" },
+    });
+    const parsed = await parse([r("5322", "Incoming", "8:00 am", "6:00 pm")], "after.csv");
+    const preview = await previewImport(parsed, { now: NOW });
+    const before = await dbSnapshot(prisma);
+    await expect(commitImport(parsed, "after.csv", {
+      now: NOW, expected: { fingerprint: preview.fingerprint, planDigest: preview.planDigest },
+    })).rejects.toMatchObject({ code: "REFUSED", refusals: [{ code: "TAKEOVER_CONFLICT" }] });
+    expect(await dbSnapshot(prisma)).toBe(before);
+  });
 });
 
 describe("C1 step 6: open shifts in an afternoon file", () => {

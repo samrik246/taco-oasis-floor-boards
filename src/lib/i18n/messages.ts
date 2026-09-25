@@ -170,6 +170,7 @@ export type Messages = {
   importPreviewIntro: string;
   importCounts: (c: { added: number; changed: number; unchanged: number; removed: number }) => string;
   importKept: (n: number) => string;
+  importTransferred: (n: number) => string;
   importOpenShifts: (n: number) => string;
   importRemoveTitle: string;
   importRemoveNone: string;
@@ -405,6 +406,7 @@ const en: Messages = {
   importCounts: (c) =>
     `${c.added} added · ${c.changed} changed · ${c.unchanged} unchanged · ${c.removed} removed`,
   importKept: (n) => `${n} assignments kept`,
+  importTransferred: (n) => `${n} future assignments will pass to the replacement employee`,
   importOpenShifts: (n) => `${n} open shifts skipped (no employee)`,
   importRemoveTitle: "These assignments no longer fit the new schedule and will be removed:",
   importRemoveNone: "No assignments will be removed.",
@@ -653,6 +655,7 @@ const es: Messages = {
   importCounts: (c) =>
     `${c.added} nuevos · ${c.changed} cambiados · ${c.unchanged} sin cambio · ${c.removed} quitados`,
   importKept: (n) => `${n} asignaciones se quedan`,
+  importTransferred: (n) => `${n} asignaciones futuras pasarán a la persona que cubre el turno`,
   importOpenShifts: (n) => `${n} turnos abiertos omitidos (sin empleado)`,
   importRemoveTitle: "Estas asignaciones ya no caben en el nuevo horario y se quitarán:",
   importRemoveNone: "No se quitará ninguna asignación.",
