@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, RefreshCw, SlidersHorizontal } from "lucide-react";
 import type { UpcomingOrder } from "@/lib/upcoming/fence";
 import type { UpcomingSnapshot } from "@/lib/upcoming/source";
 import {
@@ -11,8 +12,10 @@ import {
   monthGrid,
   weekDays,
 } from "@/lib/upcoming/calendar";
-import { NEXT_COPY, guestsText, type NextCopy } from "./next-copy";
+import { NEXT_COPY, type NextCopy } from "./next-copy";
+import { dayHeading, monthTitle, time12 } from "./format";
 import { OrderDetail } from "./OrderDetail";
+import { OrderCard } from "./parts";
 import {
   DEFAULT_PREFS,
   NEXT_COLUMNS,
@@ -29,99 +32,49 @@ const POLL_MS = 5 * 60 * 1000;
 /** No good read for this long: say so on the page. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
 
-export function OrderChip({
-  order,
-  t,
-  showGuests,
-  onOpen,
-}: {
-  order: UpcomingOrder;
-  t: NextCopy;
-  showGuests: boolean;
-  onOpen: (o: UpcomingOrder) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(order)}
-      className="w-full rounded border-2 border-neutral-900 bg-amber-100 px-1.5 py-1 text-left text-xs font-bold leading-tight sm:text-sm"
-      data-testid={`next-chip-${order.id_tail}`}
-    >
-      <span className="tabular-nums">{order.event_time}</span> #{order.id_tail}
-      <span className="block font-semibold">
-        {t.fulfillType[order.fulfill_type]}
-        {showGuests && order.guests != null && ` · ${guestsText(order.guests, t)}`}
-      </span>
-    </button>
-  );
-}
+const BTN =
+  "inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border-2 border-neutral-900 px-4 text-[22px] font-bold";
 
-export function OrderRow({
-  order: o,
-  t,
-  columns,
-  onOpen,
-}: {
-  order: UpcomingOrder;
-  t: NextCopy;
-  columns: NextPrefs["columns"];
-  onOpen: (o: UpcomingOrder) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(o)}
-      className="flex w-full flex-wrap gap-x-4 rounded border-2 border-neutral-900 bg-white p-3 text-left"
-      data-testid={`next-row-${o.id_tail}`}
-    >
-      <span className="font-black tabular-nums">{o.event_date}</span>
-      <span className="font-bold tabular-nums">{o.event_time}</span>
-      <span className="font-bold">#{o.id_tail}</span>
-      {columns.fulfill && <span>{t.fulfillType[o.fulfill_type]}</span>}
-      {columns.ready && o.ready_time && (
-        <span>
-          {t.ready} {o.ready_time}
-        </span>
-      )}
-      {columns.guests && o.guests != null && (
-        <span>
-          {t.guests} {guestsText(o.guests, t)}
-        </span>
-      )}
-    </button>
-  );
-}
-
-function DayCell({
+/**
+ * A month cell holds the day number and the order count only: the guest
+ * sentence does not fit a month column at 20px. Tapping a day with orders
+ * opens that day in the list.
+ */
+export function MonthCell({
   day,
   today,
   inMonth,
-  orders,
+  count,
   t,
-  showGuests,
-  onOpen,
-  tall,
+  onOpenDay,
 }: {
   day: string;
   today: string;
   inMonth: boolean;
-  orders: UpcomingOrder[];
+  count: number;
   t: NextCopy;
-  showGuests: boolean;
-  onOpen: (o: UpcomingOrder) => void;
-  tall?: boolean;
+  onOpenDay: (day: string) => void;
 }) {
-  return (
-    <div
-      className={`flex flex-col gap-1 border border-neutral-300 p-1 ${tall ? "min-h-48" : "min-h-24"} ${
-        inMonth ? "bg-white" : "bg-neutral-100 text-neutral-400"
-      } ${day === today ? "outline outline-2 -outline-offset-2 outline-amber-500" : ""}`}
-      data-testid={`next-day-${day}`}
-    >
-      <span className="text-xs font-bold tabular-nums">{Number(day.slice(8))}</span>
-      {orders.map((o) => (
-        <OrderChip key={o.id_tail} order={o} t={t} showGuests={showGuests} onOpen={onOpen} />
-      ))}
+  const body = (
+    <>
+      <span className="text-[22px] font-black tabular-nums">{Number(day.slice(8))}</span>
+      {count > 0 && (
+        <span className="rounded-md bg-amber-200 px-2 text-[20px] font-black text-neutral-900">
+          {t.orderCount(count)}
+        </span>
+      )}
+    </>
+  );
+  const cls = `flex min-h-24 flex-col items-start gap-1 border border-neutral-300 p-2 text-left ${
+    inMonth ? "bg-white text-neutral-900" : "bg-neutral-100 text-neutral-600"
+  } ${day === today ? "outline outline-4 -outline-offset-4 outline-red-700" : ""}`;
+  return count > 0 ? (
+    <button type="button" className={cls} onClick={() => onOpenDay(day)} data-testid={`next-month-day-${day}`}>
+      {body}
+    </button>
+  ) : (
+    <div className={cls} data-testid={`next-month-day-${day}`}>
+      {body}
     </div>
   );
 }
@@ -131,10 +84,13 @@ export function NextOrders() {
   const [data, setData] = useState<Payload | null>(null);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [open, setOpen] = useState<UpcomingOrder | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
+  const scrollToDay = useRef<string | null>(null);
 
   const t = NEXT_COPY[prefs.locale];
+  const locale = prefs.locale;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,6 +117,28 @@ export function NextOrders() {
     return () => window.clearInterval(id);
   }, [load]);
 
+  // The detail sheet owns one history entry. Back, Cerrar and Volver all close
+  // it by popping that entry once; this is the only popstate listener here.
+  useEffect(() => {
+    const onPop = () => setOpen(null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const openOrder = (o: UpcomingOrder) => {
+    window.history.pushState({ nextSheet: true }, "");
+    setOpen(o);
+  };
+  const closeSheet = () => window.history.back();
+
+  // After a month tap switches to the list, bring that day's heading up.
+  useEffect(() => {
+    const day = scrollToDay.current;
+    if (!day || prefs.view !== "list") return;
+    scrollToDay.current = null;
+    document.getElementById(`next-day-${day}`)?.scrollIntoView({ block: "start" });
+  });
+
   const update = (next: NextPrefs) => {
     setPrefs(next);
     savePrefs(next);
@@ -181,115 +159,187 @@ export function NextOrders() {
     setAnchor(prefs.view === "month" ? addMonths(focus, dir) : addDays(focus, 7 * dir));
   };
 
-  const views: NextView[] = ["month", "week", "list"];
+  const openDay = (day: string) => {
+    scrollToDay.current = day;
+    update({ ...prefs, view: "list" });
+  };
+
+  const views: NextView[] = ["list", "week", "month"];
+  const updatedAt =
+    fetchedMs == null
+      ? t.never
+      : time12(
+          new Date(fetchedMs).toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "America/Chicago",
+          }),
+        );
+
+  const dayBlock = (day: string, orders: UpcomingOrder[]) => (
+    <section key={day} className="flex flex-col gap-2" data-testid={`next-day-${day}`}>
+      <h2
+        id={`next-day-${day}`}
+        className="sticky top-0 z-10 border-b-2 border-neutral-900 bg-neutral-50 py-2 text-[26px] font-black"
+      >
+        {dayHeading(day, today, locale)}
+      </h2>
+      {orders.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {orders.map((o, i) => (
+            <li key={o.id_tail}>
+              <OrderCard
+                order={o}
+                t={t}
+                locale={locale}
+                today={today}
+                columns={prefs.columns}
+                zebra={i % 2 === 1}
+                onOpen={openOrder}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="py-2 text-[22px] text-neutral-700">{t.noOrdersDay}</p>
+      )}
+    </section>
+  );
 
   return (
-    <main className="flex min-h-dvh flex-col gap-3 bg-neutral-50 p-3 sm:p-4" data-testid="next-app">
-      <header className="flex flex-wrap items-center gap-2 border-b-2 border-neutral-900 pb-3">
-        <h1 className="mr-2 text-xl font-black">{t.title}</h1>
-        {data?.source === "fixture" && (
-          <span
-            className="rounded bg-neutral-900 px-2 py-0.5 text-xs font-bold text-white"
-            data-testid="next-test-data"
-          >
-            {t.testData}
+    <main
+      className="flex min-h-dvh flex-col gap-4 bg-neutral-50 p-3 text-[22px] text-neutral-900 sm:p-5"
+      style={{ colorScheme: "light" }}
+      data-testid="next-app"
+    >
+      <header className="flex flex-col gap-3 border-b-2 border-neutral-900 pb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="mr-2 text-[28px] font-black">{t.title}</h1>
+          {data?.source === "fixture" && (
+            <span
+              className="rounded-md bg-neutral-900 px-3 py-1 text-[20px] font-bold text-white"
+              data-testid="next-test-data"
+            >
+              {t.testData}
+            </span>
+          )}
+          <span className="text-[20px] font-semibold tabular-nums text-neutral-700 sm:ml-auto" data-testid="next-updated">
+            {t.updated}: {updatedAt}
           </span>
-        )}
-        <div className="flex gap-1" role="group">
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           {views.map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => update({ ...prefs, view: v })}
-              className={`rounded border-2 border-neutral-900 px-3 py-1 text-sm font-bold ${
-                prefs.view === v ? "bg-neutral-900 text-white" : "bg-white"
-              }`}
+              className={`${BTN} min-w-32 ${prefs.view === v ? "bg-neutral-900 text-white" : "bg-white"}`}
+              aria-pressed={prefs.view === v}
               data-testid={`next-view-${v}`}
             >
               {t[v]}
             </button>
           ))}
-        </div>
-        {prefs.view !== "list" && (
-          <div className="flex gap-1">
-            <button type="button" className="rounded border-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" onClick={() => step(-1)} data-testid="next-prev">
-              ‹ {t.prev}
-            </button>
-            <button type="button" className="rounded border-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" onClick={() => setAnchor(today || null)} data-testid="next-today">
-              {t.today}
-            </button>
-            <button type="button" className="rounded border-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" onClick={() => step(1)} data-testid="next-next">
-              {t.next} ›
-            </button>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={() => update({ ...prefs, locale: prefs.locale === "es" ? "en" : "es" })}
-          className="rounded border-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold"
-          data-testid="next-locale"
-        >
-          {prefs.locale === "es" ? "EN" : "ES"}
-        </button>
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <span className="text-sm font-semibold tabular-nums" data-testid="next-updated">
-            {t.updated}:{" "}
-            {fetchedMs == null
-              ? t.never
-              : new Date(fetchedMs).toLocaleTimeString(prefs.locale === "es" ? "es-MX" : "en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  timeZone: "America/Chicago",
-                })}
-          </span>
           <button
             type="button"
             onClick={() => void load()}
             disabled={loading}
-            className="rounded border-2 border-neutral-900 bg-white px-3 py-1 text-sm font-bold disabled:opacity-50"
+            className={`${BTN} bg-white disabled:opacity-50`}
             data-testid="next-refresh"
           >
+            <RefreshCw aria-hidden className="size-6" />
             {t.refresh}
           </button>
-          <Link href="/?board=cocina" className="text-sm font-bold underline" data-testid="next-back">
+          <button
+            type="button"
+            onClick={() => setOptionsOpen((o) => !o)}
+            className={`${BTN} ${optionsOpen ? "bg-neutral-900 text-white" : "bg-white"}`}
+            aria-expanded={optionsOpen}
+            data-testid="next-options"
+          >
+            <SlidersHorizontal aria-hidden className="size-6" />
+            {t.options}
+          </button>
+          <button
+            type="button"
+            onClick={() => update({ ...prefs, locale: locale === "es" ? "en" : "es" })}
+            className={`${BTN} bg-white`}
+            data-testid="next-locale"
+          >
+            {locale === "es" ? "English" : "Español"}
+          </button>
+          <Link href="/?board=cocina" className={`${BTN} bg-white underline`} data-testid="next-back">
             {t.back}
           </Link>
         </div>
+        {optionsOpen && (
+          <fieldset
+            className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border-2 border-neutral-300 bg-white p-3"
+            data-testid="next-columns"
+          >
+            <legend className="px-1 text-[22px] font-bold">{t.columns}</legend>
+            {NEXT_COLUMNS.map((c) => (
+              <label key={c} className="flex min-h-14 items-center gap-3 text-[22px] font-semibold">
+                <input
+                  type="checkbox"
+                  className="size-7"
+                  checked={prefs.columns[c]}
+                  onChange={(e) =>
+                    update({ ...prefs, columns: { ...prefs.columns, [c]: e.target.checked } })
+                  }
+                  data-testid={`next-col-${c}`}
+                />
+                {t[c]}
+              </label>
+            ))}
+          </fieldset>
+        )}
       </header>
 
-      <fieldset className="flex flex-wrap items-center gap-3 text-sm" data-testid="next-columns">
-        <legend className="sr-only">{t.columns}</legend>
-        <span className="font-bold">{t.columns}:</span>
-        {NEXT_COLUMNS.map((c) => (
-          <label key={c} className="flex items-center gap-1 font-semibold">
-            <input
-              type="checkbox"
-              checked={prefs.columns[c]}
-              onChange={(e) =>
-                update({ ...prefs, columns: { ...prefs.columns, [c]: e.target.checked } })
-              }
-              data-testid={`next-col-${c}`}
-            />
-            {t[c]}
-          </label>
-        ))}
-      </fieldset>
-
       {showStale && (
-        <p className="rounded border-2 border-red-700 bg-red-50 p-2 font-bold text-red-800" data-testid="next-stale">
+        <p className="rounded-lg border-2 border-red-700 bg-red-50 p-3 text-[24px] font-bold text-red-800" data-testid="next-stale">
           {t.stale}
         </p>
       )}
       {data && data.heldBack > 0 && (
-        <p className="rounded border-2 border-amber-700 bg-amber-50 p-2 font-bold text-amber-900" data-testid="next-held">
+        <p className="rounded-lg border-2 border-amber-700 bg-amber-50 p-3 text-[24px] font-bold text-amber-900" data-testid="next-held">
           {t.heldBack(data.heldBack)}
         </p>
       )}
 
-      {data && focus && prefs.view === "month" && (
+      {data && !off && focus && prefs.view !== "list" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={`${BTN} bg-white`} onClick={() => step(-1)} data-testid="next-prev">
+            <ChevronLeft aria-hidden className="size-7" />
+            {t.prev}
+          </button>
+          <button type="button" className={`${BTN} bg-white`} onClick={() => setAnchor(today || null)} data-testid="next-today">
+            {t.today}
+          </button>
+          <button type="button" className={`${BTN} bg-white`} onClick={() => step(1)} data-testid="next-next">
+            {t.next}
+            <ChevronRight aria-hidden className="size-7" />
+          </button>
+        </div>
+      )}
+
+      {data && !off && prefs.view === "list" && data.orders.length > 0 && (
+        <div className="flex flex-col gap-4" data-testid="next-list">
+          {[...byDate.entries()].map(([day, orders]) => dayBlock(day, orders))}
+        </div>
+      )}
+
+      {data && !off && focus && prefs.view === "week" && (
+        <div className="flex flex-col gap-4" data-testid="next-week">
+          {weekDays(focus).map((day) => dayBlock(day, byDate.get(day) ?? []))}
+        </div>
+      )}
+
+      {data && !off && focus && prefs.view === "month" && (
         <div data-testid="next-month">
-          <h2 className="mb-1 text-lg font-bold">{focus.slice(0, 7)}</h2>
-          <div className="grid grid-cols-7 text-center text-xs font-bold">
+          <h2 className="mb-2 text-[26px] font-black">{monthTitle(focus, locale)}</h2>
+          <div className="grid grid-cols-7 text-center text-[20px] font-bold">
             {t.weekdays.map((d) => (
               <div key={d}>{d}</div>
             ))}
@@ -297,15 +347,14 @@ export function NextOrders() {
           {monthGrid(focus).map((week) => (
             <div key={week[0]} className="grid grid-cols-7">
               {week.map((day) => (
-                <DayCell
+                <MonthCell
                   key={day}
                   day={day}
                   today={today}
                   inMonth={day.slice(0, 7) === focus.slice(0, 7)}
-                  orders={byDate.get(day) ?? []}
+                  count={byDate.get(day)?.length ?? 0}
                   t={t}
-                  showGuests={prefs.columns.guests}
-                  onOpen={setOpen}
+                  onOpenDay={openDay}
                 />
               ))}
             </div>
@@ -313,62 +362,28 @@ export function NextOrders() {
         </div>
       )}
 
-      {data && focus && prefs.view === "week" && (
-        <div data-testid="next-week">
-          <div className="grid grid-cols-7 text-center text-xs font-bold">
-            {weekDays(focus).map((d, i) => (
-              <div key={d}>
-                {t.weekdays[i]} <span className="tabular-nums">{d.slice(5)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7">
-            {weekDays(focus).map((day) => (
-              <DayCell
-                key={day}
-                day={day}
-                today={today}
-                inMonth
-                tall
-                orders={byDate.get(day) ?? []}
-                t={t}
-                showGuests={prefs.columns.guests}
-                onOpen={setOpen}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {data && prefs.view === "list" && (
-        <ul className="flex flex-col gap-2" data-testid="next-list">
-          {data.orders.map((o) => (
-            <li key={o.id_tail}>
-              <OrderRow order={o} t={t} columns={prefs.columns} onOpen={setOpen} />
-            </li>
-          ))}
-        </ul>
-      )}
-
       {off && (
-        <p className="font-semibold text-neutral-700" data-testid="next-off">
+        <p className="text-[28px] font-bold text-neutral-800" data-testid="next-off">
           {t.off}
         </p>
       )}
-      {data && !off && data.orders.length === 0 && (
-        <p className="font-semibold text-neutral-700" data-testid="next-empty">
-          {t.empty}
-        </p>
+      {data && !off && data.orders.length === 0 && prefs.view === "list" && (
+        <div className="flex flex-col gap-1" data-testid="next-empty">
+          <p className="text-[28px] font-bold text-neutral-800">{t.empty}</p>
+          <p className="text-[22px] text-neutral-700">{t.checksEvery}</p>
+        </div>
       )}
 
       {open && (
-        <div
-          className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
-          onClick={() => setOpen(null)}
-        >
-          <div className="w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
-            <OrderDetail order={open} columns={prefs.columns} t={t} onClose={() => setOpen(null)} />
-          </div>
+        <div className="fixed inset-0 z-30 overflow-y-auto bg-white" data-testid="next-sheet">
+          <OrderDetail
+            order={open}
+            columns={prefs.columns}
+            t={t}
+            locale={locale}
+            today={today}
+            onClose={closeSheet}
+          />
         </div>
       )}
     </main>
