@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  abilityLevelLabel,
   boardDisplayName,
   localeForBoard,
   messagesFor,
@@ -34,6 +35,16 @@ describe("i18n board locale", () => {
     expect(messagesFor("en").cashiers).toBe("Cashiers");
     expect(messagesFor("en").viewSchedule).toBe("Schedule");
     expect(messagesFor("en").scheduleAllDay).toBe("All day");
+  });
+
+  it("translates every ability level, never the raw code, in both locales", () => {
+    const levels = ["preferred", "ok", "training", "forbidden"] as const;
+    for (const level of levels) {
+      expect(abilityLevelLabel("en", level)).not.toBe(level);
+      expect(abilityLevelLabel("es", level)).not.toBe(level);
+    }
+    expect(abilityLevelLabel("es", "forbidden")).toBe("Prohibida");
+    expect(abilityLevelLabel("en", "forbidden")).toBe("Forbidden");
   });
 });
 
