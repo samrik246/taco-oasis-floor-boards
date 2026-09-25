@@ -33,6 +33,8 @@ type Fake = {
   stuck?: boolean;
   /** The dialog is a form: Enter in a field submits it (an Export). */
   form?: boolean;
+  /** Day cells never take a click (an overlay sits on them). */
+  stuckDay?: boolean;
   /** The calendar has no next-month control. */
   noNextMonth?: boolean;
   /** The calendar's forward control is named "Clear and next": the probe must refuse it. */
@@ -66,6 +68,7 @@ const scheduler = (fake: Fake) => `<h1>Scheduler</h1>
 const KIND = ${JSON.stringify(fake.picker)};
 const STICKY = ${!!fake.sticky || !!fake.stuck};
 const STUCK = ${!!fake.stuck};
+const STUCK_DAY = ${!!fake.stuckDay};
 const NO_NEXT = ${!!fake.noNextMonth};
 const TRAP = ${!!fake.trapNext};
 const MONTHS = ${JSON.stringify(MONTHS)};
@@ -109,7 +112,7 @@ function render() {
   for (let d = 1; d <= days; d++) {
     const at = new Date(month.getFullYear(), month.getMonth(), d);
     const label = 'Choose ' + at.toLocaleDateString('en-US', { weekday: 'long' }) + ', ' + MONTHS[at.getMonth()] + ' ' + d + ', ' + at.getFullYear();
-    cells += '<div role="option" tabindex="0" aria-label="' + label + '" data-v="' + shown(at) + '">' + d + '</div>';
+    cells += '<div role="option" tabindex="0" aria-label="' + label + '" data-v="' + shown(at) + '"' + (STUCK_DAY ? ' style="pointer-events:none"' : '') + '>' + d + '</div>';
   }
   const next = NO_NEXT ? '' : TRAP ? '<button onclick="fetch(\\'/clear\\'); month.setMonth(month.getMonth()+1); render()">Clear and next</button>'
     : '<button type="button" aria-label="Previous Month" onclick="month.setMonth(month.getMonth()-1); render()">&lt;</button>' +
@@ -181,6 +184,7 @@ async function probe(fake: Fake) {
     readLogin: async () => new WiwLogin(SECRET_EMAIL, SECRET_PASSWORD),
     stepTimeoutMs: 2_000,
     menuSettleMs: 50,
+    actionTimeoutMs: 1_000,
     exporter: (hook) =>
       playwrightExporter({
         profileDir: "/unused",
@@ -252,9 +256,11 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
     expect(res.seen.exports).toBe(0);
   });
 
-  it("no picker: records zero opens and reached=no", async () => {
+  it("no picker: records zero opens and reached=no, exit 5 NOT_REACHED with the profile clear", async () => {
     const res = await probe({ picker: "none" });
-    expect(res.result.exitCode).toBe(PROBE_EXIT);
+    expect(res.result.exitCode).toBe(STOP_EXIT);
+    expect(res.log).toContain("profile=clear");
+    expect(res.log).toContain("stop=PAGE reason=NOT_REACHED");
     expect(res.log).toContain("try field=start picker=none route=none pages=0 result=not_found shows start=05/31/2030 end=06/06/2030");
     expect(res.log).toContain("picker_opens=0");
     expect(res.log).toContain("dialog after start=05/31/2030 end=06/06/2030 week=this");
@@ -299,6 +305,30 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
   it("this week on reopen: no restore step", async () => {
     const res = await probe({ picker: "calendar" });
     expect(res.log).not.toContain("restore");
+  });
+
+  it("a day cell that never takes a click: step marker and error class, then close, reopen and exit 5 STEP", async () => {
+    const res = await probe({ picker: "calendar", stuckDay: true });
+    expect(res.log).toContain("step=start.open");
+    expect(res.log).toContain("step=start.day");
+    expect(res.log).toContain("step_error=start.day error=TimeoutError call=locator.click");
+    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=error");
+    expect(res.log).toContain("step=end.day");
+    expect(res.log).toContain("step=reopen");
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/06/2030 week=this");
+    expect(res.log).toContain("profile=clear");
+    expect(res.log).toContain("step_errors=start.day,end.day");
+    expect(res.log).toContain("stop=PAGE reason=STEP");
+    expect(res.result.exitCode).toBe(STOP_EXIT);
+    expect(res.seen.exports).toBe(0);
+    // Only the class and the API name: no message text.
+    expect(res.log).not.toMatch(/Timeout \d+ms|waiting for|intercepts pointer/);
+  });
+
+  it("a stuck day on a dialog that remembers dates: restore still runs", async () => {
+    const res = await probe({ picker: "calendar", stuckDay: true, sticky: true });
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/06/2030 week=this");
+    expect(res.log).toContain("profile=clear");
   });
 
   it("typed field in a form dialog: never presses Enter, so the form never submits", async () => {

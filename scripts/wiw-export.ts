@@ -47,8 +47,10 @@
  *   nothing; writes no timer. Element screenshots, dialog text and picker
  *   snapshot go to var/log/wiw-nextweek-*, mode 600. If the dialog then
  *   reopens on anything but this week, it sets this week back and reads it
- *   again. Exit: 6 captured, 5 stopped (also when this week could not be put
- *   back), 1 error.
+ *   again. Each dialog action logs a step marker and times out after 5 s;
+ *   close/reopen/restore always run and the log ends `profile=clear|unchecked`.
+ *   Exit: 6 next week reached and profile clear; 5 stopped (reason RESTORE,
+ *   STEP, NOT_REACHED, or a stop before the dialog); 1 error.
  */
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
