@@ -156,6 +156,8 @@ The script reads it only when the sign-in page is up, types the two fields, and 
 | 5 | stopped: `LOGIN`, `MFA`, `CAPTCHA` or `PAGE` (with a `reason=` code; the dialog checks are `DIALOG_OPEN`, `DIALOG_DATE`, `DIALOG_SPLIT`, `DIALOG_EXPORT`) | none saved |
 | 1 | error | deleted after the error line |
 
+**Next week.** After this week imports (0) or comes back `DUPLICATE` (3), the same run exports the following Friday through Thursday, saves it as its own `Schedule_for_<friday>_<thursday>.xlsx`, imports that file by its path (every date must fall inside that week, else `WRONG_WEEK`), and deletes it. Its lines start with `next`. It ends with `next=imported`, `next=duplicate` or `next=skipped reason=<code>`, and it never changes the exit code above. Any other result for this week logs `next=skipped reason=THIS_WEEK_<code>` and does not start the second export. Until the browser step for that week is written from the next-week probe, every run logs `next=skipped reason=NO_BROWSER_STEP`.
+
 A stop leaves the board on the last import. After `LOGIN` or `MFA`, sign in by hand once in the job's browser folder, then close the window:
 
 ```bash
