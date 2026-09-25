@@ -30,10 +30,19 @@ describe("violationMessage", () => {
     }
   });
 
-  it("falls back to the caller's fallback, then the raw code, for an unknown code", () => {
+  it("uses the caller's fallback for an unknown code, when one is given", () => {
     expect(violationMessage("en", "MADE_UP_CODE", "fallback text")).toBe(
       "fallback text",
     );
-    expect(violationMessage("en", "MADE_UP_CODE")).toBe("MADE_UP_CODE");
+  });
+
+  it("never returns the raw code for an unknown code with no fallback — a generic sentence in both locales", () => {
+    const en = violationMessage("en", "MADE_UP_CODE");
+    const es = violationMessage("es", "MADE_UP_CODE");
+    expect(en).not.toBe("MADE_UP_CODE");
+    expect(es).not.toBe("MADE_UP_CODE");
+    expect(en.length).toBeGreaterThan(0);
+    expect(es.length).toBeGreaterThan(0);
+    expect(en).not.toBe(es);
   });
 });

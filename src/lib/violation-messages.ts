@@ -35,11 +35,18 @@ const VIOLATION_MESSAGES: Record<Locale, Record<ViolationCode, string>> = {
   },
 };
 
+// Never fall back to the raw code — an unrecognized code still reads as a
+// sentence, not e.g. "SOME_NEW_CODE".
+const GENERIC_VIOLATION_MESSAGE: Record<Locale, string> = {
+  en: "Couldn't save. Try again.",
+  es: "No se pudo guardar. Intenta de nuevo.",
+};
+
 export function violationMessage(
   locale: Locale,
   code: string,
   fallback?: string,
 ): string {
   const dict = VIOLATION_MESSAGES[locale] as Record<string, string>;
-  return dict[code] ?? fallback ?? code;
+  return dict[code] ?? fallback ?? GENERIC_VIOLATION_MESSAGE[locale];
 }

@@ -591,7 +591,7 @@ export function FloorBoard() {
         );
         const message = codes.length
           ? codes.map((c) => violationMessage(locale, c)).join(" ")
-          : data.error || t.toastAssignRejected;
+          : t.toastAssignRejected;
         showCardFeedback(stationId, "err", message);
         return;
       }
@@ -651,8 +651,7 @@ export function FloorBoard() {
         }),
       });
       if (!moveRes.ok) {
-        const data = await moveRes.json();
-        showCardFeedback(stationId, "err", data.error ?? t.toastMoveFailed);
+        showCardFeedback(stationId, "err", t.toastMoveFailed);
         return;
       }
 
@@ -660,10 +659,9 @@ export function FloorBoard() {
         method: "DELETE",
         headers: managerAuthHeaders(manager?.token),
       });
-      const data = await res.json();
       setPendingMove(null);
       if (!res.ok) {
-        showCardFeedback(stationId, "err", data.error ?? t.toastClearFailed);
+        showCardFeedback(stationId, "err", t.toastClearFailed);
         return;
       }
       showCardFeedback(stationId, "ok", t.toastCleared);
@@ -705,7 +703,7 @@ export function FloorBoard() {
       );
       const message = codes.length
         ? codes.map((c) => violationMessage(locale, c)).join(" ")
-        : data.error || t.toastSwapRejected;
+        : t.toastSwapRejected;
       showToast("err", message);
       return;
     }
