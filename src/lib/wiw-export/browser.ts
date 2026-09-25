@@ -51,6 +51,8 @@ export type BrowserOptions = {
    * ends with ProbeDone. The dialog's Export button is never clicked.
    */
   probe?: (page: Page) => Promise<void>;
+  /** The job's own launch accepts downloads. A probe passes false: the browser cancels any download. */
+  acceptDownloads?: boolean;
 };
 
 /** A probe run reached the dialog step and captured it. Not an export. */
@@ -180,7 +182,7 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
       const { chromium } = await import("@playwright/test");
       return chromium.launchPersistentContext(opts.profileDir, {
         headless: opts.headless ?? false,
-        acceptDownloads: true,
+        acceptDownloads: opts.acceptDownloads ?? true,
         viewport: { width: 1440, height: 900 },
       });
     });
