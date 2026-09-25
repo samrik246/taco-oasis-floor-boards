@@ -29,6 +29,25 @@ async function lockManager(page: Page) {
 }
 
 /**
+ * Planner D replaced the raw <select> date picker with prev/next arrows over
+ * the imported date list. Walk to the target date reading the bar's own
+ * data-date (YYYY-MM-DD sorts lexicographically, so string compare is enough).
+ */
+async function selectDate(page: Page, targetYmd: string) {
+  const bar = page.getByTestId("date-bar");
+  for (let i = 0; i < 60; i++) {
+    const current = await bar.getAttribute("data-date");
+    if (current === targetYmd) return;
+    if (!current || current < targetYmd) {
+      await page.getByTestId("date-next").click();
+    } else {
+      await page.getByTestId("date-prev").click();
+    }
+  }
+  throw new Error(`selectDate: could not reach ${targetYmd}`);
+}
+
+/**
  * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/traffic/tareas.
  * Uses fresh disposable DB (prisma/e2e.db) via playwright webServer.
  * Also covers bilingual cocina UI, timeline view, manager unlock + idle timeout.
@@ -43,6 +62,19 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("floor-board")).toBeVisible();
     await expect(page.getByTestId("readonly-badge")).toHaveCount(0);
     await expect(page.getByTestId("role-badge")).toContainText(/Staff|Personal/i);
+    // Planner C: the floor language is a device preference, default Spanish,
+    // independent of the board — not board-derived like Wall mode still is.
+    await expect(page.getByTestId("floor-board")).toHaveAttribute(
+      "data-locale",
+      "es",
+    );
+
+    await page.getByTestId("locale-toggle-en").click();
+    await expect(page.getByTestId("floor-board")).toHaveAttribute(
+      "data-locale",
+      "en",
+    );
+    await page.reload();
     await expect(page.getByTestId("floor-board")).toHaveAttribute(
       "data-locale",
       "en",
@@ -56,7 +88,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await lockManager(page);
 
     await page.getByTestId("board-toggle-caja").click();
-    await page.getByTestId("date-select").selectOption("2026-09-20");
+    await selectDate(page, "2026-09-20");
     await expect(page.getByTestId("station-grid")).toBeVisible();
     await expect(page.getByTestId("traffic-meters")).toBeVisible();
     await expect(page.getByTestId("tareas-panel")).toBeVisible();
@@ -177,9 +209,12 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await available.first().click();
     await page.getByTestId("station-yellow").getByRole("button").first().click();
 
-    await expect(page.getByTestId("toast")).toContainText(/Assigned|Asignado/i, {
-      timeout: 15_000,
-    });
+    // Planner F: assign feedback shows on the tapped station card, not the
+    // top banner.
+    await expect(page.getByTestId("station-feedback-yellow")).toContainText(
+      /Assigned|Asignado/i,
+      { timeout: 15_000 },
+    );
 
     await page.getByTestId("tarea-template-select").selectOption("salsa");
     const suggestBtn = page.locator("[data-testid^='suggest-']").first();
@@ -212,11 +247,16 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("move-reason-modal")).toBeVisible();
     await page.getByTestId("move-reason-select").selectOption("Break");
     await page.getByTestId("move-reason-confirm").click();
-    await expect(page.getByTestId("toast")).toContainText(/Cleared|Liberado/i, {
-      timeout: 15_000,
-    });
+    // Planner F: clear feedback also shows on the station card.
+    await expect(page.getByTestId("station-feedback-yellow")).toContainText(
+      /Cleared|Liberado/i,
+      { timeout: 15_000 },
+    );
 
     // Kitchen board: Spanish UI + stations + traffic + tareas
+    // Locale is a device preference now, not board-derived — switch it back
+    // to Spanish explicitly before asserting the cocina section is Spanish.
+    await page.getByTestId("locale-toggle-es").click();
     await page.getByTestId("board-toggle-cocina").click();
     await expect(page.getByTestId("floor-board")).toHaveAttribute(
       "data-locale",

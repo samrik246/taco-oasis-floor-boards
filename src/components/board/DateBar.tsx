@@ -29,6 +29,7 @@ export function DateBar({ dates, date, onChange, locale, t, now }: DateBarProps)
     <div
       className="flex min-h-11 items-center gap-2 text-sm font-semibold"
       data-testid="date-bar"
+      data-date={date}
     >
       {t.date}
       <button
