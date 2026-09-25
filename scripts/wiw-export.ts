@@ -45,8 +45,10 @@
  *   reads the dates it shows, closes it, reloads and reads the week the
  *   dialog opens on. Downloads refused; never clicks Export; saves or imports
  *   nothing; writes no timer. Element screenshots, dialog text and picker
- *   snapshot go to var/log/wiw-nextweek-*, mode 600. Exit: 6 captured,
- *   5 stopped, 1 error.
+ *   snapshot go to var/log/wiw-nextweek-*, mode 600. If the dialog then
+ *   reopens on anything but this week, it sets this week back and reads it
+ *   again. Exit: 6 captured, 5 stopped (also when this week could not be put
+ *   back), 1 error.
  */
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
