@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./scripts/test-db-guard.cjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,6 +14,7 @@ process.env.TZ = "America/Chicago";
 export default defineConfig({
   test: {
     environment: "node",
+    setupFiles: ["./tests/helpers/test-db-worker-setup.mts"],
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     // Integration tests share prisma/dev.db — run files serially
     fileParallelism: false,

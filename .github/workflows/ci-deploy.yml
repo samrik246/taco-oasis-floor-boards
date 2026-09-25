@@ -107,19 +107,12 @@ jobs:
       - name: Prisma generate
         run: pnpm exec prisma generate
 
-      - name: Prepare SQLite for vitest (schema + seed)
-        # package.json `pnpm test` hardcodes DATABASE_URL=file:./dev.db
-        # (Prisma resolves relative to prisma/). Fresh CI runners have no DB file.
-        env:
-          DATABASE_URL: "file:./dev.db"
-          DEMO_MANAGER_CODES: "1"
-        run: pnpm db:setup
-
       - name: Install Playwright Chromium
         # Before vitest: the B2 export tests drive headless Chromium against a fake page.
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Unit / integration tests (vitest)
+        # pnpm test creates, checks, and seeds an isolated SQLite database under /tmp.
         run: pnpm test
 
       - name: Production build
