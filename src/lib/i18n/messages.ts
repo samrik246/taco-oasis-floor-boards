@@ -184,6 +184,16 @@ export type Messages = {
   moveTraining: string;
   moveHelpSlammed: string;
   moveOther: string;
+  abilityPreferred: string;
+  abilityOk: string;
+  abilityTraining: string;
+  abilityForbidden: string;
+  localeToggleLabel: string;
+  datePrev: string;
+  dateNext: string;
+  today: string;
+  todayNotImported: string;
+  saving: string;
 };
 
 const en: Messages = {
@@ -271,7 +281,7 @@ const en: Messages = {
   toastSample: (n) => `Loaded sample (${n} rows)`,
   toastImported: (n) => `Imported ${n} rows`,
   toastReadonly: "Read-only mode — mutations blocked",
-  toastForbidden: "FORBIDDEN_ABILITY",
+  toastForbidden: "This person can't work that station.",
   toastSimulatorOn: "Training on",
   toastSimulatorOff: "Training off",
   toastTareaAssigned: "Tarea assigned",
@@ -376,6 +386,16 @@ const en: Messages = {
   moveTraining: "Training",
   moveHelpSlammed: "Help slammed",
   moveOther: "Other",
+  abilityPreferred: "Preferred",
+  abilityOk: "OK",
+  abilityTraining: "Training",
+  abilityForbidden: "Forbidden",
+  localeToggleLabel: "Language",
+  datePrev: "Previous day",
+  dateNext: "Next day",
+  today: "Today",
+  todayNotImported: "Today isn't imported yet",
+  saving: "Saving…",
 };
 
 const es: Messages = {
@@ -467,7 +487,7 @@ const es: Messages = {
   toastSample: (n) => `Muestra cargada (${n} filas)`,
   toastImported: (n) => `Importadas ${n} filas`,
   toastReadonly: "Modo solo lectura — mutaciones bloqueadas",
-  toastForbidden: "HABILIDAD_PROHIBIDA",
+  toastForbidden: "Esta persona no puede trabajar esa estación.",
   toastSimulatorOn: "Entrenamiento encendido",
   toastSimulatorOff: "Entrenamiento apagado",
   toastTareaAssigned: "Tarea asignada",
@@ -573,6 +593,16 @@ const es: Messages = {
   moveTraining: "Entrenamiento",
   moveHelpSlammed: "Ayudar saturado",
   moveOther: "Otro",
+  abilityPreferred: "Preferida",
+  abilityOk: "Bien",
+  abilityTraining: "Entrenamiento",
+  abilityForbidden: "Prohibida",
+  localeToggleLabel: "Idioma",
+  datePrev: "Día anterior",
+  dateNext: "Día siguiente",
+  today: "Hoy",
+  todayNotImported: "Hoy aún no está importado",
+  saving: "Guardando…",
 };
 
 export const MESSAGES: Record<Locale, Messages> = { en, es };

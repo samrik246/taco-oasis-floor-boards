@@ -50,11 +50,18 @@ import type { MoveReason } from "@/lib/position-moves";
 import { cn } from "@/lib/utils";
 import { TRAFFIC_TICK_MS } from "@/lib/traffic/simulator";
 import {
+  abilityLevelLabel,
   boardDisplayName,
   displayStationLabel,
-  localeForBoard,
   messagesFor,
+  type Locale,
 } from "@/lib/i18n";
+import {
+  readLocalePreference,
+  saveLocalePreference,
+} from "@/lib/locale-preference";
+import { violationMessage } from "@/lib/violation-messages";
+import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import {
@@ -110,8 +117,14 @@ export function FloorBoard() {
   const [unlockOpen, setUnlockOpen] = useState(false);
   const { manager, isManager, idleMs, unlock, lock } = useManagerSession();
 
-  const locale = localeForBoard(board);
+  const [locale, setLocaleState] = useState<Locale>(() =>
+    readLocalePreference(),
+  );
   const t = messagesFor(locale);
+  const setLocale = useCallback((next: Locale) => {
+    setLocaleState(next);
+    saveLocalePreference(next);
+  }, []);
 
   const [dates, setDates] = useState<string[]>([]);
   const [date, setDate] = useState<string>("");
@@ -123,6 +136,11 @@ export function FloorBoard() {
   const [now, setNow] = useState(() => new Date());
   const [rushForecast, setRushForecast] = useState<RushForecast | null>(null);
   const [toast, setToast] = useState<Toast>(null);
+  const [savingStationId, setSavingStationId] = useState<string | null>(null);
+  const [cardFeedback, setCardFeedback] = useState<
+    Record<string, Toast>
+  >({});
+  const cardFeedbackTimers = useRef<Record<string, number>>({});
   const [importPreview, setImportPreview] = useState<{
     file: File;
     preview: ImportPreviewData;
@@ -175,6 +193,21 @@ export function FloorBoard() {
       toastTimerRef.current = null;
     }, 4000);
   }, []);
+
+  // Assign/clear feedback shows on the station tile the manager tapped,
+  // not the top banner — the banner stays for cross-cutting events only.
+  const showCardFeedback = useCallback(
+    (stationId: string, kind: "ok" | "err", text: string) => {
+      setCardFeedback((prev) => ({ ...prev, [stationId]: { kind, text } }));
+      const prevTimer = cardFeedbackTimers.current[stationId];
+      if (prevTimer != null) window.clearTimeout(prevTimer);
+      cardFeedbackTimers.current[stationId] = window.setTimeout(() => {
+        setCardFeedback((prev) => ({ ...prev, [stationId]: null }));
+        delete cardFeedbackTimers.current[stationId];
+      }, 2000);
+    },
+    [],
+  );
 
   useManagerIdle({
     active: isManager && !readonly,
@@ -544,25 +577,33 @@ export function FloorBoard() {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
     }
-    const res = await fetch("/api/assignments", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shiftId, stationId, date, hour }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const codes = (data.violations ?? [])
-        .map((v: { code: string }) => v.code)
-        .join(", ");
-      showToast("err", codes || data.error || t.toastAssignRejected);
-      return;
+    setSavingStationId(stationId);
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shiftId, stationId, date, hour }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const codes: string[] = (data.violations ?? []).map(
+          (v: { code: string }) => v.code,
+        );
+        const message = codes.length
+          ? codes.map((c) => violationMessage(locale, c)).join(" ")
+          : data.error || t.toastAssignRejected;
+        showCardFeedback(stationId, "err", message);
+        return;
+      }
+      showCardFeedback(stationId, "ok", t.toastAssigned);
+      setSelectedShiftId(null);
+      const shift = day?.shifts.find((s) => s.id === shiftId);
+      if (shift) selectLedgerEmployee(shift);
+      await refreshBoard();
+      bumpLedger();
+    } finally {
+      setSavingStationId(null);
     }
-    showToast("ok", t.toastAssigned);
-    setSelectedShiftId(null);
-    const shift = day?.shifts.find((s) => s.id === shiftId);
-    if (shift) selectLedgerEmployee(shift);
-    await refreshBoard();
-    bumpLedger();
   }
 
   function requestClear(
@@ -589,43 +630,49 @@ export function FloorBoard() {
 
   async function confirmClear(reason: MoveReason, note: string) {
     if (!pendingMove) return;
-    const moveRes = await fetch("/api/position-moves", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...managerAuthHeaders(manager?.token),
-      },
-      body: JSON.stringify({
-        date,
-        hour,
-        employeeId: pendingMove.employeeId,
-        fromStationId: pendingMove.fromStationId,
-        toStationId: null,
-        assignmentId: pendingMove.assignmentId,
-        reason,
-        note: note || null,
-      }),
-    });
-    if (!moveRes.ok) {
-      const data = await moveRes.json();
-      showToast("err", data.error ?? t.toastMoveFailed);
-      return;
-    }
+    const stationId = pendingMove.fromStationId;
+    setSavingStationId(stationId);
+    try {
+      const moveRes = await fetch("/api/position-moves", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...managerAuthHeaders(manager?.token),
+        },
+        body: JSON.stringify({
+          date,
+          hour,
+          employeeId: pendingMove.employeeId,
+          fromStationId: pendingMove.fromStationId,
+          toStationId: null,
+          assignmentId: pendingMove.assignmentId,
+          reason,
+          note: note || null,
+        }),
+      });
+      if (!moveRes.ok) {
+        const data = await moveRes.json();
+        showCardFeedback(stationId, "err", data.error ?? t.toastMoveFailed);
+        return;
+      }
 
-    const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
-      method: "DELETE",
-      headers: managerAuthHeaders(manager?.token),
-    });
-    const data = await res.json();
-    setPendingMove(null);
-    if (!res.ok) {
-      showToast("err", data.error ?? t.toastClearFailed);
-      return;
+      const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
+        method: "DELETE",
+        headers: managerAuthHeaders(manager?.token),
+      });
+      const data = await res.json();
+      setPendingMove(null);
+      if (!res.ok) {
+        showCardFeedback(stationId, "err", data.error ?? t.toastClearFailed);
+        return;
+      }
+      showCardFeedback(stationId, "ok", t.toastCleared);
+      setSwapFirstId(null);
+      await refreshBoard();
+      bumpLedger();
+    } finally {
+      setSavingStationId(null);
     }
-    showToast("ok", t.toastCleared);
-    setSwapFirstId(null);
-    await refreshBoard();
-    bumpLedger();
   }
 
   async function onSwapSelect(assignmentId: string) {
@@ -653,10 +700,13 @@ export function FloorBoard() {
     const data = await res.json();
     setSwapFirstId(null);
     if (!res.ok) {
-      const codes = (data.violations ?? [])
-        .map((v: { code: string }) => v.code)
-        .join(", ");
-      showToast("err", codes || data.error || t.toastSwapRejected);
+      const codes: string[] = (data.violations ?? []).map(
+        (v: { code: string }) => v.code,
+      );
+      const message = codes.length
+        ? codes.map((c) => violationMessage(locale, c)).join(" ")
+        : data.error || t.toastSwapRejected;
+      showToast("err", message);
       return;
     }
     showToast("ok", t.toastSwapped);
@@ -681,7 +731,7 @@ export function FloorBoard() {
     if (selectedStationId) {
       const level = abilityFor(shift, selectedStationId);
       if (level === "forbidden") {
-        showToast("err", t.toastForbidden);
+        showCardFeedback(selectedStationId, "err", t.toastForbidden);
         return;
       }
       void assign(shift.id, selectedStationId);
@@ -927,6 +977,29 @@ export function FloorBoard() {
           <div
             className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
             role="group"
+            aria-label={t.localeToggleLabel}
+          >
+            {(["es", "en"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                className={cn(
+                  "touch-target min-h-11 min-w-[3.5rem] rounded-md px-3 text-sm font-bold uppercase active:opacity-90",
+                  locale === l
+                    ? "bg-neutral-800 text-white"
+                    : "bg-white text-neutral-900 active:bg-neutral-200",
+                )}
+                onClick={() => setLocale(l)}
+                data-testid={`locale-toggle-${l}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
+            role="group"
             aria-label="Main view"
             data-testid="main-view-toggle"
           >
@@ -976,25 +1049,17 @@ export function FloorBoard() {
             </Button>
           )}
 
-          <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
-            {t.date}
-            <select
-              className="touch-target min-h-11 min-w-[10rem] rounded-md border-2 border-neutral-900 bg-white px-3 text-base font-medium"
-              value={date}
-              onChange={(e) => {
-                setDay(null);
-                setDate(e.target.value);
-              }}
-              data-testid="date-select"
-            >
-              {dates.length === 0 && <option value="">{t.noDates}</option>}
-              {dates.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
+          <DateBar
+            dates={dates}
+            date={date}
+            onChange={(d) => {
+              setDay(null);
+              setDate(d);
+            }}
+            locale={locale}
+            t={t}
+            now={now}
+          />
 
           <a
             href={`/?wall=1&board=${board}`}
@@ -1238,10 +1303,10 @@ export function FloorBoard() {
                 disabled={!selectedStationId}
               >
                 <option value="all">{t.abilityAll}</option>
-                <option value="preferred">preferred</option>
-                <option value="ok">ok</option>
-                <option value="training">training</option>
-                <option value="forbidden">forbidden</option>
+                <option value="preferred">{t.abilityPreferred}</option>
+                <option value="ok">{t.abilityOk}</option>
+                <option value="training">{t.abilityTraining}</option>
+                <option value="forbidden">{t.abilityForbidden}</option>
               </select>
             </label>
 
@@ -1299,7 +1364,7 @@ export function FloorBoard() {
                             abilityBadgeClass(level),
                           )}
                         >
-                          {level}
+                          {abilityLevelLabel(locale, level)}
                         </span>
                       )}
                     </button>
@@ -1384,6 +1449,30 @@ export function FloorBoard() {
                         {full ? ` · ${t.full}` : ""}
                       </div>
                     </button>
+
+                    {savingStationId === station.id && (
+                      <p
+                        className="text-xs font-bold text-neutral-600"
+                        data-testid={`station-saving-${station.id}`}
+                        role="status"
+                      >
+                        {t.saving}
+                      </p>
+                    )}
+                    {cardFeedback[station.id] && (
+                      <p
+                        className={cn(
+                          "text-xs font-bold",
+                          cardFeedback[station.id]?.kind === "ok"
+                            ? "text-emerald-800"
+                            : "text-red-800",
+                        )}
+                        data-testid={`station-feedback-${station.id}`}
+                        role="status"
+                      >
+                        {cardFeedback[station.id]?.text}
+                      </p>
+                    )}
 
                     <div className="mt-auto flex flex-col gap-2">
                       {occupied.length === 0 && (

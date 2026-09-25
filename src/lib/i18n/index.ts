@@ -11,6 +11,7 @@ import {
   type Messages,
 } from "./messages";
 import type { MoveReason } from "@/lib/position-moves";
+import type { AbilityLevel } from "@/lib/rules/types";
 
 export type { Locale, Messages };
 export {
@@ -106,6 +107,22 @@ export function moveReasonLabel(locale: Locale, reason: MoveReason): string {
       return t.moveOther;
     default:
       return reason;
+  }
+}
+
+export function abilityLevelLabel(locale: Locale, level: AbilityLevel): string {
+  const t = messagesFor(locale);
+  switch (level) {
+    case "preferred":
+      return t.abilityPreferred;
+    case "ok":
+      return t.abilityOk;
+    case "training":
+      return t.abilityTraining;
+    case "forbidden":
+      return t.abilityForbidden;
+    default:
+      return level;
   }
 }
 
