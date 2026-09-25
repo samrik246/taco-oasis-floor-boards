@@ -147,6 +147,8 @@ export type ShiftAssignSummary = {
   stationOccupied: number;
   /** Hours skipped because this person already had a different station that hour. */
   personBusy: number;
+  /** Hours skipped because a superseded shift takes no new future hour (C1). */
+  superseded: number;
 };
 
 export type ShiftAssignResult =
@@ -198,6 +200,7 @@ export async function createShiftAssignment(
     alreadyThere: 0,
     stationOccupied: 0,
     personBusy: 0,
+    superseded: 0,
   };
   for (const hour of overlappingHours) {
     const hourStart = chicagoHourStart(params.date, hour);
@@ -221,6 +224,8 @@ export async function createShiftAssignment(
     }
     if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
       summary.personBusy += 1;
+    } else if (result.violations.some((v) => v.code === "SHIFT_SUPERSEDED")) {
+      summary.superseded += 1;
     } else {
       summary.stationOccupied += 1;
     }

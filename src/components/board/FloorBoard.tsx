@@ -649,8 +649,10 @@ export function FloorBoard() {
       alreadyThere: number;
       stationOccupied: number;
       personBusy: number;
+      superseded: number;
     };
-    const occupied = summary.stationOccupied + summary.personBusy;
+    const occupied =
+      summary.stationOccupied + summary.personBusy + summary.superseded;
     const seated = summary.placed + summary.alreadyThere;
     const message =
       occupied > 0

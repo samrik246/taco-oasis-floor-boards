@@ -84,6 +84,7 @@ describe("createShiftAssignment — Planner A", () => {
       alreadyThere: 0,
       stationOccupied: 0,
       personBusy: 0,
+      superseded: 0,
     });
     const rows = await prisma.assignment.count({
       where: { stationId: "green1", employeeId },
@@ -186,6 +187,7 @@ describe("createShiftAssignment — Planner A", () => {
       alreadyThere: 4,
       stationOccupied: 0,
       personBusy: 0,
+      superseded: 0,
     });
     const rows = await prisma.assignment.count({
       where: { stationId: "green1", employeeId },
@@ -222,6 +224,31 @@ describe("createShiftAssignment — Planner A", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.violations[0]!.code).toBe("STATION_BOARD_MISMATCH");
+  });
+
+  it("gives a superseded shift's future hours their own count, distinct from stationOccupied", async () => {
+    const employeeId = await makeEmployee("shift-assign-superseded");
+    const shift = await makeShift(employeeId, "10:00 am", "2:00 pm"); // hours 10,11,12,13
+    await prisma.shift.update({
+      where: { id: shift.id },
+      data: { supersededAt: chicagoDateTime(DATE, "9:00 am") },
+    });
+    const now = chicagoDateTime(DATE, "11:30 am"); // hours 10-11 started, 12-13 are future
+    const result = await createShiftAssignment({
+      shiftId: shift.id,
+      stationId: "green1",
+      date: DATE,
+      now,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.summary).toEqual({
+      placed: 2,
+      alreadyThere: 0,
+      stationOccupied: 0,
+      personBusy: 0,
+      superseded: 2,
+    });
   });
 
   it("404s a nonexistent shift or station", async () => {
