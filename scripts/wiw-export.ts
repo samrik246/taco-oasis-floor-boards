@@ -21,9 +21,10 @@
  * Then the following Friday through Thursday, only when this week imported
  * or came back DUPLICATE: export it, import that file by its own path and
  * week (every date inside it), delete it. The exit code stays this week's; a
- * miss logs `next=skipped reason=<code>`. Until the browser step for that
- * week is written from the next-week probe, every run logs
- * `next=skipped reason=NO_BROWSER_STEP`.
+ * miss logs `next=skipped reason=<code>`. The browser sets the dialog's
+ * dates with the pickers (next-week-dialog.ts), exports, then puts this week
+ * back and logs `next restore week=this` (anything else: the next run stops
+ * on DIALOG_DATE).
  *
  * Settings: FLOOR_BOARDS_IMPORT_DIR, WIW_LOGIN_FILE, WIW_BROWSER_PROFILE, all
  * absolute; FLOOR_BOARDS_IMPORT_MODE apply (the timer's) or hold (unset; a
@@ -72,6 +73,7 @@ import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch
 import { acquireReleaseLockForPull, releaseReleaseLock } from "../src/lib/release-lock";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
 import { runProbeDialog } from "../src/lib/wiw-export/probe";
+import { nextWeekDialog } from "../src/lib/wiw-export/next-week-dialog";
 import { runProbeNextWeek } from "../src/lib/wiw-export/probe-next-week";
 import { runCheckDialog } from "../src/lib/wiw-export/check-dialog";
 import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
@@ -162,7 +164,7 @@ async function main() {
   });
   try {
     const result = await runWiwExport(settings, {
-      exporter: playwrightExporter({ profileDir: settings.profileDir }),
+      exporter: playwrightExporter({ profileDir: settings.profileDir, nextWeek: nextWeekDialog() }),
       readLogin: () =>
         readLoginFile(settings.loginFile, {
           keepOut: [settings.appDir, settings.importDir, settings.profileDir],

@@ -107,7 +107,7 @@ async function shownDate(button: Locator): Promise<string | null> {
   return found.length === 1 ? found[0]! : null;
 }
 
-async function readShown(box: Locator): Promise<Shown> {
+export async function readShown(box: Locator): Promise<Shown> {
   const c = dialogControls(box);
   return { start: await shownDate(c.start), end: await shownDate(c.end) };
 }
@@ -255,7 +255,8 @@ async function trySet(
   box: Locator,
   field: "start" | "end",
   ymd: string,
-  files: Files,
+  /** Null in the export: no screenshots or snapshots. */
+  files: Files | null,
   counts: { pickerOpens: number },
   steps: Steps,
   /** Step and file-name prefix: "" for the next-week try, "restore-" for putting this week back. */
@@ -285,10 +286,11 @@ async function trySet(
     }
     if (opened) counts.pickerOpens += 1;
     out.picker = opened?.where ?? "none";
-    if (opened) {
+    const saved = files;
+    if (opened && saved) {
       await step(steps, `${name}.capture`, async () => {
-        await shoot(files, opened.picker, `${tag}${field}-picker.png`);
-        await save(files, `${tag}${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
+        await shoot(saved, opened.picker, `${tag}${field}-picker.png`);
+        await save(saved, `${tag}${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
       });
     }
 
@@ -358,7 +360,7 @@ async function closeDialog(page: Page, box: Locator): Promise<boolean> {
 }
 
 /** Reload the scheduler and open the dialog once more, as the timer will. The dialog, or null. */
-async function reopen(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Locator | null> {
+export async function reopen(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Locator | null> {
   await steps.log("step=reopen");
   try {
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -386,7 +388,7 @@ async function reopen(page: Page, step: number, menuSettleMs: number, steps: Ste
 }
 
 /** Reopen, read the dates, close. */
-async function reopenAndRead(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Shown | "failed"> {
+export async function reopenAndRead(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Shown | "failed"> {
   const box = await reopen(page, step, menuSettleMs, steps);
   if (!box) return "failed";
   const shown = await readShown(box).catch(() => "failed" as const);
@@ -395,7 +397,7 @@ async function reopenAndRead(page: Page, step: number, menuSettleMs: number, ste
 }
 
 /** Close, logged as a step; a failure is recorded and the probe goes on. */
-async function safeClose(page: Page, box: Locator, steps: Steps): Promise<boolean> {
+export async function safeClose(page: Page, box: Locator, steps: Steps): Promise<boolean> {
   return step(steps, "close", () => closeDialog(page, box)).catch(() => false);
 }
 
@@ -411,11 +413,11 @@ export function weekOf(shown: Shown | "failed", thisWeek: ExportWeek, nextWeek: 
  * after End (and End days before Start): moving later sets End first, moving
  * earlier sets Start first.
  */
-async function setWeek(
+export async function setWeek(
   page: Page,
   box: Locator,
   target: ExportWeek,
-  files: Files,
+  files: Files | null,
   counts: { pickerOpens: number },
   steps: Steps,
   tag = "",

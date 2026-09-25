@@ -66,9 +66,10 @@ export type ScheduleExporter = {
     note?: (line: string) => Promise<void>,
   ): Promise<DownloadedExport>;
   /**
-   * Download the following week's export, same contract as `exportWeek`.
-   * Absent until the browser step is written from the next-week probe: the
-   * run then logs `next=skipped reason=NO_BROWSER_STEP`.
+   * Download the following week's export, same contract as `exportWeek`: set
+   * the dialog to that week, export, put this week back. Absent (an exporter
+   * built without the next-week step): the run logs
+   * `next=skipped reason=NO_BROWSER_STEP`.
    */
   exportNextWeek?(
     week: ExportWeek,
@@ -372,6 +373,7 @@ export async function runWiwExport(
   } catch {
     // Folder or log trouble. Log the code only, then take the workbook away.
     await log("error=RUN").catch(() => undefined);
+    await log("next=skipped reason=THIS_WEEK_ERROR").catch(() => undefined);
     const deleted = saved ? await removeIfFile(target).catch(() => false) : true;
     await sweepPart(settings.importDir).catch(() => undefined);
     const r: WiwExportResult = {
