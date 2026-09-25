@@ -13,7 +13,13 @@
  * - read the two buttons again;
  * - close the dialog with its close button, reload the scheduler, open the
  *   dialog once more and read which week it opens on (the timer's next run
- *   uses the same browser folder), then close it.
+ *   uses the same browser folder), then close it;
+ * - if it did not open on this week: set Start/End back to this week the
+ *   same way, close, reopen and log `restore week=`. Anything but `this`
+ *   exits 5 (`reason=RESTORE`).
+ *
+ * A typed date is committed with Tab, never Enter: in a form dialog Enter
+ * would submit it, an Export by another route.
  *
  * To tell a newly opened picker from what was already on screen, the probe
  * marks the visible picker-shaped elements and dialogs with a
@@ -71,6 +77,8 @@ export type NextWeekCapture = {
   reached: boolean;
   closed: boolean;
   reopen: Shown | "failed";
+  /** Set only when the reopen did not show this week: the put-back tries and the week shown after. */
+  restore: { tries: FieldTry[]; shown: Shown | "failed"; week: string } | null;
   files: string[];
 };
 
@@ -181,6 +189,12 @@ async function openedPicker(page: Page, box: Locator): Promise<{ where: "dialog"
   return null;
 }
 
+/** MM/dd/yyyy to yyyy-MM-dd. */
+function isoOf(shown: string): string {
+  const [m, d, y] = shown.split("/");
+  return `${y}-${m}-${d}`;
+}
+
 async function trySet(
   page: Page,
   box: Locator,
@@ -188,6 +202,8 @@ async function trySet(
   ymd: string,
   files: Files,
   counts: { pickerOpens: number },
+  /** File-name prefix: "" for the next-week try, "restore-" for putting this week back. */
+  tag = "",
 ): Promise<FieldTry> {
   const c = dialogControls(box);
   const button = field === "start" ? c.start : c.end;
@@ -206,25 +222,29 @@ async function trySet(
 
   const out: FieldTry = { field, picker: opened?.where ?? "none", route: "none", pages: 0, result: "not_found", shownAfter: shownNow };
   if (opened) {
-    await shoot(files, opened.picker, `${field}-picker.png`);
-    await save(files, `${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
+    await shoot(files, opened.picker, `${tag}${field}-picker.png`);
+    await save(files, `${tag}${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
   }
 
-  // A text field took focus (typed picker): type the date, then Enter.
+  // A text field took focus (typed picker): type the date, then Tab out. Never Enter:
+  // in a form dialog Enter submits, which is an Export by another route.
   const FOCUSED = "input:focus, [contenteditable='true']:focus";
   const focused = opened ? box.locator(FOCUSED).or(opened.picker.locator(FOCUSED)) : box.locator(FOCUSED);
   if ((await focused.count()) === 1 && (await focused.isVisible().catch(() => false))) {
     out.route = "typed";
     await focused.fill(want);
-    await focused.press("Enter");
+    await focused.press("Tab");
     await page.waitForTimeout(500);
   } else if (opened) {
     out.route = "calendar";
+    // Page toward the date: forward for next week, back when putting this week back.
+    const current = field === "start" ? shownNow.start : shownNow.end;
+    const back = current !== null && ymd < isoOf(current);
+    const word = back ? /prev|previous|back/i : /next/i;
+    const attr = back ? '[aria-label*="prev" i]' : '[aria-label*="next" i]';
     let day = await findDay(opened.picker, ymd);
     while (!day && out.pages < 2) {
-      const next = await firstVisible(
-        opened.picker.getByRole("button", { name: /next/i }).or(opened.picker.locator('[aria-label*="next" i]')),
-      );
+      const next = await firstVisible(opened.picker.getByRole("button", { name: word }).or(opened.picker.locator(attr)));
       if (!next || !(await safeClick(next))) break;
       out.pages += 1;
       await page.waitForTimeout(400);
@@ -254,8 +274,8 @@ async function closeDialog(page: Page, box: Locator): Promise<boolean> {
     .catch(() => false);
 }
 
-/** Reload the scheduler and open the dialog once more, as the timer will. Reads its dates only. */
-async function reopen(page: Page, step: number, menuSettleMs: number): Promise<Shown | "failed"> {
+/** Reload the scheduler and open the dialog once more, as the timer will. The dialog, or null. */
+async function reopen(page: Page, step: number, menuSettleMs: number): Promise<Locator | null> {
   try {
     await page.reload({ waitUntil: "domcontentloaded" });
     const more = page.getByRole("button", { name: /more actions/i });
@@ -273,12 +293,19 @@ async function reopen(page: Page, step: number, menuSettleMs: number): Promise<S
       if (await item.first().isVisible().catch(() => false)) await item.first().click();
       await dialog.first().waitFor({ state: "visible", timeout: step });
     }
-    const shown = await readShown(dialog.first());
-    await closeDialog(page, dialog.first());
-    return shown;
+    return dialog.first();
   } catch {
-    return "failed";
+    return null;
   }
+}
+
+/** Reopen, read the dates, close. */
+async function reopenAndRead(page: Page, step: number, menuSettleMs: number): Promise<Shown | "failed"> {
+  const box = await reopen(page, step, menuSettleMs);
+  if (!box) return "failed";
+  const shown = await readShown(box);
+  await closeDialog(page, box);
+  return shown;
 }
 
 export function weekOf(shown: Shown | "failed", thisWeek: ExportWeek, nextWeek: ExportWeek): string {
@@ -317,8 +344,37 @@ export async function captureNextWeek(
   }
   const reached = after.start === dialogDate(nextWeek.friday) && after.end === dialogDate(nextWeek.thursday);
   const closed = open ? await closeDialog(page, box) : true;
-  const again = await reopen(page, opts.step, opts.menuSettleMs);
-  return { thisWeek: week, nextWeek, before, tries, after, pickerOpens: counts.pickerOpens, reached, closed, reopen: again, files: files.list };
+
+  // The timer shares this browser folder. If the dialog now opens on anything
+  // but this week, put this week back the same safe way and read it once more.
+  const again = await reopenAndRead(page, opts.step, opts.menuSettleMs);
+  let restore: NextWeekCapture["restore"] = null;
+  if (weekOf(again, week, nextWeek) !== "this") {
+    const box2 = await reopen(page, opts.step, opts.menuSettleMs);
+    const restoreTries: FieldTry[] = [];
+    if (box2) {
+      restoreTries.push(await trySet(page, box2, "start", week.friday, files, counts, "restore-"));
+      if (await box2.isVisible().catch(() => false)) {
+        restoreTries.push(await trySet(page, box2, "end", week.thursday, files, counts, "restore-"));
+      }
+      if (await box2.isVisible().catch(() => false)) await closeDialog(page, box2);
+    }
+    const check = await reopenAndRead(page, opts.step, opts.menuSettleMs);
+    restore = { tries: restoreTries, shown: check, week: weekOf(check, week, nextWeek) };
+  }
+  return {
+    thisWeek: week,
+    nextWeek,
+    before,
+    tries,
+    after,
+    pickerOpens: counts.pickerOpens,
+    reached,
+    closed,
+    reopen: again,
+    restore,
+    files: files.list,
+  };
 }
 
 export type NextWeekDeps = {
@@ -402,7 +458,22 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
       ? "reopen=failed"
       : `reopen start=${d(again.start)} end=${d(again.end)} week=${weekOf(again, week, next)}`,
   );
+  if (done.restore) {
+    for (const t of done.restore.tries) {
+      await log(
+        `restore try field=${t.field} picker=${t.picker} route=${t.route} pages=${t.pages} result=${t.result} ` +
+          `shows start=${d(t.shownAfter.start)} end=${d(t.shownAfter.end)}`,
+      );
+    }
+    await log(`restore week=${done.restore.week}`);
+  }
   for (const f of done.files) await log(`file=${f} mode=600`);
+  if (done.restore && done.restore.week !== "this") {
+    // The 07:00 run would stop on DIALOG_DATE. Nobody runs the timer window until this is fixed.
+    await log("stop=PAGE reason=RESTORE");
+    await log(`end exit=${STOP_EXIT}`);
+    return { exitCode: STOP_EXIT, stop: "PAGE", capture: done, downloads };
+  }
   await log(`end exit=${PROBE_EXIT}`);
   return { exitCode: PROBE_EXIT, stop: null, capture: done, downloads };
 }
