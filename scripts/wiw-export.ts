@@ -45,6 +45,7 @@ import path from "node:path";
 import { prisma } from "../src/lib/db";
 import { playwrightExporter, SCHEDULER_URL } from "../src/lib/wiw-export/browser";
 import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch-agent";
+import { acquireReleaseLock, releaseReleaseLock } from "../src/lib/release-lock";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
 import { runProbeDialog } from "../src/lib/wiw-export/probe";
 import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
@@ -98,14 +99,29 @@ async function main() {
   if (arg !== undefined) throw new SettingsError("UNKNOWN_ARGUMENT");
 
   const settings = wiwSettingsFromEnv(appDir);
-  const result = await runWiwExport(settings, {
-    exporter: playwrightExporter({ profileDir: settings.profileDir }),
-    readLogin: () =>
-      readLoginFile(settings.loginFile, {
-        keepOut: [settings.appDir, settings.importDir, settings.profileDir],
-      }),
-  });
-  process.exitCode = result.exitCode;
+  // No wait cap: this run must happen regardless, so it waits as long as
+  // the installer holds the lock, then proceeds (Rich 2A / Elliot's bar).
+  // A broken lock (not a held lock -- an actual failure to read or create
+  // it) must not skip the run either: 07:00 and 16:00 are non-negotiable.
+  let locked = false;
+  try {
+    await acquireReleaseLock(appDir, process.pid);
+    locked = true;
+  } catch (err) {
+    console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"}`);
+  }
+  try {
+    const result = await runWiwExport(settings, {
+      exporter: playwrightExporter({ profileDir: settings.profileDir }),
+      readLogin: () =>
+        readLoginFile(settings.loginFile, {
+          keepOut: [settings.appDir, settings.importDir, settings.profileDir],
+        }),
+    });
+    process.exitCode = result.exitCode;
+  } finally {
+    if (locked) await releaseReleaseLock(appDir, process.pid).catch(() => undefined);
+  }
 }
 
 main()

@@ -178,6 +178,24 @@ FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node
 
 It writes `var/run/com.taco-oasis.wiw-export.plist`: `FLOOR_BOARDS_IMPORT_MODE=apply`, `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
 
+### Release lock, shared with the onsite installer (B2, Rich 2A / Elliot's bar 25 Sep)
+
+`scripts/wiw-export.ts`'s scheduled run and an onsite installer each hold one file while they run: a lock file named `.taco-oasis-floor-boards-release.lock`, sibling to the app directory (`dirname(appDir)`, never inside it), holding the current holder's PID as plain text. This is outside every directory an installer extracts, replaces, or restores, so the install steps it guards can never wipe it out from under it.
+
+The algorithm is implemented twice, once per language, to the same file and the same format:
+
+- `src/lib/release-lock.ts` — the pull side, and the tested reference implementation (`tests/release-lock.test.ts`).
+- `scripts/release-lock.sh` — a sourceable bash library with the same two functions, for an installer that runs as a shell script rather than through this app's own `node_modules`.
+
+Both claim the lock with an atomic exclusive create (`open(file, "wx")` in Node; `set -o noclobber` in bash — the same POSIX atomicity), so two processes racing for a free lock cannot both win. A held lock is proven live with a PID check (`kill(pid, 0)`); a dead holder's lock is stale and is reclaimed immediately, no wait. This is process-liveness locking, the mechanism behind the classic Unix `shlock`: the lock frees itself the moment its holder is gone — exit, an uncaught error, or a kill — with no separate cleanup step required. Release is compare-and-delete (only removes the file if it still names the caller), so a run can never delete a lock a later run has since claimed.
+
+- **The pull run** (`scripts/wiw-export.ts`, no-argument invocation only — `--sign-in` and `--mode probe-dialog` leave the lock alone) takes the lock before the browser or the import and holds it until the process exits, including the error path, with **no wait cap**: 07:00 and 16:00 are non-negotiable, so it waits as long as the installer holds the lock, then runs. A failure in the lock mechanism itself (not a held lock — an actual error creating or reading the file) is caught and logged, never allowed to skip the run.
+- **An installer** must take the lock before it changes the app tree, the database, or the server, and hold it until exit (a `trap ... EXIT` after a successful acquire, covering a normal finish and a `set -e` abort — see the usage note atop `scripts/release-lock.sh`), including its own restore-on-failure path. Its wait to *acquire* is capped (a few minutes; pick one number and hold it) — when that cap expires against a still-live holder, it must exit before making any change, with the lock file untouched.
+
+This replaces a separate clock-margin check around the two pull slots with a real mutual-exclusion primitive: once both sides hold the same lock, a release can go at any hour.
+
+**Scope of this change:** `scripts/release-lock.sh` is ready for any installer in this repo to adopt. It is not yet wired into an actual onsite installer — no installer script exists in this repository's git history (any branch) to add it to. The hash-pinned onsite packet script run on T MAC MINI is maintained outside this repo; adopting this same lock file, path, and algorithm there is a follow-up change owned by whoever maintains that script, not part of this PR.
+
 ## Optional: Vercel
 
 Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
