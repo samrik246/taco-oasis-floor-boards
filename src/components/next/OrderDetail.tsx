@@ -1,5 +1,5 @@
 import type { UpcomingOrder } from "@/lib/upcoming/fence";
-import type { NextCopy } from "./next-copy";
+import { guestsText, type NextCopy } from "./next-copy";
 import type { NextColumn } from "./prefs";
 
 type Props = {
@@ -50,7 +50,7 @@ export function OrderDetail({ order, columns, t, onClose }: Props) {
           <>
             <dt className="font-semibold">{t.guests}</dt>
             <dd className="tabular-nums">
-              {order.guests == null ? "—" : `${order.guests} (${t.confirm})`}
+              {order.guests == null ? "—" : guestsText(order.guests, t)}
             </dd>
           </>
         )}

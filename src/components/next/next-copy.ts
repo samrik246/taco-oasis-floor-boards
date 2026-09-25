@@ -68,3 +68,8 @@ export const NEXT_COPY = {
 } satisfies Record<Locale, unknown>;
 
 export type NextCopy = (typeof NEXT_COPY)["es"];
+
+/** Guests are C1's estimate, never final: every surface prints the label. */
+export function guestsText(guests: number, t: NextCopy): string {
+  return `${guests} (${t.confirm})`;
+}

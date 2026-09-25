@@ -11,7 +11,7 @@ import {
   monthGrid,
   weekDays,
 } from "@/lib/upcoming/calendar";
-import { NEXT_COPY, type NextCopy } from "./next-copy";
+import { NEXT_COPY, guestsText, type NextCopy } from "./next-copy";
 import { OrderDetail } from "./OrderDetail";
 import {
   DEFAULT_PREFS,
@@ -29,7 +29,7 @@ const POLL_MS = 5 * 60 * 1000;
 /** No good read for this long: say so on the page. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
 
-function OrderChip({
+export function OrderChip({
   order,
   t,
   showGuests,
@@ -50,8 +50,44 @@ function OrderChip({
       <span className="tabular-nums">{order.event_time}</span> #{order.id_tail}
       <span className="block font-semibold">
         {t.fulfillType[order.fulfill_type]}
-        {showGuests && order.guests != null && ` · ${order.guests}`}
+        {showGuests && order.guests != null && ` · ${guestsText(order.guests, t)}`}
       </span>
+    </button>
+  );
+}
+
+export function OrderRow({
+  order: o,
+  t,
+  columns,
+  onOpen,
+}: {
+  order: UpcomingOrder;
+  t: NextCopy;
+  columns: NextPrefs["columns"];
+  onOpen: (o: UpcomingOrder) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(o)}
+      className="flex w-full flex-wrap gap-x-4 rounded border-2 border-neutral-900 bg-white p-3 text-left"
+      data-testid={`next-row-${o.id_tail}`}
+    >
+      <span className="font-black tabular-nums">{o.event_date}</span>
+      <span className="font-bold tabular-nums">{o.event_time}</span>
+      <span className="font-bold">#{o.id_tail}</span>
+      {columns.fulfill && <span>{t.fulfillType[o.fulfill_type]}</span>}
+      {columns.ready && o.ready_time && (
+        <span>
+          {t.ready} {o.ready_time}
+        </span>
+      )}
+      {columns.guests && o.guests != null && (
+        <span>
+          {t.guests} {guestsText(o.guests, t)}
+        </span>
+      )}
     </button>
   );
 }
@@ -308,27 +344,7 @@ export function NextOrders() {
         <ul className="flex flex-col gap-2" data-testid="next-list">
           {data.orders.map((o) => (
             <li key={o.id_tail}>
-              <button
-                type="button"
-                onClick={() => setOpen(o)}
-                className="flex w-full flex-wrap gap-x-4 rounded border-2 border-neutral-900 bg-white p-3 text-left"
-                data-testid={`next-row-${o.id_tail}`}
-              >
-                <span className="font-black tabular-nums">{o.event_date}</span>
-                <span className="font-bold tabular-nums">{o.event_time}</span>
-                <span className="font-bold">#{o.id_tail}</span>
-                {prefs.columns.fulfill && <span>{t.fulfillType[o.fulfill_type]}</span>}
-                {prefs.columns.ready && o.ready_time && (
-                  <span>
-                    {t.ready} {o.ready_time}
-                  </span>
-                )}
-                {prefs.columns.guests && o.guests != null && (
-                  <span>
-                    {t.guests} {o.guests}
-                  </span>
-                )}
-              </button>
+              <OrderRow order={o} t={t} columns={prefs.columns} onOpen={setOpen} />
             </li>
           ))}
         </ul>

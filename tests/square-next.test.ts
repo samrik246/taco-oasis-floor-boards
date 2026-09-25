@@ -21,6 +21,7 @@ import {
 import { monthGrid, weekDays, addMonths } from "@/lib/upcoming/calendar";
 import { OrderDetail } from "@/components/next/OrderDetail";
 import { NEXT_COPY } from "@/components/next/next-copy";
+import { OrderChip, OrderRow } from "@/components/next/NextOrders";
 import { DEFAULT_PREFS, parsePrefs } from "@/components/next/prefs";
 
 /**
@@ -190,6 +191,29 @@ describe("SQUARE NEXT rendered page", () => {
     expect(html).toContain("ENTREGA");
     expect(html).toContain("20 (confirmar)");
     expect(html).toContain("10:50");
+  });
+
+  it("every surface that shows the guest count carries the not-final label", () => {
+    const { orders } = fencePayload(REAL);
+    const noop = () => {};
+    for (const locale of ["es", "en"] as const) {
+      const t = NEXT_COPY[locale];
+      const label = `(${t.confirm})`;
+      for (const order of orders) {
+        const surfaces = {
+          chip: createElement(OrderChip, { order, t, showGuests: true, onOpen: noop }),
+          row: createElement(OrderRow, { order, t, columns: DEFAULT_PREFS.columns, onOpen: noop }),
+          detail: createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t }),
+        };
+        for (const [name, el] of Object.entries(surfaces)) {
+          const text = renderToStaticMarkup(el).replace(/<[^>]*>/g, "");
+          expect(text, `${name} ${order.id_tail} ${locale}`).toContain(`${order.guests} ${label}`);
+          // The bare count never appears without its label.
+          const bare = text.split(`${order.guests} ${label}`).join("");
+          expect(bare, `${name} ${order.id_tail} ${locale}`).not.toMatch(new RegExp(`(^|[^0-9:-])${order.guests}([^0-9:-]|$)`));
+        }
+      }
+    }
   });
 
   it("the API route returns fenced kitchen fields only", async () => {
