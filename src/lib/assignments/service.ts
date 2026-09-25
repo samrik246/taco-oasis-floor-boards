@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/db";
 import { validateAssignment } from "@/lib/rules/assign";
 import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
-import { chicagoHourOf, chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
+import { chicagoHourOf, chicagoHourStart, chicagoHourEnd, hourGridHours } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
+import { isFutureHour } from "@/lib/rules/live-hour";
+import { isHourInShift } from "@/lib/rules/shift-window";
+import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
+import { chicagoYmd } from "@/lib/schedule/build-schedule";
 
 export type AssignParams = {
   shiftId: string;
@@ -125,6 +129,210 @@ export async function createAssignment(
   }
 }
 
+export type ShiftAssignParams = {
+  shiftId: string;
+  stationId: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** Injectable clock (tests). */
+  now?: Date;
+};
+
+export type ShiftAssignSummary = {
+  /** Hours newly placed at this station this call. */
+  placed: number;
+  /** Hours already seating this same person at this station (idempotent retry). */
+  alreadyThere: number;
+  /** Hours skipped because the station already had someone else. */
+  stationOccupied: number;
+  /** Hours skipped because this person already had a different station that hour. */
+  personBusy: number;
+};
+
+export type ShiftAssignResult =
+  | { ok: true; summary: ShiftAssignSummary }
+  | { ok: false; status: 404 | 422; violations: RuleViolation[] };
+
+/**
+ * Planner A: place a shift's whole overlap with the grid at one station, one
+ * hour-row per grid hour (the same rows `createAssignment` writes today, so
+ * every other reader — Rush, the ledger, the timeline — sees no new shape).
+ * Hours are skipped, not failed: an occupied station, a person already
+ * seated elsewhere, or a future hour on a superseded shift each just leave
+ * that one row unwritten. A forbidden ability is checked once, up front,
+ * and writes nothing at all.
+ */
+export async function createShiftAssignment(
+  params: ShiftAssignParams,
+): Promise<ShiftAssignResult> {
+  const shift = await prisma.shift.findUnique({ where: { id: params.shiftId } });
+  if (!shift) {
+    return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] };
+  }
+  const station = await prisma.station.findUnique({ where: { id: params.stationId } });
+  if (!station) {
+    return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] };
+  }
+  if (station.board !== shift.board) {
+    return { ok: false, status: 422, violations: [{ code: "STATION_BOARD_MISMATCH", message: "That station belongs to the other board" }] };
+  }
+
+  const ability = await prisma.employeeStationAbility.findUnique({
+    where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } },
+  });
+  if ((ability?.level as AbilityLevel | undefined) === "forbidden") {
+    return { ok: false, status: 422, violations: [{ code: "FORBIDDEN_ABILITY", message: "This person can't work that station" }] };
+  }
+
+  const overlappingHours = hourGridHours().filter((hour) => {
+    const hourStart = chicagoHourStart(params.date, hour);
+    const hourEnd = chicagoHourEnd(params.date, hour);
+    return isHourInShift(hourStart, shift.startAt, shift.endAt, hourEnd);
+  });
+  if (overlappingHours.length === 0) {
+    return { ok: false, status: 422, violations: [{ code: "OUT_OF_SHIFT", message: "This shift has no hours on the board grid" }] };
+  }
+
+  const summary: ShiftAssignSummary = {
+    placed: 0,
+    alreadyThere: 0,
+    stationOccupied: 0,
+    personBusy: 0,
+  };
+  for (const hour of overlappingHours) {
+    const hourStart = chicagoHourStart(params.date, hour);
+    const already = await prisma.assignment.findFirst({
+      where: { stationId: params.stationId, hourStart, employeeId: shift.employeeId },
+    });
+    if (already) {
+      summary.alreadyThere += 1;
+      continue;
+    }
+    const result = await createAssignment({
+      shiftId: params.shiftId,
+      stationId: params.stationId,
+      date: params.date,
+      hour,
+      now: params.now,
+    });
+    if (result.ok) {
+      summary.placed += 1;
+      continue;
+    }
+    if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
+      summary.personBusy += 1;
+    } else {
+      summary.stationOccupied += 1;
+    }
+  }
+  return { ok: true, summary };
+}
+
+export type CopyDayParams = {
+  board: string;
+  sourceDate: string;
+  targetDate: string;
+  now?: Date;
+};
+
+export type CopyDaySummary = {
+  /** Newly placed on the target day. */
+  copied: number;
+  /** The person has no shift overlapping that hour on the target day. */
+  noShift: number;
+  /** The target hour+station already holds someone else — left untouched. */
+  occupied: number;
+  /** The target hour+station already holds this same person — left untouched. */
+  alreadyThere: number;
+  /** This person can't work that station — nothing written for that hour. */
+  forbidden: number;
+};
+
+export type CopyDayResult =
+  | { ok: true; summary: CopyDaySummary }
+  | { ok: false; status: 422; error: string };
+
+/**
+ * Planner B: copy a source day's placements onto the target day, for people
+ * who have an overlapping shift there. Never overwrites — a target hour that
+ * already has a row (this person's or anyone else's) is left byte for byte.
+ * Reuses `createAssignment`'s own rules for every write, so a copy can never
+ * place something the floor's own assign button would refuse.
+ */
+export async function copyDayAssignments(
+  params: CopyDayParams,
+): Promise<CopyDayResult> {
+  if (params.sourceDate === params.targetDate) {
+    return { ok: false, status: 422, error: "Source and target day must differ" };
+  }
+  const dayStart = chicagoHourStart(params.sourceDate, HOUR_GRID_START);
+  const dayEnd = chicagoHourStart(params.sourceDate, HOUR_GRID_END);
+  const sourceAssignments = await prisma.assignment.findMany({
+    where: {
+      station: { board: params.board },
+      hourStart: { gte: dayStart, lt: dayEnd },
+    },
+  });
+
+  const summary: CopyDaySummary = {
+    copied: 0,
+    noShift: 0,
+    occupied: 0,
+    alreadyThere: 0,
+    forbidden: 0,
+  };
+
+  for (const source of sourceAssignments) {
+    if (!source.employeeId) {
+      summary.noShift += 1;
+      continue;
+    }
+    const hour = chicagoHourOf(source.hourStart);
+    const targetHourStart = chicagoHourStart(params.targetDate, hour);
+    const targetHourEnd = chicagoHourEnd(params.targetDate, hour);
+
+    const existing = await prisma.assignment.findFirst({
+      where: { stationId: source.stationId, hourStart: targetHourStart },
+    });
+    if (existing) {
+      if (existing.employeeId === source.employeeId) {
+        summary.alreadyThere += 1;
+      } else {
+        summary.occupied += 1;
+      }
+      continue;
+    }
+
+    const targetShifts = await prisma.shift.findMany({
+      where: { employeeId: source.employeeId, date: params.targetDate },
+    });
+    const targetShift = targetShifts.find((s) =>
+      isHourInShift(targetHourStart, s.startAt, s.endAt, targetHourEnd),
+    );
+    if (!targetShift) {
+      summary.noShift += 1;
+      continue;
+    }
+
+    const result = await createAssignment({
+      shiftId: targetShift.id,
+      stationId: source.stationId,
+      date: params.targetDate,
+      hour,
+      now: params.now,
+    });
+    if (result.ok) {
+      summary.copied += 1;
+    } else if (result.violations.some((v) => v.code === "FORBIDDEN_ABILITY")) {
+      summary.forbidden += 1;
+    } else {
+      summary.occupied += 1;
+    }
+  }
+
+  return { ok: true, summary };
+}
+
 export async function deleteAssignment(
   id: string,
 ): Promise<
@@ -143,6 +351,70 @@ export async function deleteAssignment(
   }
   await prisma.assignment.delete({ where: { id } });
   return { ok: true, id };
+}
+
+export type ClearAssignmentParams = {
+  id: string;
+  reason?: string | null;
+  note?: string | null;
+  now?: Date;
+};
+
+export type ClearAssignmentResult =
+  | { ok: true; id: string }
+  | { ok: false; status: 404 | 422; error: string };
+
+/**
+ * Floor clear button (Planner E). A future hour needs no reason and writes
+ * no PositionMoveLog row — one tap. The current hour and any past hour keep
+ * the Phase 1 rule: a valid reason is required, and the log row is written
+ * in the same transaction as the delete, so the two can never diverge.
+ * "Future" is decided by the server clock against the assignment's own
+ * hourStart (same test as import's hasStarted) — never a client flag.
+ */
+export async function clearAssignment(
+  params: ClearAssignmentParams,
+): Promise<ClearAssignmentResult> {
+  const existing = await prisma.assignment.findUnique({ where: { id: params.id } });
+  if (!existing) {
+    return { ok: false, status: 404, error: "Assignment not found" };
+  }
+  const now = params.now ?? new Date();
+  if (isFutureHour(existing.hourStart, now)) {
+    await prisma.assignment.delete({ where: { id: params.id } });
+    return { ok: true, id: params.id };
+  }
+  const reason = params.reason ?? "";
+  if (!isValidMoveReason(reason)) {
+    return {
+      ok: false,
+      status: 422,
+      error: "A reason is required to clear the current or a past hour",
+    };
+  }
+  if (!existing.employeeId) {
+    return {
+      ok: false,
+      status: 422,
+      error: "This assignment has no employee on record and cannot be logged",
+    };
+  }
+  await prisma.$transaction([
+    prisma.positionMoveLog.create({
+      data: {
+        date: chicagoYmd(existing.hourStart),
+        hour: chicagoHourOf(existing.hourStart),
+        employeeId: existing.employeeId,
+        fromStationId: existing.stationId,
+        toStationId: null,
+        assignmentId: existing.id,
+        reason: reason as MoveReason,
+        note: params.note?.trim() || null,
+      },
+    }),
+    prisma.assignment.delete({ where: { id: params.id } }),
+  ]);
+  return { ok: true, id: params.id };
 }
 
 /**

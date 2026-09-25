@@ -147,6 +147,7 @@ MULTI gets return-to-station prompts when helping; MANA/mesero/CLEAN as assigned
 
 ## Position moves
 - Leaving a station requires reason dropdown: **Break / Cover expo / Training / Help slammed / Other** + optional note, logged.
+- **Planner E (2026-09-25):** this reason requirement narrows to a live or past hour — the current grid hour, or any earlier one, on any day. Clearing a **future** hour (later today or another day) in manager mode is one tap, no reason, no log row. "Future" is decided by the server clock against the assignment's own hour start (`now < hourStart`), never a client flag, so a stale client can't skip a required reason. The reason write and the delete happen in one transaction, so a logged move and a cleared seat can never disagree. Every clear still requires an active manager session.
 
 ## Tablets
 - Large tablet = fullest UI; small can still **assign + check off** (no hard station lock yet).

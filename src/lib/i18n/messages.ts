@@ -194,6 +194,22 @@ export type Messages = {
   today: string;
   todayNotImported: string;
   saving: string;
+  assignModeLabel: string;
+  assignModeShift: string;
+  assignModeHour: string;
+  assignedWholeShift: (hours: number) => string;
+  assignedPartial: (placed: number, occupied: number) => string;
+  assignedAlready: (hours: number) => string;
+  copyYesterday: string;
+  copyLastWeek: string;
+  toastCopyFailed: string;
+  copySummary: (c: {
+    copied: number;
+    noShift: number;
+    occupied: number;
+    alreadyThere: number;
+    forbidden: number;
+  }) => string;
 };
 
 const en: Messages = {
@@ -396,6 +412,26 @@ const en: Messages = {
   today: "Today",
   todayNotImported: "Today isn't imported yet",
   saving: "Saving…",
+  assignModeLabel: "Assign mode",
+  assignModeShift: "Whole shift",
+  assignModeHour: "One hour",
+  assignedWholeShift: (hours) => `Assigned ${hours} h`,
+  assignedPartial: (placed, occupied) =>
+    `Assigned ${placed} h, ${occupied} h busy`,
+  assignedAlready: (hours) => `Already assigned ${hours} h`,
+  copyYesterday: "Copy yesterday",
+  copyLastWeek: "Copy last week",
+  toastCopyFailed: "Copy failed",
+  copySummary: (c) => {
+    const parts = [
+      `Copied ${c.copied}`,
+      `no shift ${c.noShift}`,
+      `busy ${c.occupied}`,
+    ];
+    if (c.alreadyThere > 0) parts.push(`already there ${c.alreadyThere}`);
+    if (c.forbidden > 0) parts.push(`forbidden ${c.forbidden}`);
+    return parts.join(", ");
+  },
 };
 
 const es: Messages = {
@@ -603,6 +639,26 @@ const es: Messages = {
   today: "Hoy",
   todayNotImported: "Hoy aún no está importado",
   saving: "Guardando…",
+  assignModeLabel: "Modo de asignación",
+  assignModeShift: "Turno completo",
+  assignModeHour: "Por hora",
+  assignedWholeShift: (hours) => `Asignado ${hours} h`,
+  assignedPartial: (placed, occupied) =>
+    `Asignado ${placed} h, ${occupied} h ocupadas`,
+  assignedAlready: (hours) => `Ya asignado ${hours} h`,
+  copyYesterday: "Copiar ayer",
+  copyLastWeek: "Copiar semana pasada",
+  toastCopyFailed: "No se pudo copiar",
+  copySummary: (c) => {
+    const parts = [
+      `Copiadas ${c.copied}`,
+      `sin turno ${c.noShift}`,
+      `ocupadas ${c.occupied}`,
+    ];
+    if (c.alreadyThere > 0) parts.push(`ya asignadas ${c.alreadyThere}`);
+    if (c.forbidden > 0) parts.push(`prohibidas ${c.forbidden}`);
+    return parts.join(", ");
+  },
 };
 
 export const MESSAGES: Record<Locale, Messages> = { en, es };

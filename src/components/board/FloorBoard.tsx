@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { hourGridHours, formatHourLabel } from "@/lib/hour-grid";
+import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
+import { isFutureHour } from "@/lib/rules/live-hour";
+import { chicagoDateOffset } from "@/lib/date-math";
 import { findBoardViolations } from "@/lib/violations";
 import type { AbilityLevel } from "@/lib/rules/types";
 import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
@@ -75,6 +77,7 @@ import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
+type AssignMode = "shift" | "hour";
 
 function playReturnChime() {
   try {
@@ -114,6 +117,9 @@ export function FloorBoard() {
 
   const [board, setBoard] = useState<BoardKindUi>(requestedBoard);
   const [mainView, setMainView] = useState<MainView>("board");
+  // Planner A: whole-shift is the default on every page load; per-hour is a
+  // manual toggle for one-off fixes, not a sticky preference.
+  const [assignMode, setAssignMode] = useState<AssignMode>("shift");
   const [unlockOpen, setUnlockOpen] = useState(false);
   const { manager, isManager, idleMs, unlock, lock } = useManagerSession();
 
@@ -500,6 +506,40 @@ export function FloorBoard() {
     }
   }
 
+  async function copyFromDay(daysBack: number) {
+    if (readonly || offline) {
+      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token || !date) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
+      return;
+    }
+    const sourceDate = chicagoDateOffset(date, -daysBack);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/assignments/copy-day", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...managerAuthHeaders(manager.token),
+        },
+        body: JSON.stringify({ board, sourceDate, targetDate: date }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast("err", t.toastCopyFailed);
+        return;
+      }
+      showToast("ok", t.copySummary(data.summary));
+      await refreshBoard();
+      bumpLedger();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function onUpload(file: File | null) {
     if (readonly || offline) {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
@@ -587,6 +627,70 @@ export function FloorBoard() {
     }
   }
 
+  async function assignWholeShift(shiftId: string, stationId: string) {
+    const res = await fetch("/api/assignments/shift", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shiftId, stationId, date }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const codes: string[] = (data.violations ?? []).map(
+        (v: { code: string }) => v.code,
+      );
+      const message = codes.length
+        ? codes.map((c) => violationMessage(locale, c)).join(" ")
+        : t.toastAssignRejected;
+      showCardFeedback(stationId, "err", message);
+      return;
+    }
+    const summary = data.summary as {
+      placed: number;
+      alreadyThere: number;
+      stationOccupied: number;
+      personBusy: number;
+    };
+    const occupied = summary.stationOccupied + summary.personBusy;
+    const seated = summary.placed + summary.alreadyThere;
+    const message =
+      occupied > 0
+        ? t.assignedPartial(summary.placed, occupied)
+        : summary.placed > 0
+          ? t.assignedWholeShift(summary.placed)
+          : t.assignedAlready(summary.alreadyThere);
+    showCardFeedback(stationId, seated > 0 ? "ok" : "err", message);
+    setSelectedShiftId(null);
+    const shift = day?.shifts.find((s) => s.id === shiftId);
+    if (shift) selectLedgerEmployee(shift);
+    await refreshBoard();
+    bumpLedger();
+  }
+
+  async function assignOneHour(shiftId: string, stationId: string) {
+    const res = await fetch("/api/assignments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shiftId, stationId, date, hour }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const codes: string[] = (data.violations ?? []).map(
+        (v: { code: string }) => v.code,
+      );
+      const message = codes.length
+        ? codes.map((c) => violationMessage(locale, c)).join(" ")
+        : t.toastAssignRejected;
+      showCardFeedback(stationId, "err", message);
+      return;
+    }
+    showCardFeedback(stationId, "ok", t.toastAssigned);
+    setSelectedShiftId(null);
+    const shift = day?.shifts.find((s) => s.id === shiftId);
+    if (shift) selectLedgerEmployee(shift);
+    await refreshBoard();
+    bumpLedger();
+  }
+
   async function assign(shiftId: string, stationId: string) {
     if (readonly || offline) {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
@@ -594,26 +698,37 @@ export function FloorBoard() {
     }
     setSavingStationId(stationId);
     try {
-      const res = await fetch("/api/assignments", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shiftId, stationId, date, hour }),
+      if (assignMode === "shift") {
+        await assignWholeShift(shiftId, stationId);
+      } else {
+        await assignOneHour(shiftId, stationId);
+      }
+    } finally {
+      setSavingStationId(null);
+    }
+  }
+
+  // Planner E: a future hour clears in one tap, no reason dialog. The
+  // current hour and any past hour keep the reason dialog. This is a UI
+  // shortcut only — the server re-decides "future" from its own clock
+  // against the assignment's hourStart and enforces the reason regardless.
+  function isOpenHourFuture(): boolean {
+    return isFutureHour(chicagoHourStart(date, hour), now);
+  }
+
+  async function removeOneTap(assignmentId: string, stationId: string) {
+    setSavingStationId(stationId);
+    try {
+      const res = await fetch(`/api/assignments/${assignmentId}`, {
+        method: "DELETE",
+        headers: managerAuthHeaders(manager?.token),
       });
-      const data = await res.json();
       if (!res.ok) {
-        const codes: string[] = (data.violations ?? []).map(
-          (v: { code: string }) => v.code,
-        );
-        const message = codes.length
-          ? codes.map((c) => violationMessage(locale, c)).join(" ")
-          : t.toastAssignRejected;
-        showCardFeedback(stationId, "err", message);
+        showCardFeedback(stationId, "err", t.toastClearFailed);
         return;
       }
-      showCardFeedback(stationId, "ok", t.toastAssigned);
-      setSelectedShiftId(null);
-      const shift = day?.shifts.find((s) => s.id === shiftId);
-      if (shift) selectLedgerEmployee(shift);
+      showCardFeedback(stationId, "ok", t.toastCleared);
+      setSwapFirstId(null);
       await refreshBoard();
       bumpLedger();
     } finally {
@@ -635,6 +750,10 @@ export function FloorBoard() {
       showToast("err", t.unlockManager);
       return;
     }
+    if (isOpenHourFuture()) {
+      void removeOneTap(assignmentId, stationId);
+      return;
+    }
     setPendingMove({
       assignmentId,
       employeeId: shift.employee.id,
@@ -648,31 +767,13 @@ export function FloorBoard() {
     const stationId = pendingMove.fromStationId;
     setSavingStationId(stationId);
     try {
-      const moveRes = await fetch("/api/position-moves", {
-        method: "POST",
+      const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
+        method: "DELETE",
         headers: {
           "Content-Type": "application/json",
           ...managerAuthHeaders(manager?.token),
         },
-        body: JSON.stringify({
-          date,
-          hour,
-          employeeId: pendingMove.employeeId,
-          fromStationId: pendingMove.fromStationId,
-          toStationId: null,
-          assignmentId: pendingMove.assignmentId,
-          reason,
-          note: note || null,
-        }),
-      });
-      if (!moveRes.ok) {
-        showCardFeedback(stationId, "err", t.toastMoveFailed);
-        return;
-      }
-
-      const res = await fetch(`/api/assignments/${pendingMove.assignmentId}`, {
-        method: "DELETE",
-        headers: managerAuthHeaders(manager?.token),
+        body: JSON.stringify({ reason, note: note || null }),
       });
       setPendingMove(null);
       if (!res.ok) {
@@ -1013,6 +1114,29 @@ export function FloorBoard() {
           <div
             className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
             role="group"
+            aria-label={t.assignModeLabel}
+          >
+            {(["shift", "hour"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={cn(
+                  "touch-target min-h-11 rounded-md px-3 text-sm font-semibold active:opacity-90",
+                  assignMode === mode
+                    ? "bg-neutral-800 text-white"
+                    : "bg-white text-neutral-900 active:bg-neutral-200",
+                )}
+                onClick={() => setAssignMode(mode)}
+                data-testid={`assign-mode-${mode}`}
+              >
+                {mode === "shift" ? t.assignModeShift : t.assignModeHour}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
+            role="group"
             aria-label="Main view"
             data-testid="main-view-toggle"
           >
@@ -1149,6 +1273,33 @@ export function FloorBoard() {
           >
             {t.autofillSoon}
           </Button>
+
+          {showManagerPanels && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="min-h-11 border-2"
+                onClick={() => void copyFromDay(1)}
+                disabled={loading || !date}
+                data-testid="copy-yesterday"
+              >
+                {t.copyYesterday}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="min-h-11 border-2"
+                onClick={() => void copyFromDay(7)}
+                disabled={loading || !date}
+                data-testid="copy-last-week"
+              >
+                {t.copyLastWeek}
+              </Button>
+            </>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
