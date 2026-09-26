@@ -178,6 +178,24 @@ FLOOR_BOARDS_IMPORT_DIR=… WIW_LOGIN_FILE=… WIW_BROWSER_PROFILE=… node node
 
 It writes `var/run/com.taco-oasis.wiw-export.plist`: `FLOOR_BOARDS_IMPORT_MODE=apply`, `StartCalendarInterval` 07:00 and 16:00, the boards user's GUI session only (the browser is headed). After review, copy it to `~/Library/LaunchAgents/` and load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.taco-oasis.wiw-export.plist`. If the Mac is asleep at a slot, launchd runs the job on wake, and missed slots become one run. The Playwright Chromium must be installed for the boards user (`pnpm exec playwright install chromium`).
 
+### Release lock, shared with the onsite installer (B2, Rich 2A / Elliot's bar 25 Sep)
+
+`scripts/wiw-export.ts`'s scheduled run and an onsite installer each hold one lock while they run: a directory named `.taco-oasis-floor-boards-release.lock`, sibling to the app directory (`dirname(appDir)`, never inside it). This is outside every directory an installer extracts, replaces, or restores, so the install steps it guards can never wipe it out from under it.
+
+The algorithm is implemented twice, once per language, on the same directory and the same claim-name format:
+
+- `src/lib/release-lock.ts` — the pull side, and the tested reference implementation (`tests/release-lock.test.ts`).
+- `scripts/release-lock.sh` — a sourceable bash library with the same two functions, for an installer that runs as a shell script rather than through this app's own `node_modules` (`tests/release-lock-sh.test.ts`, including shell and Node contenders racing each other).
+
+Each attempt to claim the lock creates one empty claim file inside the directory, named `<pid>.<nonce>`, with an atomic exclusive create (`open(file, "wx")` in Node; `set -o noclobber` in bash), then lists the directory. It holds the lock only if its own claim is the only claim there; otherwise it withdraws its claim and waits. Two attempts each create before they list, so whichever lists second sees the other: they can never both see themselves alone. The owner is the claim's file name, written in the same atomic create, so there is no moment where a claim exists but its owner is unknown. A claim whose PID is not alive (`kill(pid, 0)`) is stale; any attempt removes that exact claim file by name and tries again at once, and because every claim name is unique, removing a stale name can never remove a newer live claim. The lock frees itself the moment its holder is gone — exit, an uncaught error, or a kill — with no separate cleanup step required. Release removes only the caller's own claims. Entries in the directory that are not claim names are ignored.
+
+- **The pull run** (`scripts/wiw-export.ts`, no-argument invocation only — `--sign-in` and `--mode probe-dialog` leave the lock alone) takes the lock before the browser or the import and holds it until the process exits, including the error path, with **no wait cap**: 07:00 and 16:00 are non-negotiable, so it waits as long as the installer holds the lock, then runs. A failure in the lock mechanism itself (not a held lock — an actual error creating or reading the lock directory) is logged (`wiw-export lock error=… retrying`) and retried every 30 seconds; the browser and the import never start without the lock, so a pull cannot overlap an install.
+- **An installer** must take the lock before it changes the app tree, the database, or the server, and hold it until exit (a `trap ... EXIT` after a successful acquire, covering a normal finish and a `set -e` abort — see the usage note atop `scripts/release-lock.sh`), including its own restore-on-failure path. Its wait to *acquire* is capped (a few minutes; pick one number and hold it) — when that cap expires against a still-live holder (`acquire_release_lock` returns 1), it must exit before making any change; its own claim has already been withdrawn. A return of 2 is a real failure of the lock directory: stop, change nothing.
+
+This replaces a separate clock-margin check around the two pull slots with a real mutual-exclusion primitive: once both sides hold the same lock, a release can go at any hour.
+
+**Scope of this change:** `scripts/release-lock.sh` is ready for any installer in this repo to adopt. It is not yet wired into an actual onsite installer — no installer script exists in this repository's git history (any branch) to add it to. The hash-pinned onsite packet script run on T MAC MINI is maintained outside this repo; adopting this same lock directory, path, and algorithm there is a follow-up change owned by whoever maintains that script, not part of this PR.
+
 ## Optional: Vercel
 
 Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.

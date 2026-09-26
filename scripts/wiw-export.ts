@@ -45,6 +45,7 @@ import path from "node:path";
 import { prisma } from "../src/lib/db";
 import { playwrightExporter, SCHEDULER_URL } from "../src/lib/wiw-export/browser";
 import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch-agent";
+import { acquireReleaseLockForPull, releaseReleaseLock } from "../src/lib/release-lock";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
 import { runProbeDialog } from "../src/lib/wiw-export/probe";
 import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
@@ -98,14 +99,27 @@ async function main() {
   if (arg !== undefined) throw new SettingsError("UNKNOWN_ARGUMENT");
 
   const settings = wiwSettingsFromEnv(appDir);
-  const result = await runWiwExport(settings, {
-    exporter: playwrightExporter({ profileDir: settings.profileDir }),
-    readLogin: () =>
-      readLoginFile(settings.loginFile, {
-        keepOut: [settings.appDir, settings.importDir, settings.profileDir],
-      }),
+  // No wait cap: this run must happen regardless, so it waits as long as
+  // the installer holds the lock, then proceeds (Rich 2A / Elliot's bar).
+  // A broken lock (not a held lock -- an actual failure to read or create
+  // it) is logged and retried, never skipped past: the browser and the
+  // import start only once this run holds the lock, so they cannot overlap
+  // an install. 07:00 and 16:00 still run, as soon as the lock can be taken.
+  await acquireReleaseLockForPull(appDir, process.pid, {
+    onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
   });
-  process.exitCode = result.exitCode;
+  try {
+    const result = await runWiwExport(settings, {
+      exporter: playwrightExporter({ profileDir: settings.profileDir }),
+      readLogin: () =>
+        readLoginFile(settings.loginFile, {
+          keepOut: [settings.appDir, settings.importDir, settings.profileDir],
+        }),
+    });
+    process.exitCode = result.exitCode;
+  } finally {
+    await releaseReleaseLock(appDir, process.pid);
+  }
 }
 
 main()
