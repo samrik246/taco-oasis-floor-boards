@@ -48,7 +48,7 @@ async function selectDate(page: Page, targetYmd: string) {
 
 /**
  * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/tareas.
- * Uses fresh disposable DB (prisma/e2e.db) via playwright webServer.
+ * Uses the fresh disposable DB selected by the Playwright webServer config.
  * Also covers bilingual cocina UI, timeline view, manager unlock + idle timeout.
  */
 test.describe("phase 1 cashiers + kitchen smoke", () => {
@@ -59,7 +59,9 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       const body = await response.json() as Record<string, unknown>;
       await route.fulfill({ response, json: { ...body, idleMs: 120_000 } });
     });
-    const e2eDb = path.resolve(process.cwd(), "prisma/e2e.db");
+    const testRoot = process.env.FLOOR_BOARDS_TEST_ROOT;
+    expect(testRoot).toBeTruthy();
+    const e2eDb = path.join(testRoot!, "e2e.db");
     expect(fs.existsSync(e2eDb)).toBe(true);
 
     await page.goto("/");

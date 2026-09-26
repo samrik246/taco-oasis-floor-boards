@@ -7,6 +7,7 @@ const baseURL = `http://127.0.0.1:${PORT}`;
 const testRoot = mkdtempSync(join(realpathSync("/tmp"), "color-boards-test-"));
 const testDb = join(testRoot, "e2e.db");
 const databaseUrl = `file:${testDb}`;
+process.env.FLOOR_BOARDS_TEST_ROOT = testRoot;
 
 /**
  * Fresh absolute SQLite under /private/tmp for e2e. The preload proves every
