@@ -24,10 +24,6 @@ import { HoursLedgerPanel } from "./HoursLedgerPanel";
 import { ManagerNotesPanel } from "./ManagerNotesPanel";
 import { ViolationsBanner } from "./ViolationsBanner";
 import {
-  TrafficMetersPanel,
-  type TrafficStateDto,
-} from "./TrafficMetersPanel";
-import {
   ReturnPromptBanner,
   type ReturnPromptDto,
 } from "./ReturnPromptBanner";
@@ -42,6 +38,7 @@ import { ImportPreviewModal, type ImportPreviewData } from "./ImportPreviewModal
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
+import { ManagerColorEditor } from "./ManagerColorEditor";
 import { SchedulePanel } from "./SchedulePanel";
 import { RushPanel } from "./RushPanel";
 import { ManagerUnlockModal } from "./ManagerUnlockModal";
@@ -51,7 +48,6 @@ import {
 } from "./useManagerSession";
 import type { MoveReason } from "@/lib/position-moves";
 import { cn } from "@/lib/utils";
-import { TRAFFIC_TICK_MS } from "@/lib/traffic/simulator";
 import {
   abilityLevelLabel,
   boardDisplayName,
@@ -75,9 +71,11 @@ import {
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { KioskLock, kioskRequested } from "./KioskLock";
 import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
+import { paintDraftDates } from "@/lib/board/paint-drafts";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
+const NO_DRAFT_DATES: string[] = [];
 type AssignMode = "shift" | "hour";
 
 function playReturnChime() {
@@ -117,12 +115,22 @@ export function FloorBoard() {
     searchParams.get("board") === "cocina" ? "cocina" : "caja";
 
   const [board, setBoard] = useState<BoardKindUi>(requestedBoard);
-  const [mainView, setMainView] = useState<MainView>("board");
+  const [mainView, setMainView] = useState<MainView>("schedule");
+  const [toolbarHidden, setToolbarHidden] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [draftDateState, setDraftDateState] = useState<{
+    managerId: string;
+    board: BoardKindUi;
+    dates: string[];
+  } | null>(null);
   // Planner A: whole-shift is the default on every page load; per-hour is a
   // manual toggle for one-off fixes, not a sticky preference.
   const [assignMode, setAssignMode] = useState<AssignMode>("shift");
   const [unlockOpen, setUnlockOpen] = useState(false);
   const { manager, isManager, idleMs, unlock, lock } = useManagerSession();
+  const retainedDraftDates = manager && draftDateState?.managerId === manager.id && draftDateState.board === board
+    ? draftDateState.dates
+    : NO_DRAFT_DATES;
 
   const [locale, setLocaleState] = useState<Locale>(() =>
     readLocalePreference(),
@@ -168,7 +176,6 @@ export function FloorBoard() {
   );
   const [clock, setClock] = useState<string>("");
 
-  const [traffic, setTraffic] = useState<TrafficStateDto | null>(null);
   const [returnPrompts, setReturnPrompts] = useState<ReturnPromptDto[]>([]);
   const [chimeMute, setChimeMute] = useState(false);
   const [tareaTemplates, setTareaTemplates] = useState<TareaTemplateDto[]>([]);
@@ -205,6 +212,18 @@ export function FloorBoard() {
     }, 4000);
   }, []);
 
+  const refreshDraftDates = useCallback(() => {
+    setDraftDateState(manager ? {
+      managerId: manager.id,
+      board,
+      dates: paintDraftDates(manager.id, board),
+    } : null);
+  }, [manager, board]);
+
+  useEffect(() => {
+    refreshDraftDates();
+  }, [refreshDraftDates]);
+
   // Assign/clear feedback shows on the station tile the manager tapped,
   // not the top banner — the banner stays for cross-cutting events only.
   const showCardFeedback = useCallback(
@@ -225,6 +244,7 @@ export function FloorBoard() {
     idleMs,
     onIdle: () => {
       lock();
+      setMainView("schedule");
       setUnlockOpen(false);
       setPendingMove(null);
       showToast("ok", t.managerIdleLogout);
@@ -271,13 +291,13 @@ export function FloorBoard() {
       setDates(data.dates);
       setLoadError(null);
       setDate((prev) => {
-        if (prev && data.dates.includes(prev)) return prev;
+        if (prev && (data.dates.includes(prev) || (manager && retainedDraftDates.includes(prev)))) return prev;
         return preferredBoardDate(data.dates, new Date());
       });
     } catch {
       setLoadError("Network error loading dates.");
     }
-  }, []);
+  }, [manager, retainedDraftDates]);
 
   const refreshBoard = useCallback(async () => {
     if (!date) {
@@ -322,20 +342,6 @@ export function FloorBoard() {
       setLoading(false);
     }
   }, [board, date, showToast, t]);
-
-  const refreshTraffic = useCallback(async () => {
-    if (!date) return;
-    try {
-      const res = await fetch(
-        `/api/traffic?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}`,
-      );
-      if (!res.ok) return;
-      const data = (await res.json()) as TrafficStateDto;
-      setTraffic(data);
-    } catch {
-      /* soft fail */
-    }
-  }, [date, hour, board]);
 
   const refreshReturnPrompts = useCallback(async () => {
     if (!date) return;
@@ -395,14 +401,12 @@ export function FloorBoard() {
   const refreshPhase1 = useCallback(async () => {
     await Promise.all([
       refreshBoard(),
-      refreshTraffic(),
       refreshReturnPrompts(),
       refreshTareas(),
       refreshSuggestions(),
     ]);
   }, [
     refreshBoard,
-    refreshTraffic,
     refreshReturnPrompts,
     refreshTareas,
     refreshSuggestions,
@@ -438,11 +442,10 @@ export function FloorBoard() {
   }, [refreshBoard]);
 
   useEffect(() => {
-    void refreshTraffic();
     void refreshReturnPrompts();
     void refreshTareas();
     setSelectedTareaTemplateId(null);
-  }, [board, refreshTraffic, refreshReturnPrompts, refreshTareas]);
+  }, [board, refreshReturnPrompts, refreshTareas]);
 
   useEffect(() => {
     void refreshSuggestions();
@@ -476,7 +479,7 @@ export function FloorBoard() {
     const id = window.setInterval(() => {
       void refreshDates();
       void refreshPhase1();
-    }, TRAFFIC_TICK_MS);
+    }, 30_000);
     return () => window.clearInterval(id);
   }, [refreshDates, refreshPhase1]);
 
@@ -753,7 +756,7 @@ export function FloorBoard() {
   async function assignWholeShift(shiftId: string, stationId: string) {
     const res = await fetch("/api/assignments/shift", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...managerAuthHeaders(manager?.token) },
       body: JSON.stringify({ shiftId, stationId, date }),
     });
     const data = await res.json();
@@ -793,7 +796,7 @@ export function FloorBoard() {
   async function assignOneHour(shiftId: string, stationId: string) {
     const res = await fetch("/api/assignments", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...managerAuthHeaders(manager?.token) },
       body: JSON.stringify({ shiftId, stationId, date, hour }),
     });
     const data = await res.json();
@@ -818,6 +821,10 @@ export function FloorBoard() {
   async function assign(shiftId: string, stationId: string) {
     if (readonly || offline) {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
+      return;
+    }
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
       return;
     }
     setSavingStationId(stationId);
@@ -918,6 +925,10 @@ export function FloorBoard() {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
     }
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      return;
+    }
     if (!swapFirstId) {
       setSwapFirstId(assignmentId);
       showToast("ok", t.toastSwapPick);
@@ -929,7 +940,7 @@ export function FloorBoard() {
     }
     const res = await fetch("/api/assignments/swap", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...managerAuthHeaders(manager.token) },
       body: JSON.stringify({
         assignmentIdA: swapFirstId,
         assignmentIdB: assignmentId,
@@ -954,7 +965,7 @@ export function FloorBoard() {
 
   function onStationTap(stationId: string) {
     setSelectedStationId(stationId);
-    if (readonly || offline) return;
+    if (readonly || offline || !isManager) return;
     if (selectedShiftId) {
       void assign(selectedShiftId, stationId);
     }
@@ -962,10 +973,7 @@ export function FloorBoard() {
 
   function onPersonTap(shift: ShiftDto) {
     selectLedgerEmployee(shift);
-    if (readonly || offline) {
-      setSelectedShiftId(shift.id);
-      return;
-    }
+    if (readonly || offline || !isManager) return;
     if (selectedStationId) {
       const level = abilityFor(shift, selectedStationId);
       if (level === "forbidden") {
@@ -978,36 +986,27 @@ export function FloorBoard() {
     setSelectedShiftId((prev) => (prev === shift.id ? null : shift.id));
   }
 
-  async function toggleTraffic(enabled: boolean) {
-    if (readonly || offline) return;
-    if (!isManager || !manager?.token) {
-      setUnlockOpen(true);
-      showToast("err", t.managerOnly);
-      return;
-    }
-    setTraffic((prev) =>
-      prev
-        ? { ...prev, enabled }
-        : { enabled, lastTickAt: null, meters: [] },
-    );
-    const res = await fetch("/api/traffic", {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        ...managerAuthHeaders(manager.token),
-      },
-      body: JSON.stringify({ enabled, date, hour, board }),
-    });
-    if (!res.ok) {
-      setTraffic((prev) => (prev ? { ...prev, enabled: !enabled } : prev));
-      showToast("err", t.toastSimToggleFailed);
-      return;
-    }
-    const data = (await res.json()) as TrafficStateDto;
-    setTraffic(data);
-    await refreshReturnPrompts();
-    await refreshTareas();
-    showToast("ok", enabled ? t.toastSimulatorOn : t.toastSimulatorOff);
+  function changeBoard(nextBoard: BoardKindUi) {
+    if (nextBoard !== board) setDay(null);
+    setBoard(nextBoard);
+    setSelectedStationId(null);
+    setSelectedShiftId(null);
+    setSwapFirstId(null);
+  }
+
+  function changeDate(nextDate: string) {
+    if (nextDate !== date) setDay(null);
+    setDate(nextDate);
+  }
+
+  function changeView(nextView: MainView) {
+    setMainView(nextView);
+  }
+
+  function exitManager(): boolean {
+    lock();
+    setMainView("schedule");
+    return true;
   }
 
   async function ackReturnPrompt(id: string) {
@@ -1089,12 +1088,13 @@ export function FloorBoard() {
   }, [board, date]);
 
   const hours = hourGridHours();
+  const visibleDates = isManager ? [...new Set([...dates, ...retainedDraftDates])].sort() : dates;
   const hasStations = (day?.stations.length ?? 0) > 0;
   const emptyBoard = Boolean(date && day && day.shifts.length === 0);
   const showBoardExtras = board === "caja" || board === "cocina";
   const boardName = boardDisplayName(locale, board);
   const editsLocked = readonly || offline;
-  const canMutateStaff = !editsLocked;
+  const canMutateStaff = isManager && !editsLocked;
   const showManagerPanels = isManager && !editsLocked;
   const leadNotice =
     isManager && !offline && rushForecast && date
@@ -1135,7 +1135,60 @@ export function FloorBoard() {
       data-testid="floor-board"
     >
       <KioskLock active={kiosk} />
-      <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-3 sm:px-4">
+      <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-2 sm:px-4">
+        {toolbarHidden ? (
+          <div className="flex min-h-11 items-center justify-between gap-2 text-sm font-bold">
+            <span>{boardName} · {date || t.noDates}</span>
+            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3" onClick={() => setToolbarHidden(false)} data-testid="toolbar-show">
+              {t.toolbarShow}
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2" data-testid="compact-toolbar">
+              <label className="sr-only" htmlFor="compact-board">{t.boardLabel}</label>
+              <select id="compact-board" className="touch-target min-h-11 max-w-[8rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={board} onChange={(e) => changeBoard(e.target.value as BoardKindUi)} data-testid="compact-board">
+                <option value="caja">{t.cashiers}</option>
+                <option value="cocina">{t.kitchen}</option>
+              </select>
+              <label className="sr-only" htmlFor="compact-date">{t.date}</label>
+              <select id="compact-date" className="touch-target min-h-11 max-w-[9rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={date} onChange={(e) => changeDate(e.target.value)} disabled={visibleDates.length === 0} data-testid="compact-date">
+                {visibleDates.length === 0 && <option value="">{t.noDates}</option>}
+                {visibleDates.map((d) => <option key={d} value={d}>{d}{isManager && retainedDraftDates.includes(d) ? " · " + t.paintDraftDate : ""}</option>)}
+              </select>
+              <label className="sr-only" htmlFor="compact-view">{t.viewLabel}</label>
+              <select id="compact-view" className="touch-target min-h-11 max-w-[9rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={mainView} onChange={(e) => changeView(e.target.value as MainView)} data-testid="compact-view">
+                {isManager && <option value="timeline">{t.viewEditor}</option>}
+                <option value="schedule">{t.viewSchedule}</option>
+                <option value="tareas">{t.viewTareas}</option>
+                <option value="rush">{t.viewRush}</option>
+                {isManager && <option value="board">{t.viewBoard}</option>}
+              </select>
+              {(mainView === "board" || mainView === "tareas") && (
+                <>
+                  <label className="sr-only" htmlFor="compact-hour">{t.hour}</label>
+                  <select id="compact-hour" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={hour} onChange={(e) => setHour(Number(e.target.value))} data-testid="compact-hour">
+                    {hours.map((h) => <option key={h} value={h}>{formatHourLabel(h)}</option>)}
+                  </select>
+                </>
+              )}
+              {!readonly && <button type="button" className="touch-target min-h-11 rounded-md border-2 border-emerald-800 bg-emerald-50 px-3 text-sm font-bold text-emerald-950" onClick={() => {
+                if (isManager) {
+                  exitManager();
+                } else {
+                  setUnlockOpen(true);
+                }
+              }} data-testid="compact-manager">
+                {isManager ? t.exitManager : t.managerView}
+              </button>}
+              <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} data-testid="toolbar-more">
+                {t.toolbarMore}
+              </button>
+              <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" onClick={() => setToolbarHidden(true)} data-testid="toolbar-hide">
+                {t.toolbarHide}
+              </button>
+            </div>
+            {showMore && <div className="mt-2 border-t border-neutral-300 pt-2" data-testid="toolbar-secondary">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-xl font-bold tracking-tight md:text-2xl">
             {t.brand}
@@ -1194,17 +1247,7 @@ export function FloorBoard() {
                     ? "bg-neutral-900 text-white"
                     : "bg-white text-neutral-900 active:bg-neutral-200",
                 )}
-                onClick={() => {
-                  if (b !== board) {
-                    // Never carry the old board's stations into a new heading
-                    // while its request is still pending or offline.
-                    setDay(null);
-                  }
-                  setBoard(b);
-                  setSelectedStationId(null);
-                  setSelectedShiftId(null);
-                  setSwapFirstId(null);
-                }}
+                onClick={() => changeBoard(b)}
                 data-testid={`board-toggle-${b}`}
               >
                 {b === "caja" ? t.cashiers : t.kitchen}
@@ -1235,7 +1278,7 @@ export function FloorBoard() {
             ))}
           </div>
 
-          <div
+          {isManager && <div
             className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
             role="group"
             aria-label={t.assignModeLabel}
@@ -1256,7 +1299,7 @@ export function FloorBoard() {
                 {mode === "shift" ? t.assignModeShift : t.assignModeHour}
               </button>
             ))}
-          </div>
+          </div>}
 
           <div
             className="inline-flex rounded-lg border-2 border-neutral-700 p-1"
@@ -1266,8 +1309,7 @@ export function FloorBoard() {
           >
             {(
               [
-                ["board", t.viewBoard],
-                ["timeline", t.viewTimeline],
+                ...(isManager ? [["board", t.viewBoard], ["timeline", t.viewEditor]] as const : []),
                 ["schedule", t.viewSchedule],
                 ["tareas", t.viewTareas],
                 ["rush", t.viewRush],
@@ -1282,7 +1324,7 @@ export function FloorBoard() {
                     ? "bg-neutral-800 text-white"
                     : "bg-white text-neutral-900 active:bg-neutral-200",
                 )}
-                onClick={() => setMainView(id)}
+                onClick={() => changeView(id)}
                 data-testid={`view-toggle-${id}`}
               >
                 {label}
@@ -1298,8 +1340,7 @@ export function FloorBoard() {
               className="min-h-11 border-2"
               onClick={() => {
                 if (isManager) {
-                  lock();
-                  showToast("ok", t.staffView);
+                  if (exitManager()) showToast("ok", t.staffView);
                 } else {
                   setUnlockOpen(true);
                 }
@@ -1311,12 +1352,9 @@ export function FloorBoard() {
           )}
 
           <DateBar
-            dates={dates}
+            dates={visibleDates}
             date={date}
-            onChange={(d) => {
-              setDay(null);
-              setDate(d);
-            }}
+            onChange={changeDate}
             locale={locale}
             t={t}
             now={now}
@@ -1437,7 +1475,7 @@ export function FloorBoard() {
           )}
         </div>
 
-        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
+        {(mainView === "board" || mainView === "tareas") && <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
           <span className="shrink-0 text-sm font-bold">{t.hour}</span>
           {hours.map((h) => (
             <button
@@ -1455,7 +1493,10 @@ export function FloorBoard() {
               {formatHourLabel(h)}
             </button>
           ))}
-        </div>
+        </div>}
+            </div>}
+          </>
+        )}
       </header>
 
       {offline && (
@@ -1516,23 +1557,23 @@ export function FloorBoard() {
 
       <ViolationsBanner violations={violations} t={t} />
 
-      {showBoardExtras && mainView !== "tareas" && (
-        <div className="px-3 pt-3 sm:px-4">
-          <TrafficMetersPanel
-            traffic={traffic}
-            readonly={editsLocked}
-            canToggle={isManager && !editsLocked}
-            onToggle={(en) => void toggleTraffic(en)}
-            compact={!isLargeUi}
-            locale={locale}
-            t={t}
-          />
-        </div>
-      )}
-
       {mainView === "timeline" && (
         <div className="p-3 sm:p-4">
-          <TimelinePanel
+          {isManager && manager?.token ? <ManagerColorEditor
+            key={`${board}|${date}`}
+            day={day}
+            board={board}
+            date={date}
+            locale={locale}
+            t={t}
+            selectedHour={hour}
+            onSelectHour={setHour}
+            managerToken={manager.token}
+            managerId={manager.id}
+            readonly={editsLocked}
+            onDraftChange={refreshDraftDates}
+            onSaved={async () => { await refreshBoard(); bumpLedger(); }}
+          /> : <TimelinePanel
             day={day}
             date={date}
             locale={locale}
@@ -1540,7 +1581,7 @@ export function FloorBoard() {
             selectedHour={hour}
             onSelectHour={setHour}
             managerMode={isManager}
-          />
+          />}
         </div>
       )}
 
@@ -1701,7 +1742,7 @@ export function FloorBoard() {
               <h2 className="text-lg font-bold">
                 {t.stationsHeading(boardName, date)}
               </h2>
-              {swapFirstId && !readonly && (
+              {swapFirstId && isManager && !editsLocked && (
                 <Button
                   type="button"
                   variant="outline"
@@ -1759,9 +1800,7 @@ export function FloorBoard() {
                       type="button"
                       className="mb-2 min-h-11 w-full text-left active:opacity-80"
                       onClick={() => onStationTap(station.id)}
-                      disabled={
-                        readonly && occupied.length > 0 && !selectedShiftId
-                      }
+                      disabled={!isManager && occupied.length > 0}
                     >
                       <div className="text-lg font-extrabold leading-tight">
                         {label}
@@ -1802,9 +1841,9 @@ export function FloorBoard() {
                           type="button"
                           className="min-h-12 rounded border-2 border-dashed border-current/50 text-sm font-bold active:bg-black/5 disabled:opacity-50"
                           onClick={() => onStationTap(station.id)}
-                          disabled={readonly}
+                          disabled={!isManager || editsLocked}
                         >
-                          {readonly ? t.empty : t.tapToAssign}
+                          {!isManager || editsLocked ? t.empty : t.tapToAssign}
                         </button>
                       )}
                       {occupied.length === 0 &&
@@ -1840,14 +1879,14 @@ export function FloorBoard() {
                             className="min-h-11 flex-1 text-left text-sm font-bold active:bg-neutral-100"
                             onClick={() => {
                               selectLedgerEmployee(shift);
-                              if (!readonly) void onSwapSelect(assignment.id);
+                              if (isManager && !editsLocked) void onSwapSelect(assignment.id);
                             }}
                             aria-label={displayName(shift)}
                             data-testid={`assignee-${station.id}`}
                           >
                             {displayName(shift)}
                           </button>
-                          {!readonly && (
+                          {isManager && !editsLocked && (
                             <button
                               type="button"
                               className="touch-target min-h-11 min-w-11 rounded bg-neutral-900 text-sm font-bold text-white active:bg-neutral-700"
@@ -1952,9 +1991,11 @@ export function FloorBoard() {
         open={unlockOpen}
         t={t}
         onCancel={() => setUnlockOpen(false)}
-        onUnlocked={(session, sessionIdle) => {
+        onUnlocked={async (session, sessionIdle) => {
           unlock(session, sessionIdle);
           setUnlockOpen(false);
+          await refreshBoard();
+          setMainView("timeline");
           showToast("ok", t.managerUnlocked(session.name));
         }}
       />

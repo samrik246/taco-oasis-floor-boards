@@ -77,9 +77,10 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
           <h2 className="text-lg font-bold" data-testid="schedule-title">
             {t.scheduleTitle}
           </h2>
-          <p className="max-w-xl text-xs font-medium text-neutral-600">
-            {t.scheduleHint}
-          </p>
+          <details className="text-xs font-medium text-neutral-700">
+            <summary className="cursor-pointer font-semibold">{t.scheduleHelp}</summary>
+            <p className="mt-1 max-w-xl">{t.scheduleHint}</p>
+          </details>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

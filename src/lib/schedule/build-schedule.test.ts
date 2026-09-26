@@ -294,13 +294,13 @@ describe("cocina schedule i18n", () => {
   it("uses Spanish schedule strings for cocina locale", () => {
     const es = messagesFor("es");
     expect(es.viewSchedule).toBe("Horario");
-    expect(es.scheduleAllDay).toBe("Todo el día");
-    expect(es.scheduleRestOfDay).toBe("Resto del día");
+    expect(es.scheduleAllDay).toBe("Día");
+    expect(es.scheduleRestOfDay).toBe("Resto");
     expect(es.scheduleHeadcount).toBe("Personas");
     expect(es.scheduleTitle).toMatch(/Horario/i);
-    expect(es.scheduleSortName).toBe("Por nombre");
-    expect(es.scheduleSortTime).toBe("Por hora");
-    expect(es.scheduleSortPosition).toBe("Por puesto");
+    expect(es.scheduleSortName).toBe("Nombre");
+    expect(es.scheduleSortTime).toBe("Hora");
+    expect(es.scheduleSortPosition).toBe("Puesto");
     expect(es.viewRush).toBe("Más ocupado");
     expect(es.rushBasis).toMatch(/ventas históricas/i);
     expect(es.rushPrep).toMatch(/antes del rush/i);
@@ -309,10 +309,10 @@ describe("cocina schedule i18n", () => {
   it("keeps English schedule strings for caja", () => {
     const en = messagesFor("en");
     expect(en.viewSchedule).toBe("Schedule");
-    expect(en.scheduleAllDay).toBe("All day");
-    expect(en.scheduleRestOfDay).toBe("Rest of day");
-    expect(en.scheduleSortName).toBe("By name");
-    expect(en.scheduleSortTime).toBe("By time");
+    expect(en.scheduleAllDay).toBe("Day");
+    expect(en.scheduleRestOfDay).toBe("Rest");
+    expect(en.scheduleSortName).toBe("Name");
+    expect(en.scheduleSortTime).toBe("Time");
     expect(en.viewRush).toBe("Rush");
     expect(en.rushSummaryLead).toMatch(/Gets busier/i);
     expect(en.rushPrep).toMatch(/Prep before the rush/i);

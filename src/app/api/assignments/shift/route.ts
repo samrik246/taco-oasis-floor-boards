@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createShiftAssignment } from "@/lib/assignments/service";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -13,10 +14,11 @@ const bodySchema = z.object({
 /**
  * PUT /api/assignments/shift — Planner A whole-shift assign. Places every
  * grid hour the shift overlaps at one station in one request; occupied or
- * already-seated hours are skipped, not failed. Same auth posture as
- * PUT /api/assignments — no manager token required.
+ * already-seated hours are skipped, not failed. Requires a manager session.
  */
 export async function PUT(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);

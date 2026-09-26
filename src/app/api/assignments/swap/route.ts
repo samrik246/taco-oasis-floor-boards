@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { swapAssignments } from "@/lib/assignments/service";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,8 @@ const bodySchema = z.object({
  * POST /api/assignments/swap — swap people on two assignments with re-validation.
  */
 export async function POST(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
