@@ -15,6 +15,7 @@ export const STATION_COLORS = [
   "cyan",
   "red",
   "brown",
+  "maroon",
 ] as const;
 
 export type StationColor = (typeof STATION_COLORS)[number];

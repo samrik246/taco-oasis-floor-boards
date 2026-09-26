@@ -121,6 +121,7 @@ export function stationColorClass(color: string): string {
     cyan: "bg-cyan-200 border-cyan-800 text-cyan-950",
     red: "bg-red-200 border-red-800 text-red-950",
     brown: "bg-amber-300 border-amber-900 text-amber-950",
+    maroon: "bg-[#8c1a11] border-red-950 text-white",
   };
   return map[color] ?? "bg-neutral-100 border-neutral-600 text-neutral-900";
 }
