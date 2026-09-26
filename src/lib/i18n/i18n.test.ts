@@ -21,7 +21,9 @@ describe("i18n board locale", () => {
   });
 
   it("localizes cocina station and tarea labels", () => {
-    expect(stationLabel("es", "fryer")).toBe("Freidora");
+    expect(stationLabel("es", "pdf_tf1r")).toBe("Tortilla y freidora 1");
+    expect(stationLabel("es", "pdf_tq3r")).toBe("Taquero 3 - relleno + tareas");
+    expect(stationLabel("es", "pdf_tq3r", "Cambio aprobado")).toBe("Cambio aprobado");
     expect(tareaLabel("es", "restock_tortillas")).toMatch(/tortillas/i);
     expect(boardDisplayName("es", "cocina")).toBe("Cocina");
     expect(messagesFor("es").orderTraffic).toMatch(/Tráfico/i);

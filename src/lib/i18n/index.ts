@@ -36,7 +36,11 @@ export function stationLabel(
   stationId: string,
   fallback?: string,
 ): string {
-  return STATION_LABELS[locale][stationId] ?? fallback ?? stationId;
+  const seed = ALL_STATIONS.find((station) => station.id === stationId);
+  if (fallback && fallback !== stationId && seed && fallback.trim() !== seed.label) {
+    return fallback;
+  }
+  return STATION_LABELS[locale][stationId] ?? seed?.label ?? fallback ?? stationId;
 }
 
 /**
@@ -147,7 +151,7 @@ export function formatReturnPromptMessage(
   },
 ): string {
   const load = loadStationLabel(locale, args.loadStationId);
-  const seat = stationLabel(locale, args.seatId, args.seatId);
+  const seat = stationLabel(locale, args.seatId);
   if (locale === "es") {
     return args.onFloater
       ? `${args.displayName} (flotante): ${load} está Saturado — regresa a ayudar; tareas liberadas.`

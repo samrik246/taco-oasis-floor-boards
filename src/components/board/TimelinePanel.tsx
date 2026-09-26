@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { hourGridHours, formatHourLabel } from "@/lib/hour-grid";
-import { stationLabel, type Locale, type Messages } from "@/lib/i18n";
+import { displayStationLabel, stationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { formatStartLabel } from "@/lib/schedule/build-schedule";
 import { buildTimelineRows, personName } from "./timeline-rows";
@@ -35,13 +35,14 @@ export function TimelinePanel({
 
   const rows = useMemo(() => {
     if (!day || !date) return [];
+    const labels = new Map(day.stations.map((station) => [station.id, displayStationLabel(locale, station)]));
     return buildTimelineRows({
       shifts: day.shifts,
       date,
       hours,
       offLabel: t.timelineOffShift,
       unassignedLabel: t.timelineUnassigned,
-      stationLabelFor: (id) => stationLabel(locale, id),
+      stationLabelFor: (id) => labels.get(id) ?? stationLabel(locale, id),
     });
   }, [day, date, hours, locale, t]);
 
