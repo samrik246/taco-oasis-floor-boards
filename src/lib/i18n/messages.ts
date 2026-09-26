@@ -25,8 +25,16 @@ export type Messages = {
   viewSchedule: string;
   viewTareas: string;
   viewRush: string;
+  viewEditor: string;
+  viewLabel: string;
+  boardLabel: string;
+  toolbarMore: string;
+  toolbarHide: string;
+  toolbarShow: string;
+  paintDraftDate: string;
   scheduleTitle: string;
   scheduleHint: string;
+  scheduleHelp: string;
   scheduleEmpty: string;
   scheduleAllDay: string;
   scheduleRestOfDay: string;
@@ -251,17 +259,25 @@ const en: Messages = {
   viewSchedule: "Schedule",
   viewTareas: "Tareas",
   viewRush: "Rush",
+  viewEditor: "Color editor",
+  viewLabel: "View",
+  boardLabel: "Board",
+  toolbarMore: "More",
+  toolbarHide: "Hide",
+  toolbarShow: "Show",
+  paintDraftDate: "draft",
   scheduleTitle: "Day schedule",
   scheduleHint:
     "Same people and hours. By name, each block is the position. By time, rows follow start time. By position, each block is the person.",
+  scheduleHelp: "How to read this schedule",
   scheduleEmpty: "No people on this board for this date.",
-  scheduleAllDay: "All day",
-  scheduleRestOfDay: "Rest of day",
+  scheduleAllDay: "Day",
+  scheduleRestOfDay: "Rest",
   scheduleModeLabel: "Schedule range",
   scheduleSortLabel: "Sort",
-  scheduleSortName: "By name",
-  scheduleSortTime: "By time",
-  scheduleSortPosition: "By position",
+  scheduleSortName: "Name",
+  scheduleSortTime: "Time",
+  scheduleSortPosition: "Position",
   scheduleRestRuleToday: "Rest of day from now (Chicago).",
   scheduleRestRuleOther:
     "Not today — columns from the first scheduled hour on this date.",
@@ -495,17 +511,25 @@ const es: Messages = {
   viewSchedule: "Horario",
   viewTareas: "Tareas",
   viewRush: "Más ocupado",
+  viewEditor: "Pintar tablero",
+  viewLabel: "Vista",
+  boardLabel: "Tablero",
+  toolbarMore: "Más",
+  toolbarHide: "Ocultar",
+  toolbarShow: "Mostrar",
+  paintDraftDate: "borrador",
   scheduleTitle: "Horario del día",
   scheduleHint:
     "Las mismas personas y horas. Por nombre, el bloque muestra el puesto. Por hora, las filas siguen la hora de entrada. Por puesto, el bloque muestra a la persona.",
+  scheduleHelp: "Cómo leer este horario",
   scheduleEmpty: "Nadie en este tablero para esta fecha.",
-  scheduleAllDay: "Todo el día",
-  scheduleRestOfDay: "Resto del día",
+  scheduleAllDay: "Día",
+  scheduleRestOfDay: "Resto",
   scheduleModeLabel: "Rango del horario",
   scheduleSortLabel: "Orden",
-  scheduleSortName: "Por nombre",
-  scheduleSortTime: "Por hora",
-  scheduleSortPosition: "Por puesto",
+  scheduleSortName: "Nombre",
+  scheduleSortTime: "Hora",
+  scheduleSortPosition: "Puesto",
   scheduleRestRuleToday: "Resto del día desde ahora (Chicago).",
   scheduleRestRuleOther:
     "Otra fecha — columnas desde la primera hora programada de este día.",

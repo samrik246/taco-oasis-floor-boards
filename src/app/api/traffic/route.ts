@@ -3,30 +3,20 @@ import { z } from "zod";
 import {
   getTrafficState,
   setTrafficEnabled,
-  tickTrafficIfDue,
 } from "@/lib/traffic/service";
 import { isFloorBoardId } from "@/lib/board-config";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const dynamic = "force-dynamic";
 
-/** GET — current meters; ticks simulator if due (15s) when date+hour provided */
+/** The training simulator is dormant; reads never advance its fake meters. */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const date = url.searchParams.get("date") ?? undefined;
-    const hourRaw = url.searchParams.get("hour");
-    const hour = hourRaw != null ? Number(hourRaw) : undefined;
     const boardRaw = url.searchParams.get("board");
     const board =
       boardRaw && isFloorBoardId(boardRaw) ? boardRaw : undefined;
-
-    const state =
-      date != null && hour != null && Number.isFinite(hour)
-        ? await tickTrafficIfDue({ date, hour, board })
-        : await getTrafficState(board);
-
-    return NextResponse.json(state);
+    return NextResponse.json(await getTrafficState(board));
   } catch (e) {
     console.error(e);
     return NextResponse.json(
@@ -43,23 +33,16 @@ const patchSchema = z.object({
   board: z.enum(["caja", "cocina"]).optional(),
 });
 
-/** PATCH — manager training switch. Side effects run only while this is on. */
+/** Retain an off switch for recovery, but do not allow the dormant simulator on. */
 export async function PATCH(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
   try {
     const body = patchSchema.parse(await req.json());
-    const state = await setTrafficEnabled(body.enabled, body.board);
-    if (body.enabled && body.date != null && body.hour != null) {
-      return NextResponse.json(
-        await tickTrafficIfDue({
-          force: true,
-          date: body.date,
-          hour: body.hour,
-          board: body.board,
-        }),
-      );
+    if (body.enabled) {
+      return NextResponse.json({ error: "Training traffic is unavailable" }, { status: 410 });
     }
+    const state = await setTrafficEnabled(body.enabled, body.board);
     return NextResponse.json(state);
   } catch (e) {
     if (e instanceof z.ZodError) {

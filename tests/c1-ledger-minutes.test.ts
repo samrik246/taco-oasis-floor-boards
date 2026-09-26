@@ -5,10 +5,13 @@ import { persistImport } from "@/lib/import/persist-import";
 import { createAssignment } from "@/lib/assignments/service";
 import { getEmployeeWeekHours } from "@/lib/ledger";
 import { PUT as putAssignment } from "@/app/api/assignments/route";
+import { hashManagerCode } from "@/lib/managers/codes";
+import { signManagerSession } from "@/lib/managers/session";
 import { resetScheduleTables, syntheticCsv, type SyntheticRow } from "./helpers/synthetic-schedule";
 
 const prisma = new PrismaClient();
 const D = "2030-05-06";
+let managerToken = "";
 
 const row = (employeeId: string, firstName: string, start: string, end: string): SyntheticRow => ({
   position: "Caja - Regular",
@@ -33,6 +36,10 @@ async function shiftOf(externalId: string, startAfter?: Date) {
 describe("A2: ledger minutes are the overlap of the assigned hour with the shift", () => {
   beforeAll(async () => {
     await resetScheduleTables(prisma);
+    const manager = await prisma.manager.create({
+      data: { name: "A2 Ledger Test Manager", codeHash: hashManagerCode("a2-ledger-test"), active: true },
+    });
+    managerToken = signManagerSession({ id: manager.id, name: manager.name });
     const csv = syntheticCsv([
       row("5101", "Joel", "4:00 pm", "4:30 pm"),
       row("5102", "Karla", "9:30 am", "1:00 pm"),
@@ -45,6 +52,7 @@ describe("A2: ledger minutes are the overlap of the assigned hour with the shift
     await persistImport(await parseScheduleWorkbook(csv, { filename: "a2.csv" }), "a2.csv");
   });
   afterAll(async () => {
+    await prisma.manager.deleteMany({ where: { name: "A2 Ledger Test Manager" } });
     await prisma.$disconnect();
   });
 
@@ -62,7 +70,7 @@ describe("A2: ledger minutes are the overlap of the assigned hour with the shift
       new Request("http://local/api/assignments", {
         method: "PUT",
         body: JSON.stringify({ shiftId: sh.id, stationId: "green2", date: D, hour: 9 }),
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-manager-session": managerToken },
       }),
     );
     expect(res.status).toBe(200);

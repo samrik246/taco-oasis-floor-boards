@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAssignment } from "@/lib/assignments/service";
+import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ const bodySchema = z.object({
  * Returns 422 + violation codes on rule failure.
  */
 export async function PUT(request: Request) {
+  const auth = await requireManagerSession(request);
+  if (!auth.ok) return auth.response;
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);

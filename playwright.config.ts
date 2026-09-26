@@ -5,8 +5,7 @@ const baseURL = `http://127.0.0.1:${PORT}`;
 
 /**
  * Fresh disposable SQLite for e2e — never touches prisma/dev.db.
- * Expects `pnpm build` already run (or builds in webServer).
- * webServer: wipe e2e.db → push+seed → next start on e2e DB.
+ * webServer: wipe e2e.db → push+seed → build this exact tree → start on e2e DB.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -28,8 +27,8 @@ export default defineConfig({
       // Prisma on macOS needs the SQLite file to exist before `db push` opens it.
       "touch prisma/e2e.db",
       'DATABASE_URL="file:./e2e.db" pnpm db:setup',
-      // Build once if .next missing; reuse otherwise for speed
-      "test -d .next || pnpm build",
+      // Never serve a stale .next from an earlier source edit.
+      "pnpm build",
       `DATABASE_URL="file:./e2e.db" pnpm exec next start -H 127.0.0.1 -p ${PORT}`,
     ].join(" && "),
     url: baseURL,

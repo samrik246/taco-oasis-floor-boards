@@ -13,18 +13,17 @@ async function shot(page: Page, name: string) {
 }
 
 async function unlockManager(page: Page) {
-  if (await page.getByTestId("exit-manager").isVisible().catch(() => false)) return;
-  await page.getByTestId("enter-manager").click();
+  if (await page.getByTestId("floor-board").getAttribute("data-role") === "manager") return;
+  await page.getByTestId("compact-manager").click();
   await page.getByTestId("manager-code-input").fill("2468");
   await page.getByTestId("manager-unlock-submit").click();
-  await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera/i);
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
 
 async function lockManager(page: Page) {
-  const exit = page.getByTestId("exit-manager");
-  if (await exit.isVisible().catch(() => false)) {
-    await exit.click();
-    await expect(page.getByTestId("role-badge")).toContainText(/Staff|Personal/i);
+  if (await page.getByTestId("floor-board").getAttribute("data-role") === "manager") {
+    await page.getByTestId("compact-manager").click();
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
   }
 }
 
@@ -48,12 +47,18 @@ async function selectDate(page: Page, targetYmd: string) {
 }
 
 /**
- * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/traffic/tareas.
+ * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/tareas.
  * Uses fresh disposable DB (prisma/e2e.db) via playwright webServer.
  * Also covers bilingual cocina UI, timeline view, manager unlock + idle timeout.
  */
 test.describe("phase 1 cashiers + kitchen smoke", () => {
   test("load sample, cashiers flow, kitchen board extras", async ({ page }) => {
+    await page.route("**/api/managers", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      const body = await response.json() as Record<string, unknown>;
+      await route.fulfill({ response, json: { ...body, idleMs: 120_000 } });
+    });
     const e2eDb = path.resolve(process.cwd(), "prisma/e2e.db");
     expect(fs.existsSync(e2eDb)).toBe(true);
 
@@ -61,7 +66,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
     await expect(page.getByTestId("floor-board")).toBeVisible();
     await expect(page.getByTestId("readonly-badge")).toHaveCount(0);
-    await expect(page.getByTestId("role-badge")).toContainText(/Staff|Personal/i);
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     // Planner C: the floor language is a device preference, default Spanish,
     // independent of the board — not board-derived like Wall mode still is.
     await expect(page.getByTestId("floor-board")).toHaveAttribute(
@@ -69,34 +74,39 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "es",
     );
 
+    await page.getByTestId("toolbar-more").click();
     await page.getByTestId("locale-toggle-en").click();
     await expect(page.getByTestId("floor-board")).toHaveAttribute(
       "data-locale",
       "en",
     );
     await page.reload();
+    await page.getByTestId("toolbar-more").click();
     await expect(page.getByTestId("floor-board")).toHaveAttribute(
       "data-locale",
       "en",
     );
 
     await unlockManager(page);
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
-      timeout: 60_000,
-    });
+    const days = await (await page.request.get("/api/days")).json() as { dates: string[] };
+    if (!days.dates.includes("2026-09-20")) {
+      await page.getByTestId("load-sample").click();
+      await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
+        timeout: 60_000,
+      });
+    }
     await lockManager(page);
+    await unlockManager(page);
 
     await page.getByTestId("board-toggle-caja").click();
     await selectDate(page, "2026-09-20");
+    await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
-    await expect(page.getByTestId("traffic-meters")).toBeVisible();
-    await expect(page.getByTestId("tareas-panel")).toBeVisible();
 
-    // Timeline first-class view
+    // Manager-only color editor replaces the old writable timeline.
     await page.getByTestId("view-toggle-timeline").click();
-    await expect(page.getByTestId("timeline-panel")).toBeVisible();
-    await expect(page.getByTestId("timeline-matrix")).toBeVisible({
+    await expect(page.getByTestId("manager-color-editor")).toBeVisible();
+    await expect(page.getByTestId("paint-matrix")).toBeVisible({
       timeout: 15_000,
     });
 
@@ -187,25 +197,13 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
-
-    const trafficToggle = page.getByTestId("traffic-toggle");
-    await trafficToggle.scrollIntoViewIfNeeded();
-    await expect(trafficToggle).toBeDisabled();
-    await unlockManager(page);
-    await expect(trafficToggle).toBeEnabled({ timeout: 15_000 });
-    await trafficToggle.click({ force: true });
-    await expect(trafficToggle).toBeChecked({ timeout: 5_000 });
-    await expect(page.getByTestId("toast")).toContainText(/Training on|Entrenamiento encendido/i, {
-      timeout: 15_000,
-    });
-    await expect(page.getByTestId("meter-cliente")).toBeVisible();
-    await lockManager(page);
+    await expect(page.getByTestId("traffic-meters")).toHaveCount(0);
 
     // Planner A: Turno completo (whole-shift) is the default, but this step
     // demonstrates the classic one-hour assign+clear+reason flow, which
     // needs the free-at-this-hour list.
     await page.getByTestId("assign-mode-hour").click();
-    await page.getByTestId("hour-12").click();
+    await page.getByTestId("compact-hour").selectOption("12");
 
     const available = page.getByTestId("available-list").locator("button");
     await expect(available.first()).toBeVisible({ timeout: 30_000 });
@@ -220,6 +218,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       { timeout: 15_000 },
     );
 
+    await page.getByTestId("view-toggle-tareas").click();
     await page.getByTestId("tarea-template-select").selectOption("salsa");
     const suggestBtn = page.locator("[data-testid^='suggest-']").first();
     await expect(suggestBtn).toBeVisible({ timeout: 15_000 });
@@ -231,8 +230,9 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       0,
     );
 
-    // Manager unlock required to clear with reason
-    await page.getByTestId("enter-manager").click();
+    // Lock and prove the wrong code cannot regain manager access.
+    await lockManager(page);
+    await page.getByTestId("compact-manager").click();
     await expect(page.getByTestId("manager-unlock-modal")).toBeVisible();
     await page.getByTestId("manager-code-input").fill("0000");
     await page.getByTestId("manager-unlock-submit").click();
@@ -244,6 +244,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera/i, {
       timeout: 10_000,
     });
+    await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("manager-notes")).toBeVisible();
     await expect(page.getByTestId("hours-ledger")).toBeVisible();
 
@@ -257,7 +258,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       { timeout: 15_000 },
     );
 
-    // Kitchen board: Spanish UI + stations + traffic + tareas
+    // Kitchen board: Spanish UI + stations + tareas.
     // Locale is a device preference now, not board-derived — switch it back
     // to Spanish explicitly before asserting the cocina section is Spanish.
     await page.getByTestId("locale-toggle-es").click();
@@ -275,16 +276,15 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("station-taquero")).toBeVisible();
     await expect(page.getByTestId("station-carne")).toBeVisible();
     await expect(page.getByTestId("station-prepa")).toBeVisible();
-    await expect(page.getByTestId("traffic-meters")).toBeVisible();
-    await expect(page.getByTestId("meter-fryer")).toBeVisible();
+    await expect(page.getByTestId("traffic-meters")).toHaveCount(0);
+    await page.getByTestId("view-toggle-tareas").click();
     await expect(page.getByTestId("tareas-panel")).toBeVisible();
     await expect(page.getByTestId("tarea-template-select")).toContainText(
       /Reponer tortillas|Restock tortillas|Prep salsa|Preparar/i,
     );
 
     await page.getByTestId("view-toggle-timeline").click();
-    await expect(page.getByTestId("timeline-panel")).toBeVisible();
-    await expect(page.getByTestId("timeline-title").or(page.getByTestId("timeline-panel"))).toBeVisible();
+    await expect(page.getByTestId("manager-color-editor")).toBeVisible();
 
     // Cocina Schedule UI is Spanish
     await page.getByTestId("view-toggle-schedule").click();
@@ -293,10 +293,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "es",
     );
     await expect(page.getByTestId("schedule-mode-all-day")).toContainText(
-      /Todo el día/i,
+      /Día/i,
     );
     await expect(page.getByTestId("schedule-mode-rest-of-day")).toContainText(
-      /Resto del día/i,
+      /Resto/i,
     );
     await expect(page.getByTestId("schedule-title")).toContainText(/Horario/i);
     await expect(page.getByTestId("schedule-grid")).toBeVisible({
@@ -305,13 +305,13 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
     await expect(page.locator("[data-text-kind='position']").first()).toBeVisible();
     await expect(page.getByTestId("schedule-sort-name")).toContainText(
-      /Por nombre/i,
+      /Nombre/i,
     );
     await expect(page.getByTestId("schedule-sort-position")).toContainText(
-      /Por puesto/i,
+      /Puesto/i,
     );
     await expect(page.getByTestId("schedule-sort-time")).toContainText(
-      /Por hora/i,
+      /Hora/i,
     );
 
     await page.getByTestId("view-toggle-rush").click();
@@ -338,18 +338,6 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "true",
     );
 
-    // Idle timeout returns to staff (MANAGER_IDLE_MS=1500 in playwright config)
-    await page.getByTestId("view-toggle-board").click();
-    await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera|Gerente/i);
-    await page.waitForTimeout(2200);
-    await expect(page.getByTestId("floor-board")).toHaveAttribute(
-      "data-role",
-      "staff",
-      { timeout: 10_000 },
-    );
-    await expect(page.getByTestId("manager-notes")).toHaveCount(0);
-    await expect(page.getByTestId("enter-manager")).toBeVisible();
-
     await page.goto("/?wall=1");
     await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "en");
     await expect(page.getByTestId("wall-station-yellow")).toBeVisible();
@@ -362,9 +350,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");
+    await page.getByTestId("toolbar-more").click();
     await expect(page.getByTestId("readonly-badge")).toBeVisible();
     await expect(page.getByTestId("load-sample")).toBeDisabled();
-    await expect(page.getByTestId("traffic-toggle")).toBeDisabled();
+    await expect(page.getByTestId("compact-manager")).toHaveCount(0);
 
     // Planner G Back office: the position -> station map editor sets and
     // saves one row, and the value persists on reload.
@@ -386,5 +375,15 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("position-select-Caja Manager")).toHaveValue(
       "green1",
     );
+  });
+
+  test("idle manager session returns to the staff schedule", async ({ page }) => {
+    await page.goto("/");
+    await unlockManager(page);
+    await expect(page.getByTestId("manager-color-editor")).toBeVisible();
+    await page.waitForTimeout(2200);
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff", { timeout: 10_000 });
+    await expect(page.getByTestId("manager-color-editor")).toHaveCount(0);
+    await expect(page.getByTestId("schedule-panel")).toBeVisible();
   });
 });
