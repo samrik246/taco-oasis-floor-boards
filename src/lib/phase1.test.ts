@@ -143,16 +143,9 @@ describe("Phase 1: move reasons", () => {
 });
 
 describe("Kitchen phase: board template + seed", () => {
-  it("uses exact station keys fryer/tortilla/birria/taquero/carne/prepa", () => {
+  it("keeps load categories mapped to retained Cocina seats", () => {
     const cocina = getBoardConfig("cocina");
-    expect(cocina.stations.map((s) => s.id)).toEqual([
-      "fryer",
-      "tortilla",
-      "birria",
-      "taquero",
-      "carne",
-      "prepa",
-    ]);
+    expect(cocina.stations).toHaveLength(19);
     expect(KITCHEN_LOAD_STATIONS.map((s) => s.id)).toEqual([
       "fryer",
       "tortilla",
@@ -161,6 +154,12 @@ describe("Kitchen phase: board template + seed", () => {
       "carne",
       "prepa",
     ]);
+    for (const load of KITCHEN_LOAD_STATIONS) {
+      expect(load.seatIds.length).toBeGreaterThan(0);
+      for (const seatId of load.seatIds) {
+        expect(cocina.stations.some((station) => station.id === seatId)).toBe(true);
+      }
+    }
   });
 
   it("has starter kitchen tareas from seed content", () => {
@@ -191,15 +190,15 @@ describe("Kitchen phase: board template + seed", () => {
     }
   });
 
-  it("drafts kitchen return prompts when fryer slammed", () => {
+  it("drafts return prompts for both tortilla and fryer seats when fryer slammed", () => {
     const drafts = draftReturnPrompts({
       meters: [
         { loadStationId: "fryer", level: "slammed" },
         { loadStationId: "tortilla", level: "quiet" },
       ],
       seatAssignees: [
-        { employeeId: "k1", seatId: "fryer", displayName: "Kim" },
-        { employeeId: "k2", seatId: "tortilla", displayName: "Tom" },
+        { employeeId: "k1", seatId: "pdf_tf1r", displayName: "Kim" },
+        { employeeId: "k2", seatId: "pdf_tf2r", displayName: "Tom" },
       ],
       workingTareas: [
         { id: "t1", employeeId: "k1", templateLabel: "Deep clean" },
@@ -207,7 +206,17 @@ describe("Kitchen phase: board template + seed", () => {
       ],
       board: "cocina",
     });
-    expect(drafts.map((d) => d.employeeId)).toEqual(["k1"]);
+    expect(drafts.map((d) => d.employeeId)).toEqual(["k1", "k2"]);
+  });
+
+  it("recognizes tortilla load on the same combined-duty seats", () => {
+    const drafts = draftReturnPrompts({
+      meters: [{ loadStationId: "tortilla", level: "slammed" }],
+      seatAssignees: [{ employeeId: "k1", seatId: "pdf_tf2r", displayName: "Kim" }],
+      workingTareas: [{ id: "t1", employeeId: "k1", templateLabel: "Restock" }],
+      board: "cocina",
+    });
+    expect(drafts.map((d) => d.loadStationId)).toEqual(["tortilla"]);
   });
 
   it("ships default performance questions", () => {

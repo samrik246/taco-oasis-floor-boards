@@ -129,9 +129,12 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     );
     const positionBlock = page.locator("[data-text-kind='position']").first();
     await expect(positionBlock).toBeVisible();
-    await expect(positionBlock).toHaveText(
-      (await positionBlock.getAttribute("data-code")) ?? "",
-    );
+    const fullPositionName = (await positionBlock.getAttribute("title")) ?? "";
+    expect(fullPositionName).not.toBe("");
+    await expect(positionBlock).toHaveText(fullPositionName);
+    expect(fullPositionName).not.toBe((await positionBlock.getAttribute("data-code")) ?? "");
+    await positionBlock.click();
+    await expect(positionBlock.locator("xpath=following-sibling::span")).toHaveText(fullPositionName);
     await page.getByTestId("schedule-sort-position").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
       "data-sort",

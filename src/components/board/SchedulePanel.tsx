@@ -26,7 +26,7 @@ const SHIFT_COL = "left-[10.5rem] w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem]";
 
 /**
  * People × hours schedule.
- * By name (default): sticky person + shift, colored blocks show the position code.
+ * By name (default): sticky person + shift, colored blocks show the full position name.
  * By position: thin section labels, colored blocks show the person’s name.
  * No full-width station banner rows.
  */
@@ -62,6 +62,9 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
 
   const peopleCount =
     grid?.sections.reduce((n, section) => n + section.rows.length, 0) ?? 0;
+  const stationLabels = new Map(
+    (day?.stations ?? []).map((station) => [station.id, displayStationLabel(locale, station)]),
+  );
 
   return (
     <section
@@ -194,7 +197,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                 {grid.hours.map((h) => (
                   <th
                     key={h}
-                    className="min-w-[3.4rem] border-b-2 border-neutral-900 px-0.5 py-1.5 text-center text-xs font-bold"
+                    className="min-w-[9rem] border-b-2 border-neutral-900 px-0.5 py-1.5 text-center text-xs font-bold"
                     scope="col"
                     data-testid={`schedule-hour-${h}`}
                   >
@@ -287,7 +290,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                       >
                         {row.shiftLabel}
                       </td>
-                      {renderRowCells(row, grid.hours)}
+                      {renderRowCells(row, grid.hours, stationLabels)}
                     </tr>
                   ))}
                 </Fragment>
@@ -332,6 +335,7 @@ function renderRowCells(
     }>;
   },
   hours: number[],
+  stationLabels: ReadonlyMap<string, string>,
 ) {
   const cells: ReactNode[] = [];
   let i = 0;
@@ -339,6 +343,8 @@ function renderRowCells(
     const hour = hours[i]!;
     const block = row.blocks.find((b) => b.startHour === hour);
     if (block) {
+      const fullLabel = stationLabels.get(block.stationId) ?? block.code;
+      const visibleText = block.textKind === "position" ? fullLabel : block.text;
       cells.push(
         <td
           key={`${hour}-${block.stationId}`}
@@ -352,11 +358,22 @@ function renderRowCells(
               "flex min-h-9 items-center justify-center rounded-sm px-1 text-center text-[11px] font-extrabold leading-tight tracking-wide",
               stationSolidClass(block.color),
             )}
-            data-text-kind={block.textKind}
-            data-code={block.code}
-            data-person={row.name}
           >
-            {block.text}
+            <details className="group relative w-full">
+              <summary
+                className="cursor-pointer list-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+                data-text-kind={block.textKind}
+                data-code={block.code}
+                data-person={row.name}
+                aria-label={block.textKind === "position" ? fullLabel : `${block.text}: ${fullLabel}`}
+                title={fullLabel}
+              >
+                {visibleText}
+              </summary>
+              <span className="absolute left-0 top-full z-30 hidden min-w-max max-w-72 rounded border border-neutral-900 bg-white px-2 py-1 text-left text-xs font-bold normal-case tracking-normal text-neutral-950 shadow-lg group-open:block group-focus-within:block">
+                {fullLabel}
+              </span>
+            </details>
           </div>
         </td>,
       );

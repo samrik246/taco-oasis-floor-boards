@@ -15,7 +15,7 @@ export type TareaTemplateSeed = {
   /** Warn when assigning to Green/cliente seats (manager can force). */
   lemonWarnOnGreens?: boolean;
   /** Prefer this seat when scoring suggestions (kitchen). */
-  preferSeatId?: string;
+  preferSeatIds?: readonly string[];
   /** Soft-warn when this load station is slammed (manager can still assign). */
   warnIfLoadSlammed?: string;
 };
@@ -169,7 +169,7 @@ export const KITCHEN_TAREA_TEMPLATES: readonly TareaTemplateSeed[] = [
     mode: "normal",
     sortOrder: 2,
     board: "cocina",
-    preferSeatId: "tortilla",
+    preferSeatIds: ["pdf_tf1r", "pdf_tf2r"],
   },
   {
     id: "restock_gloves",
@@ -186,7 +186,7 @@ export const KITCHEN_TAREA_TEMPLATES: readonly TareaTemplateSeed[] = [
     mode: "normal",
     sortOrder: 4,
     board: "cocina",
-    preferSeatId: "fryer",
+    preferSeatIds: ["pdf_tf1r", "pdf_tf2r"],
     warnIfLoadSlammed: "fryer",
   },
   {
@@ -196,7 +196,7 @@ export const KITCHEN_TAREA_TEMPLATES: readonly TareaTemplateSeed[] = [
     mode: "normal",
     sortOrder: 5,
     board: "cocina",
-    preferSeatId: "birria",
+    preferSeatIds: ["pdf_br1a", "pdf_br2a"],
   },
   {
     id: "stock_carne",
@@ -205,7 +205,7 @@ export const KITCHEN_TAREA_TEMPLATES: readonly TareaTemplateSeed[] = [
     mode: "normal",
     sortOrder: 6,
     board: "cocina",
-    preferSeatId: "carne",
+    preferSeatIds: ["pdf_crne"],
   },
   {
     id: "trash_runs",

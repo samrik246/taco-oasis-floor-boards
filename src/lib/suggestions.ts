@@ -60,8 +60,8 @@ function scoreCandidate(
     }
   }
 
-  // Kitchen: prefer seated person on matching station (e.g. restock_tortillas → tortilla)
-  if (seed?.preferSeatId && c.seatId === seed.preferSeatId) {
+  // Kitchen: prefer a seated person on any matching numbered station.
+  if (c.seatId && seed?.preferSeatIds?.includes(c.seatId)) {
     score += 18;
   }
 

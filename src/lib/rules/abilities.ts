@@ -14,7 +14,7 @@ export type AbilitySeed = {
  * - Same-board stations default to `ok`, then position overlays apply.
  * - Position overlays: preferred for role home station; training for Prueba on green1;
  *   Limpieza prefers clean and forbids primary cashier lanes.
- * - Kitchen overlays: fryer/tortilla/birria/taquero/carne/prepa from position text.
+ * - Kitchen overlays use retained numbered seats from position text.
  */
 export function seedAbilitiesFromPositions(positions: string[]): AbilitySeed[] {
   const norms = positions.map((p) => p.trim().toLowerCase());
@@ -93,17 +93,18 @@ function applyCocinaOverlays(
   norms: string[],
   byStation: Map<string, AbilityLevel>,
 ): void {
-  if (norms.some((p) => p.includes("fryer") || p.includes("freidor"))) {
-    byStation.set("fryer", "preferred");
-  }
-  if (norms.some((p) => p.includes("tortilla"))) {
-    byStation.set("tortilla", "preferred");
+  if (norms.some((p) => p.includes("fryer") || p.includes("freidor") || p.includes("tortilla"))) {
+    byStation.set("pdf_tf1r", "preferred");
+    byStation.set("pdf_tf2r", "preferred");
   }
   if (norms.some((p) => p.includes("birria"))) {
-    byStation.set("birria", "preferred");
+    byStation.set("pdf_br1a", "preferred");
+    byStation.set("pdf_br2a", "preferred");
   }
   if (norms.some((p) => p.includes("taquero"))) {
-    byStation.set("taquero", "preferred");
+    byStation.set("pdf_tq1r", "preferred");
+    byStation.set("pdf_tq2r", "preferred");
+    byStation.set("pdf_tq3r", "preferred");
   }
   if (
     norms.some(
@@ -113,10 +114,12 @@ function applyCocinaOverlays(
         p === "produccion",
     )
   ) {
-    byStation.set("carne", "preferred");
+    byStation.set("pdf_crne", "preferred");
   }
   if (norms.some((p) => p.includes("prepa") || p.includes("prep"))) {
-    byStation.set("prepa", "preferred");
+    byStation.set("pdf_pr1e", "preferred");
+    byStation.set("pdf_pr2e", "preferred");
+    byStation.set("pdf_pr3e", "preferred");
   }
 }
 

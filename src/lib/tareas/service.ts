@@ -232,7 +232,7 @@ export async function buildTareaSuggestions(args: {
   );
 
   const defaultSeat =
-    board === "cocina" ? "taquero" : "green1";
+    board === "cocina" ? "pdf_tq1r" : "green1";
 
   const candidates: SuggestionCandidate[] = shifts.map((sh) => {
     const seatId = sh.assignments[0]?.stationId ?? null;
