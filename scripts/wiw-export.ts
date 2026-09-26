@@ -39,6 +39,21 @@
  *   the dialog (or the page) to var/log/wiw-probe-*.aria.yml, mode 600, and
  *   the controls' roles and names to the log. Never clicks Export, saves or
  *   imports nothing, writes no timer. Exit: 6 captured, 5 stopped, 1 error.
+ * `… scripts/wiw-export.ts --mode probe-next-week`
+ *   Read-only: the run's steps up to the dialog, then tries to set the
+ *   dialog to the following Friday through Thursday with the date pickers,
+ *   reads the dates it shows, closes it, reloads and reads the week the
+ *   dialog opens on. Downloads refused; never clicks Export; saves or imports
+ *   nothing; writes no timer. Element screenshots, dialog text and picker
+ *   snapshot go to var/log/wiw-nextweek-*, mode 600. If the dialog then
+ *   reopens on anything but this week, it sets this week back and reads it
+ *   again. Exit: 6 captured, 5 stopped (also when this week could not be put
+ *   back), 1 error.
+ * `… scripts/wiw-export.ts --mode check-dialog`
+ *   Check only: the run's steps up to the dialog, then reads Start and End,
+ *   closes the dialog and logs week=this|next|other|failed. Clicks no date
+ *   button, picker or day, never Export; downloads refused; writes only the
+ *   log. Exit: 6 this week, 5 anything else, 1 error.
  */
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -48,6 +63,8 @@ import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch
 import { acquireReleaseLockForPull, releaseReleaseLock } from "../src/lib/release-lock";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
 import { runProbeDialog } from "../src/lib/wiw-export/probe";
+import { runProbeNextWeek } from "../src/lib/wiw-export/probe-next-week";
+import { runCheckDialog } from "../src/lib/wiw-export/check-dialog";
 import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
 
 const appDir = path.resolve(__dirname, "..");
@@ -91,11 +108,37 @@ async function probeDialog() {
   process.exitCode = result.exitCode;
 }
 
+async function probeNextWeek() {
+  const settings = wiwSettingsFromEnv(appDir);
+  const result = await runProbeNextWeek(settings, {
+    exporter: (probe) => playwrightExporter({ profileDir: settings.profileDir, probe, acceptDownloads: false }),
+    readLogin: () =>
+      readLoginFile(settings.loginFile, {
+        keepOut: [settings.appDir, settings.importDir, settings.profileDir],
+      }),
+  });
+  process.exitCode = result.exitCode;
+}
+
+async function checkDialog() {
+  const settings = wiwSettingsFromEnv(appDir);
+  const result = await runCheckDialog(settings, {
+    exporter: (probe) => playwrightExporter({ profileDir: settings.profileDir, probe, acceptDownloads: false }),
+    readLogin: () =>
+      readLoginFile(settings.loginFile, {
+        keepOut: [settings.appDir, settings.importDir, settings.profileDir],
+      }),
+  });
+  process.exitCode = result.exitCode;
+}
+
 async function main() {
   const [arg, value, extra] = process.argv.slice(2);
   if (arg === "--sign-in") return signInByHand();
   if (arg === "--launch-agent-template") return writeTemplate();
   if (arg === "--mode" && value === "probe-dialog" && extra === undefined) return probeDialog();
+  if (arg === "--mode" && value === "probe-next-week" && extra === undefined) return probeNextWeek();
+  if (arg === "--mode" && value === "check-dialog" && extra === undefined) return checkDialog();
   if (arg !== undefined) throw new SettingsError("UNKNOWN_ARGUMENT");
 
   const settings = wiwSettingsFromEnv(appDir);
