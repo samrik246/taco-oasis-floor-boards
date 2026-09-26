@@ -1,10 +1,23 @@
 import { defineConfig, devices } from "@playwright/test";
-import { mkdtempSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 const PORT = 3100;
 const baseURL = `http://127.0.0.1:${PORT}`;
-const testRoot = mkdtempSync(join(realpathSync("/tmp"), "color-boards-test-"));
+// Playwright reloads this config in workers; keep the runner's database root.
+// Validate an inherited root before the webServer command touches its DB file.
+const tempBase = realpathSync("/tmp");
+const inheritedRoot = process.env.FLOOR_BOARDS_TEST_ROOT;
+if (inheritedRoot && (
+  !isAbsolute(inheritedRoot) ||
+  dirname(inheritedRoot) !== tempBase ||
+  !/^color-boards-test-[A-Za-z0-9]+$/.test(basename(inheritedRoot)) ||
+  realpathSync(inheritedRoot) !== inheritedRoot ||
+  !statSync(inheritedRoot).isDirectory()
+)) {
+  throw new Error("FLOOR_BOARDS_TEST_ROOT must be a real disposable directory");
+}
+const testRoot = inheritedRoot || mkdtempSync(join(tempBase, "color-boards-test-"));
 const testDb = join(testRoot, "e2e.db");
 const databaseUrl = `file:${testDb}`;
 process.env.FLOOR_BOARDS_TEST_ROOT = testRoot;
