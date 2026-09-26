@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { mkdtempSync, realpathSync, statSync } from "node:fs";
+import { closeSync, lstatSync, mkdtempSync, openSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
 const PORT = 3100;
@@ -22,6 +22,18 @@ const testDb = join(testRoot, "e2e.db");
 const databaseUrl = `file:${testDb}`;
 process.env.FLOOR_BOARDS_TEST_ROOT = testRoot;
 
+// Prisma needs a file on macOS. Exclusive creation refuses an existing link;
+// config reloads may reuse only the regular file created by the runner.
+try {
+  closeSync(openSync(testDb, "wx", 0o600));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  const file = lstatSync(testDb);
+  if (!file.isFile() || file.nlink !== 1) {
+    throw new Error("Playwright database must be a regular file with one link");
+  }
+}
+
 /**
  * Fresh absolute SQLite under /private/tmp for e2e. The preload proves every
  * webServer child, including Prisma and Next, resolves to that database.
@@ -42,8 +54,6 @@ export default defineConfig({
   },
   webServer: {
     command: [
-      // Prisma on macOS needs the SQLite file to exist before `db push` opens it.
-      `touch ${testDb}`,
       "pnpm db:setup",
       // Never serve a stale .next from an earlier source edit.
       "pnpm build",
