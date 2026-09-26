@@ -4,6 +4,12 @@
  * the folder import in the job's mode (the timer writes apply), then delete the
  * workbook per the delete rule.
  *
+ * Then the following Friday-through-Thursday, only when this week imported
+ * or came back DUPLICATE: export it, import that file by its own path and
+ * week, delete it. The run's exit code is this week's. A miss on the next
+ * week logs `next=skipped reason=<code>` and leaves the board as this week
+ * left it.
+ *
  * The log gets one line per step: codes, counts and the file name. Never a
  * login field, a person's name, an Employee ID, an email or an error's text.
  */
@@ -19,7 +25,7 @@ import {
   type FolderImportResult,
 } from "@/lib/import/folder-import";
 import { LoginFileError, type WiwLogin } from "./login-file";
-import { expectedDownloadName, exportWeekFor, importFileName, type ExportWeek } from "./week";
+import { expectedDownloadName, exportWeekFor, followingWeek, importFileName, type ExportWeek } from "./week";
 
 export const LOGIN_FILE_ENV = "WIW_LOGIN_FILE";
 export const PROFILE_DIR_ENV = "WIW_BROWSER_PROFILE";
@@ -55,6 +61,16 @@ export type ScheduleExporter = {
    * page that does not match the steps. `note` takes fixed-code log lines only.
    */
   exportWeek(
+    week: ExportWeek,
+    login: () => Promise<WiwLogin>,
+    note?: (line: string) => Promise<void>,
+  ): Promise<DownloadedExport>;
+  /**
+   * Download the following week's export, same contract as `exportWeek`.
+   * Absent until the browser step is written from the next-week probe: the
+   * run then logs `next=skipped reason=NO_BROWSER_STEP`.
+   */
+  exportNextWeek?(
     week: ExportWeek,
     login: () => Promise<WiwLogin>,
     note?: (line: string) => Promise<void>,
@@ -114,18 +130,33 @@ export function wiwSettingsFromEnv(
 const EXPORT_NAME = /^Schedule_for_.+\.(xlsx|csv)$/i;
 const PART_PREFIX = ".wiw-export-";
 
+/** What happened to the following week. Never changes the run's exit code. */
+export type NextWeekOutcome = {
+  status: "imported" | "duplicate" | "skipped";
+  /** Why it was skipped: a fixed code, never page or file text. */
+  reason: string | null;
+  importResult: FolderImportResult | null;
+};
+
 export type WiwExportResult = {
   exitCode: number;
   stop: StopCode | null;
   importResult: FolderImportResult | null;
   /** Whether the workbook this run saved is gone at the end of the run. */
   workbookDeleted: boolean;
+  next: NextWeekOutcome;
 };
+
+export type ImportRunner = (
+  dir: string,
+  now: Date,
+  target?: { file: string; week?: ExportWeek },
+) => Promise<FolderImportResult>;
 
 export type WiwExportDeps = {
   exporter: ScheduleExporter;
   readLogin: () => Promise<WiwLogin>;
-  runImport?: (dir: string, now: Date) => Promise<FolderImportResult>;
+  runImport?: ImportRunner;
   now?: () => Date;
   /** Appends one log line. Tests wrap it to see the folder at the moment each line is written. */
   appendLog?: (file: string, text: string) => Promise<void>;
@@ -162,6 +193,90 @@ export function keepsWorkbook(result: FolderImportResult | null): boolean {
   return result?.outcome === "held";
 }
 
+/** The next week runs only after this week imported or came back DUPLICATE. */
+export function startsNextWeek(result: FolderImportResult): boolean {
+  return result.outcome === "imported" || (result.outcome === "refused" && result.code === "DUPLICATE");
+}
+
+/** The skip reason when this week's import does not start the next week. */
+function thisWeekReason(result: FolderImportResult): string {
+  const code = result.outcome === "refused" ? (result.code ?? "REFUSED") : result.outcome.toUpperCase().replace("-", "_");
+  return `THIS_WEEK_${code}`;
+}
+
+type NextWeekContext = {
+  settings: WiwExportSettings;
+  exporter: ScheduleExporter;
+  login: () => Promise<WiwLogin>;
+  runImport: ImportRunner;
+  now: () => Date;
+  log: (line: string) => Promise<void>;
+};
+
+/**
+ * The following week: export, save under its own name, import that file by its
+ * path and week, delete it. Every miss is `next=skipped` with a code; nothing
+ * here throws, so this week's exit code stands.
+ */
+async function runNextWeek(ctx: NextWeekContext, week: ExportWeek): Promise<NextWeekOutcome> {
+  const { settings, exporter, log } = ctx;
+  const target = path.join(settings.importDir, importFileName(week));
+  const skip = async (reason: string, importResult: FolderImportResult | null = null): Promise<NextWeekOutcome> => {
+    await log(`next=skipped reason=${reason}`).catch(() => undefined);
+    return { status: "skipped", reason, importResult };
+  };
+
+  try {
+    await log(`next start week=${week.friday}..${week.thursday}`);
+    if (!exporter.exportNextWeek) return await skip("NO_BROWSER_STEP");
+
+    try {
+      let download: DownloadedExport;
+      try {
+        download = await exporter.exportNextWeek(week, ctx.login, (line) => log(`next ${line}`));
+      } catch (err) {
+        const stop = err instanceof ExportStop ? err : new ExportStop("PAGE", "STEP");
+        return await skip(`${stop.code}${stop.reason ? `:${stop.reason}` : ""}`);
+      }
+      if (download.suggestedName !== expectedDownloadName(week)) {
+        await download.discard().catch(() => undefined);
+        return await skip("DOWNLOAD_NAME");
+      }
+      const part = path.join(settings.importDir, `${PART_PREFIX}${process.pid}.part`);
+      await download.saveAs(part);
+      await download.discard().catch(() => undefined);
+      await rename(part, target);
+      await log(`next saved file=${path.basename(target)}`);
+    } finally {
+      await exporter.close().catch(() => undefined);
+    }
+
+    let result: FolderImportResult;
+    try {
+      result = await ctx.runImport(settings.importDir, ctx.now(), { file: target, week });
+    } catch {
+      return await skip("IMPORT");
+    }
+    for (const line of formatSummary(result)) await log(`next import ${line}`);
+    if (result.outcome === "imported") {
+      await log("next=imported");
+      return { status: "imported", reason: null, importResult: result };
+    }
+    if (result.outcome === "refused" && result.code === "DUPLICATE") {
+      await log("next=duplicate");
+      return { status: "duplicate", reason: null, importResult: result };
+    }
+    // Held (hold mode) is not confirmed here: the next-week file is deleted like any other miss.
+    const reason = result.outcome === "held" ? "NEEDS_CONFIRM" : (result.code ?? result.outcome.toUpperCase().replace("-", "_"));
+    return await skip(reason, result);
+  } catch {
+    return await skip("ERROR");
+  } finally {
+    await removeIfFile(target).catch(() => false);
+    await sweepPart(settings.importDir).catch(() => undefined);
+  }
+}
+
 export async function runWiwExport(
   settings: WiwExportSettings,
   deps: WiwExportDeps,
@@ -180,6 +295,17 @@ export async function runWiwExport(
     await log(`end exit=${r.exitCode} workbook=${r.workbookDeleted ? "deleted" : "kept"}`);
     return r;
   };
+  const noNext = async (reason: string): Promise<NextWeekOutcome> => {
+    await log(`next=skipped reason=${reason}`).catch(() => undefined);
+    return { status: "skipped", reason, importResult: null };
+  };
+  const login = async () => {
+    try {
+      return await deps.readLogin();
+    } catch (err) {
+      throw new ExportStop("LOGIN", err instanceof LoginFileError ? err.code : "FILE");
+    }
+  };
 
   let saved = false;
   try {
@@ -190,24 +316,20 @@ export async function runWiwExport(
     try {
       let download: DownloadedExport;
       try {
-        download = await deps.exporter.exportWeek(week, async () => {
-          try {
-            return await deps.readLogin();
-          } catch (err) {
-            throw new ExportStop("LOGIN", err instanceof LoginFileError ? err.code : "FILE");
-          }
-        }, log);
+        download = await deps.exporter.exportWeek(week, login, log);
       } catch (err) {
         // A step that threw without a stop code is still a page that did not match.
         const stop = err instanceof ExportStop ? err : new ExportStop("PAGE", "STEP");
         await log(`stop=${stop.code}${stop.reason ? ` reason=${stop.reason}` : ""}`);
-        return await finish({ exitCode: STOP_EXIT, stop: stop.code, importResult: null, workbookDeleted: true });
+        const next = await noNext("THIS_WEEK_STOP");
+        return await finish({ exitCode: STOP_EXIT, stop: stop.code, importResult: null, workbookDeleted: true, next });
       }
 
       if (download.suggestedName !== expectedDownloadName(week)) {
         await download.discard().catch(() => undefined);
         await log("stop=PAGE reason=DOWNLOAD_NAME");
-        return await finish({ exitCode: STOP_EXIT, stop: "PAGE", importResult: null, workbookDeleted: true });
+        const next = await noNext("THIS_WEEK_STOP");
+        return await finish({ exitCode: STOP_EXIT, stop: "PAGE", importResult: null, workbookDeleted: true, next });
       }
 
       // Save under a hidden name first, so the import never reads a half-written file.
@@ -221,32 +343,44 @@ export async function runWiwExport(
       await deps.exporter.close().catch(() => undefined);
     }
 
-    const runImport =
-      deps.runImport ?? ((dir: string, at: Date) => runFolderImport({ dir, mode: settings.importMode }, { now: at }));
+    const runImport: ImportRunner =
+      deps.runImport ??
+      ((dir, at, one) => runFolderImport({ dir, mode: settings.importMode }, { now: at, file: one?.file, week: one?.week }));
     let result: FolderImportResult;
     try {
-      result = await runImport(settings.importDir, now());
+      result = await runImport(settings.importDir, now(), { file: target });
     } catch {
       await log("import error=IMPORT");
       const deleted = await removeIfFile(target);
-      return await finish({ exitCode: 1, stop: null, importResult: null, workbookDeleted: deleted });
+      const next = await noNext("THIS_WEEK_ERROR");
+      return await finish({ exitCode: 1, stop: null, importResult: null, workbookDeleted: deleted, next });
     }
     for (const line of formatSummary(result)) await log(`import ${line}`);
 
     const keep = keepsWorkbook(result);
     if (!keep) await removeIfFile(target);
+    const next = startsNextWeek(result)
+      ? await runNextWeek({ settings, exporter: deps.exporter, login, runImport, now, log }, followingWeek(week))
+      : await noNext(thisWeekReason(result));
     return await finish({
       exitCode: EXIT_CODES[result.outcome],
       stop: null,
       importResult: result,
       workbookDeleted: !keep,
+      next,
     });
   } catch {
     // Folder or log trouble. Log the code only, then take the workbook away.
     await log("error=RUN").catch(() => undefined);
     const deleted = saved ? await removeIfFile(target).catch(() => false) : true;
     await sweepPart(settings.importDir).catch(() => undefined);
-    const r: WiwExportResult = { exitCode: 1, stop: null, importResult: null, workbookDeleted: deleted };
+    const r: WiwExportResult = {
+      exitCode: 1,
+      stop: null,
+      importResult: null,
+      workbookDeleted: deleted,
+      next: { status: "skipped", reason: "THIS_WEEK_ERROR", importResult: null },
+    };
     return await finish(r).catch(() => r);
   }
 }
