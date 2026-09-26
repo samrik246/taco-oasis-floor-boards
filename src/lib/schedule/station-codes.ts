@@ -43,6 +43,7 @@ export function stationSolidClass(color: string): string {
     cyan: "bg-cyan-400 text-cyan-950",
     red: "bg-red-500 text-white",
     brown: "bg-amber-600 text-white",
+    maroon: "bg-[#8c1a11] text-white",
   };
   return map[color] ?? "bg-neutral-300 text-neutral-950";
 }

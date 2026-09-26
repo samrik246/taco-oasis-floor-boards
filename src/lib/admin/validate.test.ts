@@ -165,3 +165,21 @@ describe("manager secrets and seat conflicts", () => {
     ).toMatch(/already on a station/);
   });
 });
+
+describe("station colors", () => {
+  it("accepts maroon", () => {
+    const result = validateStationWrite(
+      {
+        id: "expo",
+        label: "Expo",
+        color: "maroon",
+        shortCode: "EXP",
+        board: "cocina",
+        sortOrder: 8,
+      },
+      { id: "expo", creating: true, others },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.color).toBe("maroon");
+  });
+});

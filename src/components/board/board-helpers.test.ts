@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shiftsForWholeDay } from "./board-helpers";
+import { shiftsForWholeDay, stationColorClass } from "./board-helpers";
 import type { ShiftDto } from "./types";
 
 function shift(over: Partial<ShiftDto> & { id: string }): ShiftDto {
@@ -52,5 +52,15 @@ describe("shiftsForWholeDay (Planner A Turno completo list)", () => {
     const amy = shift({ id: "s2", employee: { id: "e2", externalId: "e2", firstName: "Amy", lastName: "A", email: null, abilities: [] } });
     const list = shiftsForWholeDay([zed, amy]);
     expect(list.map((s) => s.id)).toEqual(["s2", "s1"]);
+  });
+});
+
+describe("stationColorClass", () => {
+  it("paints maroon cells #8c1a11 with white text", () => {
+    expect(stationColorClass("maroon")).toBe("bg-[#8c1a11] border-red-950 text-white");
+  });
+
+  it("leaves red unchanged", () => {
+    expect(stationColorClass("red")).toBe("bg-red-200 border-red-800 text-red-950");
   });
 });
