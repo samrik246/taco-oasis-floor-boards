@@ -1,11 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 
 const PORT = 3100;
 const baseURL = `http://127.0.0.1:${PORT}`;
+const testRoot = mkdtempSync(join(realpathSync("/tmp"), "color-boards-test-"));
+const testDb = join(testRoot, "e2e.db");
+const databaseUrl = `file:${testDb}`;
 
 /**
- * Fresh disposable SQLite for e2e — never touches prisma/dev.db.
- * webServer: wipe e2e.db → push+seed → build this exact tree → start on e2e DB.
+ * Fresh absolute SQLite under /private/tmp for e2e. The preload proves every
+ * webServer child, including Prisma and Next, resolves to that database.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -23,20 +28,21 @@ export default defineConfig({
   },
   webServer: {
     command: [
-      "rm -f prisma/e2e.db prisma/e2e.db-journal prisma/e2e.db-wal prisma/e2e.db-shm",
       // Prisma on macOS needs the SQLite file to exist before `db push` opens it.
-      "touch prisma/e2e.db",
-      'DATABASE_URL="file:./e2e.db" pnpm db:setup',
+      `touch ${testDb}`,
+      "pnpm db:setup",
       // Never serve a stale .next from an earlier source edit.
       "pnpm build",
-      `DATABASE_URL="file:./e2e.db" pnpm exec next start -H 127.0.0.1 -p ${PORT}`,
+      `pnpm exec next start -H 127.0.0.1 -p ${PORT}`,
     ].join(" && "),
     url: baseURL,
     reuseExistingServer: false,
     timeout: 300_000,
     env: {
       ...process.env,
-      DATABASE_URL: "file:./e2e.db",
+      DATABASE_URL: databaseUrl,
+      FLOOR_BOARDS_TEST_ROOT: testRoot,
+      NODE_OPTIONS: `--require=${join(process.cwd(), "scripts/test-db-guard.cjs")}`,
       DEMO_MANAGER_CODES: "1",
       MANAGER_SESSION_SECRET: "playwright-manager-session-secret-000000",
       // Short idle so manager→staff timeout e2e stays fast

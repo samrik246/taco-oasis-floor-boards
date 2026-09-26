@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { chicagoDateTime } from "@/lib/time";
 import { paintAssignments, type PaintEdit } from "@/lib/assignments/paint";
+import { PAINT_FAMILIES, type PaintFamily } from "@/lib/assignments/paint-families";
 
 const prisma = new PrismaClient();
 const date = "2030-09-25";
@@ -19,6 +20,17 @@ const nieves2 = "nieves2";
 const createdFamilyStations = new Set<string>();
 const startAt = chicagoDateTime(date, "7:30 am");
 const endAt = chicagoDateTime(date, "10:15 am");
+const familyBoards: { family: PaintFamily; board: "caja" | "cocina" }[] = [
+  { family: "green", board: "caja" },
+  { family: "purple", board: "caja" },
+  { family: "nieves", board: "caja" },
+  { family: "yellow", board: "caja" },
+  { family: "preparacion", board: "cocina" },
+  { family: "tortillaFreidora", board: "cocina" },
+  { family: "taquero", board: "cocina" },
+  { family: "birria", board: "cocina" },
+  { family: "trastes", board: "cocina" },
+];
 
 function edit(hour: number, stationId: string | null, expected: PaintEdit["expected"] = null): PaintEdit {
   return {
@@ -240,5 +252,65 @@ describe("manager color paint transaction", () => {
     expect(result).toEqual({ ok: true, saved: 2 });
     const rows = await prisma.assignment.findMany({ where: { shiftId }, orderBy: { hourStart: "asc" } });
     expect(rows.map((row) => row.stationId)).toEqual([trastes[1], trastes[1]]);
+  });
+
+  it.each(familyBoards)("allocates $family only among its explicit $board members and honors an exact slot", async ({ family, board }) => {
+    const ids = PAINT_FAMILIES[family];
+    if (board === "cocina") {
+      await prisma.shift.updateMany({ where: { id: { in: [shiftId, otherShiftId] } }, data: { board } });
+    }
+    for (const [index, id] of ids.entries()) {
+      if (!await prisma.station.findUnique({ where: { id } })) createdFamilyStations.add(id);
+      await prisma.station.upsert({ where: { id },
+        create: { id, board, label: `${family} ${index + 1}`, color: index === 0 ? "green" : "lime",
+          maxConcurrent: 1, sortOrder: 70 + index },
+        update: { board, maxConcurrent: 1 },
+      });
+    }
+    await putAssignment(`paint-test-${family}-occupied`, otherEmployeeId, otherShiftId, ids[0], 8);
+    const result = await paintAssignments({ board, date, edits: [
+      { ...edit(8, null), family }, edit(9, ids[0]),
+    ] }, chicagoDateTime(date, "6:00 am"));
+    expect(result).toEqual({ ok: true, saved: 2 });
+    const saved = await prisma.assignment.findMany({ where: { shiftId }, orderBy: { hourStart: "asc" } });
+    expect(saved.map((row) => row.stationId)).toEqual([ids[1], ids[0]]);
+  });
+
+  it("moves a forbidden current family slot to an eligible member without losing its number or color", async () => {
+    for (const [id, color] of [["green1", "green"], ["green2", "lime"]]) {
+      if (!await prisma.station.findUnique({ where: { id } })) createdFamilyStations.add(id);
+      await prisma.station.upsert({ where: { id },
+        create: { id, board: "caja", label: id === "green2" ? "Green 2 / Jolt" : "Green 1",
+          color, maxConcurrent: 1, sortOrder: id === "green1" ? 1 : 2 },
+        update: { board: "caja", color, maxConcurrent: 1 },
+      });
+    }
+    await putAssignment("paint-test-green-current", employeeId, shiftId, "green1", 8);
+    await prisma.employeeStationAbility.create({ data: { employeeId, stationId: "green1", level: "forbidden" } });
+    const result = await paintAssignments({ board: "caja", date, edits: [
+      { ...edit(8, null, { id: "paint-test-green-current", stationId: "green1" }), family: "green" },
+    ] }, chicagoDateTime(date, "6:00 am"));
+    expect(result).toEqual({ ok: true, saved: 1 });
+    expect((await prisma.assignment.findUniqueOrThrow({ where: { id: "paint-test-green-current" } })).stationId).toBe("green2");
+    expect((await prisma.station.findUniqueOrThrow({ where: { id: "green2" } })).color).toBe("lime");
+  });
+
+  it("refuses an incomplete family as a conflict without saving another edited hour", async () => {
+    if (!await prisma.station.findUnique({ where: { id: "green1" } })) createdFamilyStations.add("green1");
+    if (!await prisma.station.findUnique({ where: { id: "green2" } })) createdFamilyStations.add("green2");
+    await prisma.station.upsert({ where: { id: "green1" },
+      create: { id: "green1", board: "caja", label: "Green 1", color: "green", maxConcurrent: 1, sortOrder: 1 },
+      update: { board: "caja", maxConcurrent: 1 },
+    });
+    await prisma.station.upsert({ where: { id: "green2" },
+      create: { id: "green2", board: "cocina", label: "Green 2 / Jolt", color: "lime", maxConcurrent: 1, sortOrder: 2 },
+      update: { board: "cocina", maxConcurrent: 1 },
+    });
+    const result = await paintAssignments({ board: "caja", date, edits: [
+      edit(7, stationA), { ...edit(8, null), family: "green" },
+    ] }, chicagoDateTime(date, "6:00 am"));
+    expect(result).toEqual({ ok: false, status: 409, code: "BOARD_CHANGED",
+      message: "This position family changed. Refresh the board and review the painted hours." });
+    expect(await prisma.assignment.count({ where: { shiftId } })).toBe(0);
   });
 });

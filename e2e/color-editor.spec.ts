@@ -66,21 +66,46 @@ async function stageOpenHour(page: Page) {
 test.describe("condensed staff board and manager color editor", () => {
   test.use({ viewport: { width: 820, height: 1080 } });
 
-  test("numbered Nieves rows present one private grouped paint choice", async ({ page }) => {
-    await page.route("**/api/boards/caja/days/2026-09-20", async (route) => {
+  test("all numbered families show Auto beside their distinct numbered slots", async ({ page }) => {
+    const families = {
+      caja: {
+        green: [["green1", "Green 1", "green"], ["green2", "Green 2 / Jolt", "lime"]],
+        purple: [["purple1", "Purple 1", "purple"], ["purple2", "Purple 2", "lavender"]],
+        nieves: [["nieves", "Nieves 1", "teal"], ["nieves2", "Nieves 2", "teal"]],
+        yellow: [["yellow", "Yellow / Outside", "yellow"], ["yellow2", "Yellow 2", "yellow"]],
+      },
+      cocina: {
+        preparacion: [["pdf_pr1e", "Preparación 1", "lime"], ["pdf_pr2e", "Preparación 2", "green"], ["pdf_pr3e", "Preparación 3", "green"]],
+        tortillaFreidora: [["pdf_tf1r", "Tortilla Freidora 1", "yellow"], ["pdf_tf2r", "Tortilla Freidora 2", "yellow"]],
+        taquero: [["pdf_tq1r", "Taquero 1 + Relleno", "pink"], ["pdf_tq2r", "Taquero 2 + Relleno", "red"], ["pdf_tq3r", "Taquero 3", "maroon"]],
+        birria: [["pdf_br1a", "Birria 1", "brown"], ["pdf_br2a", "Birria 2", "orange"]],
+        trastes: [["pdf_tsrea", "Trastes + Tareas 1", "gray"], ["pdf_tsr2", "Trastes 2", "gray"], ["pdf_tsr3", "Trastes + Tareas 3", "gray"], ["pdf_tsr4", "Trastes + Tareas 4", "gray"]],
+      },
+    } as const;
+    await page.route("**/api/boards/*/days/2026-09-20", async (route) => {
       const response = await route.fetch();
-      const day = await response.json() as { stations: { id: string; label: string; sortOrder: number; shortCode?: string }[] };
-      const nieves = day.stations.find((station) => station.id === "nieves")!;
-      nieves.label = "Nieves 1";
-      nieves.shortCode = "NIE1";
-      day.stations.push({ ...nieves, id: "nieves2", label: "Nieves 2", shortCode: "NIE2", sortOrder: nieves.sortOrder + 1 });
+      const day = await response.json() as { stations: { id: string; label: string; color: string; sortOrder: number; shortCode?: string }[] };
+      const board = route.request().url().includes("/cocina/") ? "cocina" : "caja";
+      const template = day.stations[0]!;
+      for (const members of Object.values(families[board])) {
+        for (const [id, label, color] of members) {
+          const station = day.stations.find((candidate) => candidate.id === id);
+          if (station) Object.assign(station, { label, color });
+          else day.stations.push({ ...template, id, label, color, sortOrder: day.stations.length + 100 });
+        }
+      }
       await route.fulfill({ response, json: day });
     });
     await page.goto("/");
     await loadSample(page);
-    await expect(page.getByTestId("paint-palette-family:nieves")).toBeVisible();
-    await expect(page.getByTestId("paint-palette-nieves")).toHaveCount(0);
-    await expect(page.getByTestId("paint-palette-nieves2")).toHaveCount(0);
+    for (const [family, members] of Object.entries(families.caja)) {
+      await expect(page.getByTestId(`paint-palette-family:${family}`)).toBeVisible();
+      for (const [id] of members) await expect(page.getByTestId(`paint-palette-${id}`)).toBeVisible();
+    }
+    await expect(page.getByTestId("paint-palette-family:green")).toContainText("Green 2 / Jolt (lime)");
+    await expect(page.getByTestId("paint-palette-family:yellow")).toContainText("Yellow / Outside (yellow)");
+    await page.getByTestId("paint-palette-green2").click();
+    await expect(page.getByTestId("paint-selected")).toContainText("Green 2 / Jolt");
     await page.getByTestId("paint-palette-family:nieves").click();
     await page.getByTestId("paint-matrix").locator("td[data-kind='open'] button").first().click();
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
@@ -90,6 +115,55 @@ test.describe("condensed staff board and manager color editor", () => {
     expect(draft.flatMap((item) => item.edits)).toEqual(expect.arrayContaining([
       expect.objectContaining({ family: "nieves", stationId: null }),
     ]));
+    await page.reload();
+    await unlock(page);
+    await page.getByTestId("compact-date").selectOption("2026-09-20");
+    await expect(page.getByTestId("paint-restored")).toBeVisible();
+    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+    await page.screenshot({ path: "test-results/nine-family-caja.png", fullPage: true });
+    await page.getByTestId("compact-board").selectOption("cocina");
+    for (const [family, members] of Object.entries(families.cocina)) {
+      await expect(page.getByTestId(`paint-palette-family:${family}`)).toBeVisible();
+      for (const [id] of members) await expect(page.getByTestId(`paint-palette-${id}`)).toBeVisible();
+    }
+    await expect(page.getByTestId("paint-palette-family:taquero")).toContainText("Taquero 1 + Relleno (pink)");
+    await expect(page.getByTestId("paint-palette-family:taquero")).toContainText("Taquero 3 (maroon)");
+    await page.screenshot({ path: "test-results/nine-family-cocina.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const id of ["family:taquero", "pdf_tq1r", "pdf_tq3r", "family:trastes", "pdf_tsrea", "pdf_tsr4"]) {
+      const choice = page.getByTestId(`paint-palette-${id}`);
+      await choice.scrollIntoViewIfNeeded();
+      await expect(choice).toBeInViewport();
+      const size = await choice.evaluate((element) => ({
+        width: element.getBoundingClientRect().width,
+        contentWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }));
+      expect(size.width).toBeGreaterThanOrEqual(130);
+      expect(size.width).toBeLessThanOrEqual(200);
+      expect(size.scrollWidth).toBeLessThanOrEqual(size.contentWidth + 1);
+    }
+    await page.getByTestId("paint-palette-family:taquero").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "test-results/nine-family-cocina-phone-taquero.png" });
+    await page.getByTestId("paint-palette-family:trastes").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "test-results/nine-family-cocina-phone-trastes.png" });
+  });
+
+  test("an incomplete family leaves its concrete slot available without offering Auto", async ({ page }) => {
+    await page.route("**/api/boards/caja/days/2026-09-20", async (route) => {
+      const response = await route.fetch();
+      const day = await response.json() as { stations: { id: string; label: string; color: string; sortOrder: number }[] };
+      const first = day.stations[0]!;
+      day.stations = day.stations.filter((station) => station.id !== "green2");
+      if (!day.stations.some((station) => station.id === "green1")) {
+        day.stations.push({ ...first, id: "green1", label: "Green 1", color: "green", sortOrder: 100 });
+      }
+      await route.fulfill({ response, json: day });
+    });
+    await page.goto("/");
+    await loadSample(page);
+    await expect(page.getByTestId("paint-palette-family:green")).toHaveCount(0);
+    await expect(page.getByTestId("paint-palette-green1")).toBeVisible();
   });
 
   test("staff sees a compact schedule; painted cells publish only on Guardar", async ({ page }) => {

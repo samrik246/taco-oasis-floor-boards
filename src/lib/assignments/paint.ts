@@ -149,14 +149,13 @@ export async function paintAssignments(
         if (edit.family) {
           const familyStations = PAINT_FAMILIES[edit.family];
           if (familyStations.some((id) => byStation.get(id)?.board !== request.board)) {
-            return invalid("STATION_BOARD_MISMATCH", "The numbered positions are not available on this board.");
+            return conflict("This position family changed. Refresh the board and review the painted hours.");
           }
           if (current && (familyStations as readonly string[]).includes(current.stationId)) {
-            if (abilityByKey.get(`${shift.employeeId}|${current.stationId}`) === "forbidden") {
-              return invalid("FORBIDDEN_ABILITY", "This person cannot work in that position.");
+            if (abilityByKey.get(`${shift.employeeId}|${current.stationId}`) !== "forbidden") {
+              familyAnchors.push({ shiftId: shift.id, hour: edit.hour, family: edit.family, stationId: current.stationId });
+              continue;
             }
-            familyAnchors.push({ shiftId: shift.id, hour: edit.hour, family: edit.family, stationId: current.stationId });
-            continue;
           }
         } else if (edit.stationId === current?.stationId || (edit.stationId == null && current == null)) {
           continue;

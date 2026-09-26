@@ -8,7 +8,7 @@ import { displayStationLabel, moveReasonLabel, type Locale, type Messages } from
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
-import { PAINT_FAMILIES, familyForStation, type PaintFamily } from "@/lib/assignments/paint-families";
+import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
@@ -32,11 +32,11 @@ type Props = {
 
 type Draft = Record<string, PaintEdit>;
 type PendingReason = { edit: PaintEdit; name: string; from: string };
-type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string };
+type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string | null; detail?: string };
 
 function familyChoice(id: string): PaintFamily | null {
   const name = id.startsWith("family:") ? id.slice(7) : null;
-  return name === "nieves" || name === "trastes" ? name : null;
+  return isPaintFamily(name) ? name : null;
 }
 
 function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
@@ -46,12 +46,12 @@ function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
   );
   return day.stations.flatMap((station): PaletteChoice[] => {
     const family = familyForStation(station.id);
-    if (family && complete.includes(family)) {
-      if (station.id !== PAINT_FAMILIES[family][0]) return [];
-      return [{ id: `family:${family}`, stationIds: PAINT_FAMILIES[family],
-        label: family === "nieves" ? "Nieves" : "Trastes", color: station.color }];
-    }
-    return [{ id: station.id, stationIds: [station.id], label: station.label, color: station.color }];
+    const exact = { id: station.id, stationIds: [station.id], label: station.label, color: station.color };
+    if (!family || !complete.includes(family) || station.id !== PAINT_FAMILIES[family][0]) return [exact];
+    const members = PAINT_FAMILIES[family].map((id) => day.stations.find((candidate) => candidate.id === id)!);
+    return [{ id: `family:${family}`, stationIds: PAINT_FAMILIES[family],
+      label: PAINT_FAMILY_LABELS[family], color: null,
+      detail: members.map((member) => `${member.label} (${member.color})`).join(" · ") }, exact];
   });
 }
 
@@ -117,7 +117,8 @@ export function ManagerColorEditor({
     title: "Pintar posiciones",
     palette: "Puestos y colores",
     erase: "Borrar",
-    pick: "Elige un puesto o Borrar, luego toca una hora.",
+    pick: "Elige una familia para número automático o un puesto específico; luego toca una hora.",
+    auto: "Auto",
     selected: "Seleccionado",
     pending: (n: number) => `${n} cambio${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}; el personal ve solo lo guardado.`,
     saved: "Guardado. El personal puede ver los cambios.",
@@ -141,7 +142,8 @@ export function ManagerColorEditor({
     title: "Color positions",
     palette: "Positions and colors",
     erase: "Erase",
-    pick: "Pick a position or Erase, then tap one hour.",
+    pick: "Pick a family for an automatic number or a specific position, then tap an hour.",
+    auto: "Auto",
     selected: "Selected",
     pending: (n: number) => `${n} pending change${n === 1 ? "" : "s"}; staff see saved assignments only.`,
     saved: "Saved. Staff can see the changes.",
@@ -308,7 +310,7 @@ export function ManagerColorEditor({
         const shift = day?.shifts.find((candidate) => candidate.id === edit.shiftId);
         const target = day?.stations.find((station) => station.id === edit.stationId);
         return <li key={draftKey(edit.shiftId, edit.hour)} className="flex flex-wrap items-center justify-between gap-2 rounded border border-red-800 px-2 py-1 text-sm">
-          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {edit.family ? (edit.family === "nieves" ? "Nieves" : "Trastes") : target ? displayStationLabel(locale, target) : edit.stationId ?? copy.erase}</span>
+          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {edit.family ? PAINT_FAMILY_LABELS[edit.family] : target ? displayStationLabel(locale, target) : edit.stationId ?? copy.erase}</span>
           <button type="button" className="touch-target min-h-11 rounded border border-red-800 px-2 font-bold" onClick={() => {
             const next = { ...draftState.draft };
             delete next[draftKey(edit.shiftId, edit.hour)];
@@ -322,8 +324,9 @@ export function ManagerColorEditor({
           <div className="flex gap-2 overflow-x-auto pb-1 md:max-h-[65vh] md:flex-col md:overflow-y-auto" data-testid="paint-palette">
             {choices.map((choice) => {
               const people = day ? choice.stationIds.flatMap((id) => assignmentsAtStationHour(day.shifts, id, date, selectedHour).map(({ shift }) => displayName(shift))) : [];
-              return <button key={choice.id} type="button" className={cn("touch-target min-h-11 rounded-md border-2 px-2 py-2 text-left text-sm font-bold md:w-full", stationColorClass(choice.color), selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`}>
-                <span className="block">{choice.id.startsWith("family:") ? choice.label : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
+              return <button key={choice.id} type="button" className={cn("touch-target min-h-11 w-48 shrink-0 rounded-md border-2 px-2 py-2 text-left text-sm font-bold md:w-full", choice.color ? stationColorClass(choice.color) : "border-neutral-800 bg-neutral-100 text-neutral-950", selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`}>
+                <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
+                {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
                 <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
               </button>;
             })}
@@ -349,7 +352,7 @@ export function ManagerColorEditor({
                 const station = day?.stations.find((s) => s.id === stationId);
                 const label = edit?.family && edit.expected?.stationId === cell.stationId ?
                   (station ? displayStationLabel(locale, station) : cell.stationId ?? "") :
-                  edit?.family ? (edit.family === "nieves" ? "Nieves · auto" : "Trastes · auto") :
+                  edit?.family ? `${PAINT_FAMILY_LABELS[edit.family]} · ${copy.auto}` :
                     station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
                   {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
