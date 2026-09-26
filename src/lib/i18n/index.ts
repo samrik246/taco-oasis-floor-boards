@@ -56,6 +56,19 @@ export function displayStationLabel(
   return stationLabel(locale, station.id, station.label);
 }
 
+/** Resolve a station ID to the current saved label, without exposing unknown IDs in the UI. */
+export function boardStationLabel(
+  locale: Locale,
+  stationId: string,
+  stations: readonly { id: string; label: string }[],
+): string {
+  const saved = stations.find((station) => station.id === stationId);
+  if (saved) return displayStationLabel(locale, saved);
+  const seed = ALL_STATIONS.find((station) => station.id === stationId);
+  if (seed) return stationLabel(locale, stationId, seed.label);
+  return locale === "es" ? "Estación desconocida" : "Unknown station";
+}
+
 export function displayTareaLabel(
   locale: Locale,
   template: { id: string; label: string },

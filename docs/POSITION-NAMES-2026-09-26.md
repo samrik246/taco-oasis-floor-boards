@@ -35,3 +35,10 @@ imports seed abilities against the retained numbered seats.
 The schedule grid displays each saved full label in name/time sort. Its code
 remains in `data-code`, and the cell can be opened by tap or keyboard to inspect
 the label again.
+
+The traffic meter's seat list, tarea suggestions, and violation banner resolve
+station IDs through the current board's saved labels. A saved label takes
+precedence over the seed name; an unknown station displays a localized generic
+name. Violation messages use the localized rule text so an embedded station ID
+does not leak into the banner. The manager paint view also resolves old draft
+references before showing them.

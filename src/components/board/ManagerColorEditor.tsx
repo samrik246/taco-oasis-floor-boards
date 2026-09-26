@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourStart } from "@/lib/hour-grid";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
-import { displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
+import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
@@ -310,7 +310,7 @@ export function ManagerColorEditor({
         const shift = day?.shifts.find((candidate) => candidate.id === edit.shiftId);
         const target = day?.stations.find((station) => station.id === edit.stationId);
         return <li key={draftKey(edit.shiftId, edit.hour)} className="flex flex-wrap items-center justify-between gap-2 rounded border border-red-800 px-2 py-1 text-sm">
-          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {edit.family ? PAINT_FAMILY_LABELS[edit.family] : target ? displayStationLabel(locale, target) : edit.stationId ?? copy.erase}</span>
+          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {edit.family ? PAINT_FAMILY_LABELS[edit.family] : target ? displayStationLabel(locale, target) : edit.stationId ? boardStationLabel(locale, edit.stationId, day?.stations ?? []) : copy.erase}</span>
           <button type="button" className="touch-target min-h-11 rounded border border-red-800 px-2 font-bold" onClick={() => {
             const next = { ...draftState.draft };
             delete next[draftKey(edit.shiftId, edit.hour)];
@@ -351,7 +351,7 @@ export function ManagerColorEditor({
                 const stationId = edit ? edit.stationId : cell.stationId;
                 const station = day?.stations.find((s) => s.id === stationId);
                 const label = edit?.family && edit.expected?.stationId === cell.stationId ?
-                  (station ? displayStationLabel(locale, station) : cell.stationId ?? "") :
+                  (station ? displayStationLabel(locale, station) : cell.stationId ? boardStationLabel(locale, cell.stationId, day?.stations ?? []) : "") :
                   edit?.family ? `${PAINT_FAMILY_LABELS[edit.family]} · ${copy.auto}` :
                     station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>

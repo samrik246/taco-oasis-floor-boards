@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { displayTareaLabel, type Locale, type Messages } from "@/lib/i18n";
+import { boardStationLabel, displayTareaLabel, type Locale, type Messages } from "@/lib/i18n";
+import type { StationDto } from "./types";
 
 export type TareaTemplateDto = {
   id: string;
@@ -37,6 +38,7 @@ type Props = {
   templates: TareaTemplateDto[];
   assignments: TareaAssignmentDto[];
   suggestions: SuggestionDto[];
+  stations: readonly StationDto[];
   selectedTemplateId: string | null;
   onSelectTemplate: (id: string) => void;
   onAssign: (employeeId: string, forceLemon: boolean) => void;
@@ -52,6 +54,7 @@ export function TareasPanel({
   templates,
   assignments,
   suggestions,
+  stations,
   selectedTemplateId,
   onSelectTemplate,
   onAssign,
@@ -141,7 +144,9 @@ export function TareasPanel({
                 {s.displayName}
               </span>
               <span className="text-xs font-medium text-neutral-600">
-                {s.seatId ?? "—"}
+                {s.seatId
+                  ? boardStationLabel(locale, s.seatId, stations)
+                  : "—"}
               </span>
             </button>
           ))}

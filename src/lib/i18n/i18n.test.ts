@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   abilityLevelLabel,
+  boardStationLabel,
   boardDisplayName,
   localeForBoard,
   messagesFor,
@@ -37,6 +38,13 @@ describe("i18n board locale", () => {
     expect(messagesFor("en").cashiers).toBe("Cashiers");
     expect(messagesFor("en").viewSchedule).toBe("Schedule");
     expect(messagesFor("en").scheduleAllDay).toBe("Day");
+  });
+
+  it("shows current saved station names and keeps unknown IDs out of visible text", () => {
+    const stations = [{ id: "pdf_tf1r", label: "Freidora y tortilla principal" }];
+    expect(boardStationLabel("es", "pdf_tf1r", stations)).toBe("Freidora y tortilla principal");
+    expect(boardStationLabel("es", "pdf_tf2r", stations)).toBe("Tortilla y freidora 2");
+    expect(boardStationLabel("es", "retired_missing_seat", stations)).toBe("Estación desconocida");
   });
 
   it("translates every ability level, never the raw code, in both locales", () => {
