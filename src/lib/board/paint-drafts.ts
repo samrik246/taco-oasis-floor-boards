@@ -1,4 +1,5 @@
 import type { PaintEdit } from "@/lib/assignments/paint";
+import { isPaintFamily } from "@/lib/assignments/paint-families";
 
 const PREFIX = "taco-oasis-paint-draft-v1";
 
@@ -36,7 +37,8 @@ function validEdit(value: unknown): value is PaintEdit {
     (edit.expected === null || (
       edit.expected != null && typeof edit.expected.id === "string" &&
       typeof edit.expected.stationId === "string"
-    )) && (edit.stationId === null || typeof edit.stationId === "string");
+    )) && (edit.stationId === null || typeof edit.stationId === "string") &&
+    (edit.family === undefined || (isPaintFamily(edit.family) && edit.stationId === null));
 }
 
 /** Only this manager's draft for this board and date is read after unlock. */

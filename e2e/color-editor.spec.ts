@@ -66,6 +66,32 @@ async function stageOpenHour(page: Page) {
 test.describe("condensed staff board and manager color editor", () => {
   test.use({ viewport: { width: 820, height: 1080 } });
 
+  test("numbered Nieves rows present one private grouped paint choice", async ({ page }) => {
+    await page.route("**/api/boards/caja/days/2026-09-20", async (route) => {
+      const response = await route.fetch();
+      const day = await response.json() as { stations: { id: string; label: string; sortOrder: number; shortCode?: string }[] };
+      const nieves = day.stations.find((station) => station.id === "nieves")!;
+      nieves.label = "Nieves 1";
+      nieves.shortCode = "NIE1";
+      day.stations.push({ ...nieves, id: "nieves2", label: "Nieves 2", shortCode: "NIE2", sortOrder: nieves.sortOrder + 1 });
+      await route.fulfill({ response, json: day });
+    });
+    await page.goto("/");
+    await loadSample(page);
+    await expect(page.getByTestId("paint-palette-family:nieves")).toBeVisible();
+    await expect(page.getByTestId("paint-palette-nieves")).toHaveCount(0);
+    await expect(page.getByTestId("paint-palette-nieves2")).toHaveCount(0);
+    await page.getByTestId("paint-palette-family:nieves").click();
+    await page.getByTestId("paint-matrix").locator("td[data-kind='open'] button").first().click();
+    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+    const draft = await page.evaluate(() => Object.entries(localStorage)
+      .filter(([key]) => key.startsWith("taco-oasis-paint-draft-v1:") && !key.includes(":dates:"))
+      .map(([, value]) => JSON.parse(value) as { edits: { family?: string; stationId: string | null }[] }));
+    expect(draft.flatMap((item) => item.edits)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ family: "nieves", stationId: null }),
+    ]));
+  });
+
   test("staff sees a compact schedule; painted cells publish only on Guardar", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");

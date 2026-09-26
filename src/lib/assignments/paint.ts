@@ -5,6 +5,7 @@ import { validateAssignment } from "@/lib/rules/assign";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
+import { PAINT_FAMILIES, type PaintFamily } from "@/lib/assignments/paint-families";
 
 export type PaintEdit = {
   shiftId: string;
@@ -14,6 +15,8 @@ export type PaintEdit = {
   /** The exact assignment the manager saw, including its station. */
   expected: { id: string; stationId: string } | null;
   stationId: string | null;
+  /** One manager choice; the saved row always uses a concrete numbered station. */
+  family?: PaintFamily;
   reason?: string;
   note?: string | null;
 };
@@ -76,9 +79,9 @@ export async function paintAssignments(
         where: { id: { in: request.edits.map((e) => e.shiftId) } },
       });
       const byShift = new Map(shifts.map((shift) => [shift.id, shift]));
-      const stationIds = request.edits
-        .map((e) => e.stationId)
-        .filter((id): id is string => id != null);
+      const stationIds = [...new Set(request.edits.flatMap((edit) =>
+        edit.family ? [...PAINT_FAMILIES[edit.family]] : edit.stationId ? [edit.stationId] : [],
+      ))];
       const stations = await tx.station.findMany({ where: { id: { in: stationIds } } });
       const byStation = new Map(stations.map((station) => [station.id, station]));
       const hourStarts = request.edits.map((e) => chicagoHourStart(request.date, e.hour));
@@ -100,14 +103,19 @@ export async function paintAssignments(
           .map((a) => [key(a.employeeId!, a.hourStart), a]),
       );
       const seenPersonHours = new Set<string>();
+      const familyAnchors: { shiftId: string; hour: number; family: PaintFamily; stationId: string }[] = [];
       const changes: {
         edit: PaintEdit;
         shift: (typeof shifts)[number];
         hourStart: Date;
         current: (typeof allAtHours)[number] | null;
+        stationId: string | null;
       }[] = [];
 
       for (const edit of request.edits) {
+        if (edit.family && edit.stationId !== null) {
+          return invalid("INVALID_TARGET", "Choose either a numbered position or a position family.");
+        }
         const shift = byShift.get(edit.shiftId);
         if (!shift || shift.board !== request.board || shift.date !== request.date || shift.supersededAt) {
           return conflict("The imported shift changed. Refresh the board and review the painted hours.");
@@ -138,7 +146,19 @@ export async function paintAssignments(
         ) {
           return conflict("An assignment changed since this screen loaded. Refresh and review before saving.");
         }
-        if (edit.stationId === current?.stationId || (edit.stationId == null && current == null)) {
+        if (edit.family) {
+          const familyStations = PAINT_FAMILIES[edit.family];
+          if (familyStations.some((id) => byStation.get(id)?.board !== request.board)) {
+            return invalid("STATION_BOARD_MISMATCH", "The numbered positions are not available on this board.");
+          }
+          if (current && (familyStations as readonly string[]).includes(current.stationId)) {
+            if (abilityByKey.get(`${shift.employeeId}|${current.stationId}`) === "forbidden") {
+              return invalid("FORBIDDEN_ABILITY", "This person cannot work in that position.");
+            }
+            familyAnchors.push({ shiftId: shift.id, hour: edit.hour, family: edit.family, stationId: current.stationId });
+            continue;
+          }
+        } else if (edit.stationId === current?.stationId || (edit.stationId == null && current == null)) {
           continue;
         }
         if (current && !isFutureHour(hourStart, now) && !isValidMoveReason(edit.reason ?? "")) {
@@ -147,24 +167,26 @@ export async function paintAssignments(
         if (edit.stationId != null && byStation.get(edit.stationId)?.board !== request.board) {
           return invalid("STATION_BOARD_MISMATCH", "That position is not on this board.");
         }
-        changes.push({ edit, shift, hourStart, current });
+        changes.push({ edit, shift, hourStart, current, stationId: edit.stationId });
       }
 
       const touchedIds = new Set(changes.map((change) => change.current?.id).filter(Boolean));
       const remaining = allAtHours.filter((a) => !touchedIds.has(a.id));
       const stagedStationCount = new Map<string, number>();
-      for (const change of changes) {
+      const occupancyAt = (id: string, hourStart: Date) =>
+        remaining.filter((a) => a.stationId === id && a.hourStart.getTime() === hourStart.getTime()).length +
+        (stagedStationCount.get(key(id, hourStart)) ?? 0);
+      const reserve = (id: string, hourStart: Date) => {
+        const stationHour = key(id, hourStart);
+        stagedStationCount.set(stationHour, (stagedStationCount.get(stationHour) ?? 0) + 1);
+      };
+      const validateTarget = (change: (typeof changes)[number], id: string) => {
         const { edit, shift, hourStart } = change;
-        if (!edit.stationId) continue;
-        const station = byStation.get(edit.stationId)!;
-        const stationHour = key(station.id, hourStart);
-        const occupancy =
-          remaining.filter((a) => a.stationId === station.id && a.hourStart.getTime() === hourStart.getTime()).length +
-          (stagedStationCount.get(stationHour) ?? 0);
+        const station = byStation.get(id)!;
         const alreadyAssigned = remaining.some(
           (a) => a.employeeId === shift.employeeId && a.hourStart.getTime() === hourStart.getTime(),
         );
-        const violations = validateAssignment({
+        return validateAssignment({
           hourStart,
           hourEnd: chicagoHourEnd(request.date, edit.hour),
           shiftStart: shift.startAt,
@@ -173,15 +195,62 @@ export async function paintAssignments(
           stationBoard: station.board,
           shiftBoard: shift.board,
           maxConcurrent: station.maxConcurrent,
-          existingOccupancy: occupancy,
+          existingOccupancy: occupancyAt(station.id, hourStart),
           abilityLevel: abilityByKey.get(`${shift.employeeId}|${station.id}`) ?? null,
           personAlreadyAssignedAtHour: alreadyAssigned,
           chicagoHour: chicagoHourOf(hourStart),
         });
+      };
+
+      // Concrete targets reserve first, independent of request order. A family
+      // can never take a slot that another cell in this save explicitly names.
+      for (const change of changes.filter((item) => !item.edit.family && item.stationId)) {
+        const violations = validateTarget(change, change.stationId!);
         if (violations.length > 0) {
           return invalid(violations[0]!.code, violations[0]!.message, violations);
         }
-        stagedStationCount.set(stationHour, (stagedStationCount.get(stationHour) ?? 0) + 1);
+        reserve(change.stationId!, change.hourStart);
+      }
+
+      // Resolve each contiguous painted range against the same transaction
+      // snapshot. Prefer one available number throughout; otherwise use the
+      // first free number at each hour. Stable ordering resolves ties.
+      const grouped = changes.filter((item) => item.edit.family).sort((a, b) =>
+        a.shift.id.localeCompare(b.shift.id) || a.edit.hour - b.edit.hour,
+      );
+      for (let index = 0; index < grouped.length;) {
+        const first = grouped[index]!;
+        const range = [first];
+        index += 1;
+        while (index < grouped.length && grouped[index]!.shift.id === first.shift.id &&
+          grouped[index]!.edit.family === first.edit.family &&
+          grouped[index]!.edit.hour === range.at(-1)!.edit.hour + 1) {
+          range.push(grouped[index]!);
+          index += 1;
+        }
+        const ids = PAINT_FAMILIES[first.edit.family!];
+        const available = (change: (typeof changes)[number], id: string) =>
+          validateTarget(change, id).length === 0;
+        const adjacentAnchors = familyAnchors.filter((anchor) => anchor.shiftId === first.shift.id &&
+          anchor.family === first.edit.family &&
+          (anchor.hour === range[0]!.edit.hour - 1 || anchor.hour === range.at(-1)!.edit.hour + 1))
+          .sort((a, b) => a.hour - b.hour);
+        const preference = [...new Set(adjacentAnchors.map((anchor) => anchor.stationId))];
+        const continuous = [...preference, ...ids].find((id) =>
+          range.every((change) => available(change, id)));
+        for (const change of range) {
+          const chosen = continuous ?? ids.find((id) => available(change, id));
+          if (!chosen) {
+            const forbidden = ids.every((id) =>
+              abilityByKey.get(`${change.shift.employeeId}|${id}`) === "forbidden",
+            );
+            return invalid(forbidden ? "FORBIDDEN_ABILITY" : "STATION_FULL",
+              forbidden ? "This person cannot work in this position family." :
+                "All numbered positions are occupied for this hour. Nothing was saved.");
+          }
+          change.stationId = chosen;
+          reserve(chosen, change.hourStart);
+        }
       }
 
       // Delete first, then recreate with the same ids. This also allows two
@@ -190,7 +259,7 @@ export async function paintAssignments(
       if (deleteIds.length > 0) {
         await tx.assignment.deleteMany({ where: { id: { in: deleteIds } } });
       }
-      for (const { edit, shift, hourStart, current } of changes) {
+      for (const { edit, shift, hourStart, current, stationId } of changes) {
         if (current && !isFutureHour(hourStart, now)) {
           await tx.positionMoveLog.create({
             data: {
@@ -198,20 +267,20 @@ export async function paintAssignments(
               hour: edit.hour,
               employeeId: shift.employeeId,
               fromStationId: current.stationId,
-              toStationId: edit.stationId,
+              toStationId: stationId,
               assignmentId: current.id,
               reason: edit.reason as MoveReason,
               note: edit.note?.trim() || null,
             },
           });
         }
-        if (edit.stationId) {
+        if (stationId) {
           await tx.assignment.create({
             data: {
               ...(current ? { id: current.id } : {}),
               shiftId: shift.id,
               employeeId: shift.employeeId,
-              stationId: edit.stationId,
+              stationId,
               hourStart,
               hourEnd: chicagoHourEnd(request.date, edit.hour),
             },

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { paintAssignments } from "@/lib/assignments/paint";
 import { requireManagerSession } from "@/lib/managers/require-session";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
+import { isPaintFamily } from "@/lib/assignments/paint-families";
 
 export const runtime = "nodejs";
 
@@ -17,8 +18,11 @@ const editSchema = z.object({
   }),
   expected: z.object({ id: z.string().min(1), stationId: z.string().min(1) }).nullable(),
   stationId: z.string().min(1).nullable(),
+  family: z.custom<"nieves" | "trastes">(isPaintFamily).optional(),
   reason: z.string().optional(),
   note: z.string().nullable().optional(),
+}).refine((edit) => !edit.family || edit.stationId === null, {
+  message: "A grouped position cannot also specify a numbered position",
 });
 
 const bodySchema = z.object({
