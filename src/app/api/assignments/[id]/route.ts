@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { clearAssignment } from "@/lib/assignments/service";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
@@ -31,6 +32,7 @@ export async function DELETE(request: Request, context: RouteContext) {
       id,
       reason: body.reason,
       note: body.note,
+      actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.clear },
     });
     if (!result.ok) {
       return NextResponse.json(

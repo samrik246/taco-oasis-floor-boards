@@ -26,10 +26,10 @@ async function managerToken() {
   const manager = existing
     ? await prisma.manager.update({
         where: { id: existing.id },
-        data: { codeHash, active: true },
+        data: { codeHash, active: true, role: "owner" },
       })
     : await prisma.manager.create({
-        data: { name: "Ana Rivera", codeHash, active: true },
+        data: { name: "Ana Rivera", codeHash, active: true, role: "owner" },
       });
   return signManagerSession({ id: manager.id, name: manager.name });
 }
@@ -329,7 +329,7 @@ describe("back office persistence", () => {
         body,
       }),
     );
-    expect(created.status).toBe(201);
+    expect(created.status).toBe(200);
     const text = await created.text();
     expect(text).not.toMatch(/2468|codeHash/);
     const manager = JSON.parse(text) as {

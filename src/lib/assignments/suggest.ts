@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { commitBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { createShiftAssignment, type ShiftAssignSummary } from "./service";
 
 export type FreeFavorite = {
@@ -158,6 +159,7 @@ export async function suggestAssign(params: {
   hour: number;
   stationId: string;
   shiftId: string;
+  actor?: BoardChangeActor;
 }): Promise<SuggestAssignResult> {
   const best = await freeFavoriteFor(params);
   if (!best || best.shiftId !== params.shiftId) {
@@ -170,6 +172,14 @@ export async function suggestAssign(params: {
   });
   if (!result.ok) {
     return { ok: false, status: 422, error: "Assign rejected" };
+  }
+  if (params.actor) {
+    await commitBoardChange(params.actor, {
+      date: params.date,
+      hour: params.hour,
+      stationId: params.stationId,
+      count: result.summary.placed,
+    });
   }
   return { ok: true, summary: result.summary };
 }

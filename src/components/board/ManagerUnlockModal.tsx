@@ -9,7 +9,7 @@ type Props = {
   t: Messages;
   onCancel: () => void;
   onUnlocked: (
-    manager: { id: string; name: string; token: string },
+    manager: { id: string; name: string; token: string; role?: string },
     idleMs: number,
   ) => void;
 };
@@ -49,7 +49,7 @@ export function ManagerUnlockModal({
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
-        manager?: { id: string; name: string };
+        manager?: { id: string; name: string; role?: string };
         idleMs?: number;
         sessionToken?: string;
       };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { placeFixedAssignments } from "@/lib/assignments/fixed-assign";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
@@ -20,7 +21,10 @@ export async function PUT(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
-    const result = await placeFixedAssignments(body);
+    const result = await placeFixedAssignments({
+      ...body,
+      actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.fixed },
+    });
     return NextResponse.json({ summary: result.summary });
   } catch (err) {
     if (err instanceof z.ZodError) {

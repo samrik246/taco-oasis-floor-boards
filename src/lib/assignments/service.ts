@@ -7,6 +7,11 @@ import { isFutureHour } from "@/lib/rules/live-hour";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
+import {
+  commitBoardChange,
+  writeBoardChange,
+  type BoardChangeActor,
+} from "@/lib/board-change-log";
 
 export type AssignParams = {
   shiftId: string;
@@ -17,6 +22,8 @@ export type AssignParams = {
   hour: number;
   /** Injectable clock (tests). */
   now?: Date;
+  /** Set by PUT /api/assignments so the log shares this write's transaction. */
+  actor?: BoardChangeActor;
 };
 
 export type AssignResult =
@@ -125,6 +132,14 @@ export async function createAssignment(
       const assignment = await tx.assignment.create({
         data: { shiftId: params.shiftId, employeeId: shift.employeeId, stationId: params.stationId, hourStart, hourEnd },
       });
+      if (params.actor) {
+        await writeBoardChange(tx, params.actor, {
+          date: params.date,
+          hour: params.hour,
+          stationId: params.stationId,
+          count: 1,
+        });
+      }
       return { ok: true, assignment: toDto(assignment) } as const;
     });
   } catch (error) {
@@ -142,6 +157,7 @@ export type ShiftAssignParams = {
   date: string;
   /** Injectable clock (tests). */
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type ShiftAssignSummary = {
@@ -240,6 +256,13 @@ export async function createShiftAssignment(
       summary.stationOccupied += 1;
     }
   }
+  if (params.actor) {
+    await commitBoardChange(params.actor, {
+      date: params.date,
+      stationId: params.stationId,
+      count: summary.placed,
+    });
+  }
   return { ok: true, summary };
 }
 
@@ -248,6 +271,7 @@ export type CopyDayParams = {
   sourceDate: string;
   targetDate: string;
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type CopyDaySummary = {
@@ -354,6 +378,12 @@ export async function copyDayAssignments(
     }
   }
 
+  if (params.actor) {
+    await commitBoardChange(params.actor, {
+      date: params.targetDate,
+      count: summary.copied,
+    });
+  }
   return { ok: true, summary };
 }
 
@@ -383,6 +413,7 @@ export type ClearAssignmentParams = {
   reason?: string | null;
   note?: string | null;
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type ClearAssignmentResult =
@@ -409,7 +440,17 @@ export async function clearAssignment(
   }
   const now = params.now ?? new Date();
   if (isFutureHour(existing.hourStart, now)) {
-    await prisma.assignment.delete({ where: { id: params.id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.assignment.delete({ where: { id: params.id } });
+      if (params.actor) {
+        await writeBoardChange(tx, params.actor, {
+          date: chicagoYmd(existing.hourStart),
+          hour: chicagoHourOf(existing.hourStart),
+          stationId: existing.stationId,
+          count: 1,
+        });
+      }
+    });
     return { ok: true, id: params.id };
   }
   const reason = params.reason ?? "";
@@ -420,28 +461,37 @@ export async function clearAssignment(
       error: "A reason is required to clear the current or a past hour",
     };
   }
-  if (!existing.employeeId) {
+  const employeeId = existing.employeeId;
+  if (!employeeId) {
     return {
       ok: false,
       status: 422,
       error: "This assignment has no employee on record and cannot be logged",
     };
   }
-  await prisma.$transaction([
-    prisma.positionMoveLog.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.positionMoveLog.create({
       data: {
         date: chicagoYmd(existing.hourStart),
         hour: chicagoHourOf(existing.hourStart),
-        employeeId: existing.employeeId,
+        employeeId,
         fromStationId: existing.stationId,
         toStationId: null,
         assignmentId: existing.id,
         reason: reason as MoveReason,
         note: params.note?.trim() || null,
       },
-    }),
-    prisma.assignment.delete({ where: { id: params.id } }),
-  ]);
+    });
+    await tx.assignment.delete({ where: { id: params.id } });
+    if (params.actor) {
+      await writeBoardChange(tx, params.actor, {
+        date: chicagoYmd(existing.hourStart),
+        hour: chicagoHourOf(existing.hourStart),
+        stationId: existing.stationId,
+        count: 1,
+      });
+    }
+  });
   return { ok: true, id: params.id };
 }
 
@@ -453,6 +503,7 @@ export async function swapAssignments(
   assignmentIdA: string,
   assignmentIdB: string,
   now: Date = new Date(),
+  actor?: BoardChangeActor,
 ): Promise<
   | { ok: true; assignments: [AssignmentDto, AssignmentDto] }
   | { ok: false; status: 404 | 422; violations: RuleViolation[] }
@@ -565,6 +616,14 @@ export async function swapAssignments(
       await tx.assignment.updateMany({ where: { id: { in: [currentA.id, currentB.id] } }, data: { employeeId: null } });
       const u1 = await tx.assignment.update({ where: { id: currentA.id }, data: { shiftId: currentB.shiftId, employeeId: currentB.shift.employeeId } });
       const u2 = await tx.assignment.update({ where: { id: currentB.id }, data: { shiftId: currentA.shiftId, employeeId: currentA.shift.employeeId } });
+      if (actor) {
+        await writeBoardChange(tx, actor, {
+          date: chicagoYmd(currentA.hourStart),
+          hour: chicagoHourOf(currentA.hourStart),
+          stationId: `${currentA.stationId},${currentB.stationId}`,
+          count: 2,
+        });
+      }
       return { ok: true, assignments: [toDto(u1), toDto(u2)] } as const;
     });
   } catch (error) {

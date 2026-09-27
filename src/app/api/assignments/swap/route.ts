@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { swapAssignments } from "@/lib/assignments/service";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
@@ -23,6 +24,8 @@ export async function POST(request: Request) {
     const result = await swapAssignments(
       body.assignmentIdA,
       body.assignmentIdB,
+      new Date(),
+      { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.swap },
     );
 
     if (!result.ok) {

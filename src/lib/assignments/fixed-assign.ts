@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/db";
+import { commitBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { createShiftAssignment } from "./service";
 
 export type FixedAssignParams = {
   board: string;
   date: string;
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type FixedAssignSummary = {
@@ -91,5 +93,11 @@ export async function placeFixedAssignments(
     }
   }
 
+  if (params.actor) {
+    await commitBoardChange(params.actor, {
+      date: params.date,
+      count: summary.placed,
+    });
+  }
   return { ok: true, summary };
 }

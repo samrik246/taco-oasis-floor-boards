@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { copyDayAssignments } from "@/lib/assignments/service";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
@@ -21,7 +22,10 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
-    const result = await copyDayAssignments(body);
+    const result = await copyDayAssignments({
+      ...body,
+      actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.copyDay },
+    });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }

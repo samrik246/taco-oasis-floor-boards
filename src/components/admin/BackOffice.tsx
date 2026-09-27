@@ -5,8 +5,11 @@ import Link from "next/link";
 import { STATION_COLORS } from "@/lib/admin/validate";
 import { hourGridHours } from "@/lib/hour-grid";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
+import { useManagerIdle } from "@/components/board/useManagerSession";
 
 const TOKEN_KEY = "taco-oasis-back-office-session";
+const ROLE_KEY = "taco-oasis-back-office-role";
+const IDLE_KEY = "taco-oasis-back-office-idle-ms";
 
 type StationRow = {
   id: string;
@@ -36,9 +39,18 @@ type TareaRow = {
   sortOrder: number;
 };
 
-type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean };
+type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean; role: string };
 
-type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers" | "positions";
+type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers" | "cambios" | "positions";
+
+type ChangeRow = {
+  id: string;
+  createdAt: string;
+  who: string;
+  what: string;
+  date: string;
+  kind: "change" | "removal";
+};
 
 type PositionMapRow = {
   position: string;
@@ -58,6 +70,8 @@ async function readError(res: Response): Promise<string> {
 
 export function BackOffice() {
   const [token, setToken] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [idleMs, setIdleMs] = useState(15_000);
   const [managerName, setManagerName] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,17 +81,30 @@ export function BackOffice() {
 
   useEffect(() => {
     const saved = window.sessionStorage.getItem(TOKEN_KEY);
+    const savedRole = window.sessionStorage.getItem(ROLE_KEY);
+    const savedIdle = Number(window.sessionStorage.getItem(IDLE_KEY));
     if (saved) setToken(saved);
+    if (savedRole) setRole(savedRole);
+    if (Number.isFinite(savedIdle) && savedIdle >= 100) setIdleMs(savedIdle);
     setReady(true);
   }, []);
 
   const auth = useMemo(() => managerAuthHeaders(token), [token]);
 
-  function logout() {
+  function clearDesk() {
     window.sessionStorage.removeItem(TOKEN_KEY);
+    window.sessionStorage.removeItem(ROLE_KEY);
+    window.sessionStorage.removeItem(IDLE_KEY);
     setToken(null);
+    setRole(null);
     setManagerName("");
   }
+
+  useManagerIdle({
+    idleMs,
+    active: token != null && role === "owner",
+    onIdle: clearDesk,
+  });
 
   async function login() {
     setError(null);
@@ -90,14 +117,22 @@ export function BackOffice() {
       ok?: boolean;
       error?: string;
       sessionToken?: string;
-      manager?: { name: string };
+      manager?: { name: string; role?: string };
+      idleMs?: number;
     };
     if (!res.ok || !data.sessionToken || !data.manager) {
       setError(data.error || "Wrong manager code");
       return;
     }
+    const nextRole = data.manager.role ?? "";
     window.sessionStorage.setItem(TOKEN_KEY, data.sessionToken);
+    window.sessionStorage.setItem(ROLE_KEY, nextRole);
+    if (typeof data.idleMs === "number") {
+      window.sessionStorage.setItem(IDLE_KEY, String(data.idleMs));
+      setIdleMs(data.idleMs);
+    }
     setToken(data.sessionToken);
+    setRole(nextRole);
     setManagerName(data.manager.name);
     setCode("");
   }
@@ -158,24 +193,22 @@ export function BackOffice() {
           <Link href="/" className="underline">
             Floor board
           </Link>
-          <button type="button" className="underline" onClick={logout} data-testid="back-office-logout">
+          <button type="button" className="underline" onClick={clearDesk} data-testid="back-office-logout">
             Log out
           </button>
         </div>
       </header>
 
       <nav className="flex flex-wrap gap-2" data-testid="back-office-tabs">
-        {(
-          [
+        {([
             ["stations", "Stations"],
             ["people", "People"],
             ["tareas", "Tareas"],
             ["seats", "Seat plan"],
             ["sales", "Sales %"],
-            ["managers", "Managers"],
+            ...(role === "owner" ? ([["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][]) : []),
             ["positions", "Positions"],
-          ] as const
-        ).map(([id, label]) => (
+          ] as [Tab, string][]).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -220,7 +253,13 @@ export function BackOffice() {
       {tab === "sales" && (
         <SalesTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
-      {tab === "managers" && <ManagersTab auth={auth} onError={setError} />}
+      {(tab === "managers" || tab === "cambios") && role !== "owner" && (
+        <p className="text-sm font-semibold text-red-900" data-testid="owner-code-required">
+          Owner code required
+        </p>
+      )}
+      {tab === "managers" && role === "owner" && <ManagersTab auth={auth} onError={setError} />}
+      {tab === "cambios" && role === "owner" && <CambiosTab auth={auth} onError={setError} />}
       {tab === "positions" && (
         <PositionsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
@@ -790,7 +829,7 @@ function ManagersTab({
     await load();
   }
 
-  async function updateManager(id: string, input: { code?: string; active?: boolean }) {
+  async function updateManager(id: string, input: { code?: string; active?: boolean; role?: "owner" | "manager" }) {
     const res = await fetch(`/api/admin/managers/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...auth },
@@ -853,7 +892,7 @@ function ManagersTab({
         {rows.map((row) => (
           <li key={row.id} className="flex flex-wrap items-center gap-2 rounded border p-2" data-testid={`manager-${row.name}`}>
             <span className="font-semibold">
-              {row.name} · {row.active ? "active" : "inactive"}
+              {row.name} · {row.role === "owner" ? "owner" : "manager"} · {row.active ? "active" : "inactive"}
               {row.longIdle ? " · 10 min unlock" : ""}
             </span>
             <input
@@ -884,6 +923,69 @@ function ManagersTab({
             >
               {row.active ? "Deactivate" : "Activate"}
             </button>
+            <button
+              type="button"
+              className="min-h-10 rounded border-2 px-3 text-sm font-bold"
+              onClick={() =>
+                void updateManager(row.id, { role: row.role === "owner" ? "manager" : "owner" })
+              }
+              data-testid={`manager-role-${row.id}`}
+            >
+              {row.role === "owner" ? "Make manager" : "Make owner"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function CambiosTab({
+  auth,
+  onError,
+}: {
+  auth: Record<string, string>;
+  onError: (msg: string) => void;
+}) {
+  const [date, setDate] = useState("");
+  const [rows, setRows] = useState<ChangeRow[]>([]);
+
+  const load = useCallback(async () => {
+    const query = date ? `?date=${encodeURIComponent(date)}` : "";
+    const res = await fetch(`/api/admin/changes${query}`, { headers: auth });
+    if (!res.ok) {
+      onError(await readError(res));
+      setRows([]);
+      return;
+    }
+    const data = (await res.json()) as { changes: ChangeRow[] };
+    setRows(data.changes);
+  }, [auth, date, onError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="flex flex-col gap-3" data-testid="cambios-screen">
+      <label className="flex max-w-xs flex-col gap-1 text-sm font-bold">
+        Day
+        <input
+          type="date"
+          className="min-h-11 rounded border-2 px-2"
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
+          data-testid="cambios-date"
+        />
+      </label>
+      <ul className="flex flex-col gap-1" data-testid="cambios-list">
+        {rows.map((row) => (
+          <li key={row.id} className="rounded border p-2 text-sm" data-testid={`cambio-${row.kind}`}>
+            <span className="font-semibold">{new Date(row.createdAt).toLocaleString()}</span>
+            {" · "}
+            <span data-testid="cambio-who">{row.who}</span>
+            {" · "}
+            <span>{row.what}</span>
           </li>
         ))}
       </ul>

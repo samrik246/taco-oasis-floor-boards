@@ -4,6 +4,7 @@ import {
   managerSessionFromRequest,
   managerSessionIsConfigured,
 } from "@/lib/managers/session";
+import { isOwnerRole } from "@/lib/managers/roles";
 
 export type AuthedManager = { id: string; name: string };
 
@@ -52,4 +53,32 @@ export async function requireManagerSession(
   }
 
   return { ok: true, manager };
+}
+
+/**
+ * Owner routes. Role is read from the database on this request, never from the token.
+ * A stored role other than the exact string owner is 403.
+ */
+export async function requireOwnerSession(
+  req: Request,
+): Promise<
+  | { ok: true; manager: AuthedManager }
+  | { ok: false; response: NextResponse }
+> {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth;
+  const row = await prisma.manager.findFirst({
+    where: { id: auth.manager.id, active: true },
+    select: { role: true },
+  });
+  if (!row || !isOwnerRole(row.role)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Owner code required" },
+        { status: 403 },
+      ),
+    };
+  }
+  return auth;
 }

@@ -19,6 +19,7 @@ export type Messages = {
   cancel: string;
   wrongCode: string;
   managerUnlocked: (name: string) => string;
+  ownerUnlocked: (name: string) => string;
   managerIdleLogout: string;
   viewBoard: string;
   viewTimeline: string;
@@ -253,6 +254,7 @@ const en: Messages = {
   cancel: "Cancel",
   wrongCode: "Wrong code",
   managerUnlocked: (name) => `Manager: ${name}`,
+  ownerUnlocked: (name) => `Owner - 5 min: ${name}`,
   managerIdleLogout: "Manager session timed out — back to staff",
   viewBoard: "Board",
   viewTimeline: "Timeline",
@@ -505,6 +507,7 @@ const es: Messages = {
   cancel: "Cancelar",
   wrongCode: "Código incorrecto",
   managerUnlocked: (name) => `Gerente: ${name}`,
+  ownerUnlocked: (name) => `Dueño - 5 min: ${name}`,
   managerIdleLogout: "Sesión de gerente expiró — vuelves a personal",
   viewBoard: "Tablero",
   viewTimeline: "Línea de tiempo",

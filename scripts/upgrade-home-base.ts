@@ -89,6 +89,11 @@ async function prepare() {
   if (await hasTable("ImportBatch") && !(await hasColumn("ImportBatch", "fingerprint"))) {
     await prisma.$executeRawUnsafe('ALTER TABLE "ImportBatch" ADD COLUMN fingerprint TEXT');
   }
+  if (await hasTable("Manager") && !(await hasColumn("Manager", "role"))) {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "Manager" ADD COLUMN role TEXT NOT NULL DEFAULT 'manager'`,
+    );
+  }
   console.log("Upgrade prepare completed.");
 }
 
