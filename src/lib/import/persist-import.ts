@@ -334,6 +334,7 @@ export async function commitImport(
       await tx.shiftRemovalEvent.create({ data: {
         overrideId: updated.id,
         action: decision.action,
+        revision: updated.revision,
         reason: "Schedule re-import",
         sourceJson: JSON.stringify({ externalId: updated.externalId, date: updated.date,
           board: updated.board, sourcePosition: updated.sourcePosition,

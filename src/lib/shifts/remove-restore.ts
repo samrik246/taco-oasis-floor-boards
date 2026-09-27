@@ -81,6 +81,7 @@ export async function removeShift(input: {
       ? await tx.shiftRemoval.update({ where: { id: prior.id }, data: { ...data, revision: { increment: 1 } } })
       : await tx.shiftRemoval.create({ data });
     await tx.shiftRemovalEvent.create({ data: { overrideId: override.id, action: "remove",
+      revision: override.revision,
       managerId: input.manager.id, managerName: input.manager.name, reason,
       sourceJson: JSON.stringify(snapshot(shift)), cellsJson: JSON.stringify(cells) } });
     return { id: override.id, revision: override.revision, removedCells: cells.length };
@@ -145,15 +146,42 @@ export async function restoreShift(input: {
     const updated = await tx.shiftRemoval.update({ where: { id: override.id },
       data: { state: "restored", revision: { increment: 1 } } });
     await tx.shiftRemovalEvent.create({ data: { overrideId: override.id, action: "restore",
+      revision: updated.revision,
       managerId: input.manager.id, managerName: input.manager.name, reason,
       sourceJson: JSON.stringify(snapshot(shift)),
-      cellsJson: JSON.stringify({ replayed: future.map((c) => c.id), positions: input.positions }) } });
+      cellsJson: JSON.stringify({ cells: future, positions: input.positions }) } });
     return { id: updated.id, revision: updated.revision, restoredCells: future.length };
+  });
+}
+
+/** A manager may retire a missing-source tombstone instead of guessing its new identity. */
+export async function resolveMissingRemoval(input: {
+  id: string; expectedRevision: number; reason: string; manager: Manager;
+}) {
+  const reason = input.reason.trim();
+  if (!reason) throw new ShiftRemovalError("REASON_REQUIRED", "A reason is required.", 400);
+  return prisma.$transaction(async (tx) => {
+    const override = await tx.shiftRemoval.findUnique({ where: { id: input.id } });
+    if (!override) throw new ShiftRemovalError("NOT_FOUND", "Removed shift not found.", 404);
+    if (override.state !== "removed" || override.shiftId !== null ||
+        override.revision !== input.expectedRevision) {
+      conflict("REVISION_CHANGED", "This missing-source removal changed. Refresh before resolving it.");
+    }
+    const updated = await tx.shiftRemoval.update({ where: { id: override.id },
+      data: { state: "resolved", revision: { increment: 1 } } });
+    await tx.shiftRemovalEvent.create({ data: { overrideId: updated.id, action: "resolve",
+      revision: updated.revision, managerId: input.manager.id,
+      managerName: input.manager.name, reason,
+      sourceJson: JSON.stringify({ shiftId: null, externalId: updated.externalId,
+        date: updated.date, board: updated.board, sourcePosition: updated.sourcePosition,
+        startAt: updated.startAt.toISOString(), endAt: updated.endAt.toISOString() }),
+      cellsJson: updated.cellsJson } });
+    return { id: updated.id, revision: updated.revision, state: updated.state };
   });
 }
 
 export async function listShiftRemovals(board: "caja" | "cocina", date: string) {
   return prisma.shiftRemoval.findMany({ where: { board, date },
-    include: { shift: true, events: { orderBy: { createdAt: "asc" } } },
+    include: { shift: true, events: { orderBy: { revision: "asc" } } },
     orderBy: { createdAt: "asc" } });
 }

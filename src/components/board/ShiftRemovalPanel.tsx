@@ -5,19 +5,39 @@ import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { DayBoardDto, ShiftDto } from "./types";
 
 type Source = { startAt: string; endAt: string; employeeId: string; sourcePosition: string };
+type SavedCell = { id: string; stationId: string; hourStart: string; hourEnd: string };
+type Event = { action: string; revision: number; managerName: string | null;
+  reason: string; createdAt: string; source: { startAt: string; endAt: string };
+  cells: SavedCell[] | { cells: SavedCell[]; positions: string } };
 type Entry = {
   id: string; shiftId: string | null; externalId: string; date: string; board: string;
   sourcePosition: string; startAt: string; endAt: string; state: string;
   revision: number; savedCells: number; currentSource: Source | null;
-  events: { action: string; managerName: string | null; reason: string; createdAt: string }[];
+  events: Event[];
 };
 type Pending = { action: "remove"; shift: ShiftDto; futureCount: number } |
-  { action: "restore"; entry: Entry; positions: "replay" | "none" };
+  { action: "restore"; entry: Entry; positions: "replay" | "none" } |
+  { action: "resolve"; entry: Entry };
 
 function time(value: string) {
   return new Date(value).toLocaleTimeString("es-MX", {
     timeZone: "America/Chicago", hour: "numeric", minute: "2-digit",
   });
+}
+
+function eventCells(event: Event): SavedCell[] {
+  return Array.isArray(event.cells) ? event.cells : event.cells.cells;
+}
+
+function History({ events }: { events: Event[] }) {
+  return <div className="mt-2 space-y-1">
+    {events.map((event) => <p className="text-sm" key={event.revision}>
+      v{event.revision} · {event.action} · {event.managerName ?? "Importación"} · {event.reason} · {event.createdAt}
+      {event.source?.startAt && <> · {time(event.source.startAt)}–{time(event.source.endAt)}</>}
+      {eventCells(event).length > 0 && <> · {eventCells(event).map((cell) =>
+        `${cell.stationId} ${time(cell.hourStart)}`).join(", ")}</>}
+    </p>)}
+  </div>;
 }
 
 export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, onSaved }: {
@@ -58,9 +78,11 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
             employeeId: pending.shift.employee.id, sourcePosition: pending.shift.sourcePosition },
           expectedRevision: entries.find((e) => e.shiftId === pending.shift.id)?.revision ?? 0,
           reason: reason.trim() }
-      : { action: "restore", id: pending.entry.id,
+      : pending.action === "restore" ? { action: "restore", id: pending.entry.id,
           expected: pending.entry.currentSource, expectedRevision: pending.entry.revision,
-          positions: pending.positions, reason: reason.trim() };
+          positions: pending.positions, reason: reason.trim() }
+        : { action: "resolve", id: pending.entry.id,
+          expectedRevision: pending.entry.revision, reason: reason.trim() };
     try {
       const res = await fetch("/api/shift-removals", {
         method: "POST", headers: { "Content-Type": "application/json", ...managerAuthHeaders(managerToken) },
@@ -75,7 +97,9 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
       }
       setPending(null);
       setReason("");
-      setFeedback(pending.action === "remove" ? "Turno quitado del tablero." : "Turno restaurado.");
+      setFeedback(pending.action === "remove" ? "Turno quitado del tablero."
+        : pending.action === "restore" ? "Turno restaurado."
+          : "Bloqueo de importación liberado; revisa el nuevo turno al importar.");
       await onSaved();
       await refresh();
     } catch {
@@ -103,10 +127,10 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
     {entries.filter((e) => e.state === "removed").map((entry) => <div key={entry.id}
       className="mt-3 rounded border border-amber-500 p-2" data-testid={`removed-shift-${entry.id}`}>
       <p>{entry.externalId} · {entry.sourcePosition} · {entry.date} · {time(entry.startAt)}–{time(entry.endAt)}</p>
-      <p className="text-sm">{entry.currentSource ? `${entry.savedCells} posiciones guardadas para revisar` : "La fuente ya no contiene este turno; importa un horario vigente antes de restaurar."}</p>
-      {entry.events.map((event, i) => <p className="text-sm" key={i}>
-        {event.action} · {event.managerName ?? "Importación"} · {event.reason} · {event.createdAt}
-      </p>)}
+      <p className="text-sm">{entry.currentSource
+        ? `${entry.savedCells} posiciones guardadas para revisar. Si una importación rechaza un cambio ambiguo, restaura sin posiciones antes de importar y revisa el turno nuevo.`
+        : "La fuente ya no contiene este turno. Puedes liberar su bloqueo para importar un nuevo turno visible, o esperar una reaparición exacta."}</p>
+      <History events={entry.events} />
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" disabled={readonly || busy || !entry.currentSource}
           onClick={() => { setPending({ action: "restore", entry, positions: "replay" }); setReason(""); setFeedback(""); }}>
@@ -116,13 +140,24 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
           onClick={() => { setPending({ action: "restore", entry, positions: "none" }); setReason(""); setFeedback(""); }}>
           Restaurar sin posiciones
         </button>
+        {!entry.currentSource && <button type="button" disabled={readonly || busy}
+          onClick={() => { setPending({ action: "resolve", entry }); setReason(""); setFeedback(""); }}>
+          Liberar para nueva importación
+        </button>}
       </div>
+    </div>)}
+    {entries.filter((e) => e.state === "resolved").map((entry) => <div key={entry.id}
+      className="mt-2 rounded border p-2" data-testid={`resolved-shift-${entry.id}`}>
+      <p>Bloqueo liberado · {entry.externalId} · {entry.date} · v{entry.revision}</p>
+      <History events={entry.events} />
     </div>)}
     {pending && <div className="mt-3 rounded border-2 border-amber-600 p-3" data-testid="shift-removal-confirm">
       <p className="font-bold">{pending.action === "remove"
         ? `Quitar solo este turno; se liberarán ${pending.futureCount} posiciones futuras.`
-        : pending.positions === "replay" ? `Restaurar este turno y validar ${pending.entry.savedCells} posiciones guardadas.`
-          : "Restaurar solo el turno; las posiciones se volverán a pintar."}</p>
+        : pending.action === "restore"
+          ? pending.positions === "replay" ? `Restaurar este turno y validar ${pending.entry.savedCells} posiciones guardadas.`
+            : "Restaurar solo el turno; las posiciones se volverán a pintar."
+          : "Liberar este bloqueo histórico: el próximo horario importado podrá mostrar un turno nuevo. Revisa ese turno y quítalo de nuevo si hace falta."}</p>
       <label className="mt-2 block">Motivo
         <textarea className="block w-full rounded border p-2" value={reason} maxLength={500}
           onChange={(event) => setReason(event.target.value)} data-testid="shift-removal-reason" />

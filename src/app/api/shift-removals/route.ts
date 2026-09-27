@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagerSession } from "@/lib/managers/require-session";
-import { listShiftRemovals, removeShift, restoreShift, ShiftRemovalError } from "@/lib/shifts/remove-restore";
+import { listShiftRemovals, removeShift, resolveMissingRemoval, restoreShift, ShiftRemovalError } from "@/lib/shifts/remove-restore";
 
 export const runtime = "nodejs";
 
@@ -21,7 +21,11 @@ const restoreSchema = z.object({ action: z.literal("restore"),
   expectedRevision: z.number().int().min(1),
   positions: z.enum(["replay", "none"]), reason: z.string().trim().min(1).max(500),
 });
-const bodySchema = z.discriminatedUnion("action", [removeSchema, restoreSchema]);
+const resolveSchema = z.object({ action: z.literal("resolve"),
+  id: z.string().min(1), expectedRevision: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(500),
+});
+const bodySchema = z.discriminatedUnion("action", [removeSchema, restoreSchema, resolveSchema]);
 
 export async function GET(request: Request) {
   const auth = await requireManagerSession(request);
@@ -41,8 +45,10 @@ export async function GET(request: Request) {
       startAt: r.shift.startAt.toISOString(), endAt: r.shift.endAt.toISOString(),
       employeeId: r.shift.employeeId, sourcePosition: r.shift.sourcePosition,
     } : null,
-    events: r.events.map((e) => ({ action: e.action, managerName: e.managerName,
-      reason: e.reason, createdAt: e.createdAt.toISOString() })),
+    events: r.events.map((e) => ({ action: e.action, revision: e.revision,
+      managerId: e.managerId, managerName: e.managerName, reason: e.reason,
+      source: JSON.parse(e.sourceJson), cells: JSON.parse(e.cellsJson),
+      createdAt: e.createdAt.toISOString() })),
   })) }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
@@ -55,7 +61,9 @@ export async function POST(request: Request) {
     const input = parsed.data;
     const result = input.action === "remove"
       ? await removeShift({ ...input, manager: auth.manager })
-      : await restoreShift({ ...input, manager: auth.manager });
+      : input.action === "restore"
+        ? await restoreShift({ ...input, manager: auth.manager })
+        : await resolveMissingRemoval({ ...input, manager: auth.manager });
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     if (error instanceof ShiftRemovalError) {
