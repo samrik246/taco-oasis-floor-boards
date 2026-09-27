@@ -9,6 +9,7 @@ import { GET as employeeHours } from "@/app/api/employees/[id]/hours/route";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
 import { requireDayAccess } from "@/lib/managers/day-access";
+import { offlineRefreshState, panelResponse } from "@/lib/board/refresh-state";
 import { readLastBoard, readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoToday } from "@/lib/upcoming/source";
 import { chicagoDateTime } from "@/lib/time";
@@ -199,10 +200,38 @@ describe("offline cache keeps today only", () => {
     expect(readLastBoardFor("caja", now)).toBeNull();
   });
 
+  it("wall offline overnight: a refused cache clears the day it had up", () => {
+    writeRaw("2026-09-25");
+    // WallBoard sets its day to this on a failed fetch: null, so yesterday is not left drawn.
+    expect(offlineRefreshState("caja", readLastBoardFor("caja", now)).day).toBeNull();
+    writeRaw(todayYmd);
+    expect(offlineRefreshState("caja", readLastBoardFor("caja", now)).day).toEqual(board(todayYmd));
+  });
+
   it("an old cache written before this rule is refused unless it is today", () => {
     writeRaw("2026-12-24");
     expect(readLastBoard(now)).toBeNull();
     writeRaw(todayYmd);
     expect(readLastBoard(now)?.date).toBe(todayYmd);
+  });
+});
+
+describe("staff panels (return prompts, tareas) never keep another day", () => {
+  const today = { board: "caja" as const, date: "2026-09-26" };
+  const planned = { board: "caja" as const, date: "2026-10-02" };
+
+  it("401 on the day on screen clears the panel", () => {
+    expect(panelResponse(401, today, today)).toBe("clear");
+  });
+
+  it("a late response for a day no longer on screen is dropped, whatever its status", () => {
+    expect(panelResponse(200, today, planned)).toBe("drop");
+    expect(panelResponse(401, today, planned)).toBe("drop");
+    expect(panelResponse(200, { board: "cocina", date: today.date }, today)).toBe("drop");
+  });
+
+  it("OK on the day on screen applies; another failure keeps today's panel (offline)", () => {
+    expect(panelResponse(200, today, today)).toBe("apply");
+    expect(panelResponse(503, today, today)).toBe("keep");
   });
 });

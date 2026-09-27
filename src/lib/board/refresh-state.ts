@@ -26,3 +26,19 @@ export function isCurrentBoardRequest(
 ): boolean {
   return active.board === requested.board && active.date === requested.date;
 }
+
+/**
+ * What a side panel (return prompts, tareas) does with a response. A late
+ * response for another board or date is dropped; a 401 (the day needs a
+ * manager) clears the panel, so a planned day's names never stay on a staff
+ * screen; any other failure keeps the panel (offline today).
+ */
+export function panelResponse(
+  status: number,
+  active: { board: CachedFloorBoard["board"]; date: string },
+  requested: { board: CachedFloorBoard["board"]; date: string },
+): "apply" | "clear" | "drop" | "keep" {
+  if (!isCurrentBoardRequest(active, requested)) return "drop";
+  if (status === 401) return "clear";
+  return status >= 200 && status < 300 ? "apply" : "keep";
+}

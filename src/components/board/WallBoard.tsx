@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { KioskLock, kioskRequested } from "@/components/board/KioskLock";
 import { assignmentsAtStationHour, displayName, stationColorClass } from "@/components/board/board-helpers";
 import type { DayBoardDto } from "@/components/board/types";
+import { offlineRefreshState } from "@/lib/board/refresh-state";
 import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
@@ -60,8 +61,8 @@ export function WallBoard() {
       setOffline(false);
       saveLastBoard({ board, date: ymd, day: data });
     } catch {
-      const cached = readLastBoardFor(board);
-      if (cached) setDay(cached.day as DayBoardDto);
+      // Today's cache only; none means the banner and no board, never yesterday's.
+      setDay(offlineRefreshState<DayBoardDto>(board, readLastBoardFor(board)).day);
       setOffline(true);
     }
   }, [board]);

@@ -67,6 +67,7 @@ import {
   isCurrentBoardRequest,
   liveRefreshState,
   offlineRefreshState,
+  panelResponse,
 } from "@/lib/board/refresh-state";
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { KioskLock, kioskRequested } from "./KioskLock";
@@ -105,6 +106,10 @@ function playReturnChime() {
  * Floor board UI — Android tablet Chrome first (landscape ~1280×800+).
  * Bilingual by board (caja EN / cocina ES), timeline matrix, staff vs manager.
  */
+const NO_PROMPTS: ReturnPromptDto[] = [];
+const NO_TEMPLATES: TareaTemplateDto[] = [];
+const NO_ASSIGNMENTS: TareaAssignmentDto[] = [];
+
 export function FloorBoard() {
   const searchParams = useSearchParams();
   const readonly =
@@ -176,12 +181,17 @@ export function FloorBoard() {
   );
   const [clock, setClock] = useState<string>("");
 
-  const [returnPrompts, setReturnPrompts] = useState<ReturnPromptDto[]>([]);
+  // Keyed by board|date: another day's prompts and tareas are never shown,
+  // not while this day loads and not when its load fails.
+  const [promptsFor, setPromptsFor] = useState<{ key: string; prompts: ReturnPromptDto[] }>(
+    { key: "", prompts: [] },
+  );
   const [chimeMute, setChimeMute] = useState(false);
-  const [tareaTemplates, setTareaTemplates] = useState<TareaTemplateDto[]>([]);
-  const [tareaAssignments, setTareaAssignments] = useState<
-    TareaAssignmentDto[]
-  >([]);
+  const [tareasFor, setTareasFor] = useState<{
+    key: string;
+    templates: TareaTemplateDto[];
+    assignments: TareaAssignmentDto[];
+  }>({ key: "", templates: [], assignments: [] });
   const [selectedTareaTemplateId, setSelectedTareaTemplateId] = useState<
     string | null
   >(null);
@@ -200,6 +210,10 @@ export function FloorBoard() {
   const syncedUrlBoardRef = useRef(requestedBoard);
   activeBoardRef.current = board;
   activeDateRef.current = date;
+  const panelKey = `${board}|${date}`;
+  const returnPrompts = promptsFor.key === panelKey ? promptsFor.prompts : NO_PROMPTS;
+  const tareaTemplates = tareasFor.key === panelKey ? tareasFor.templates : NO_TEMPLATES;
+  const tareaAssignments = tareasFor.key === panelKey ? tareasFor.assignments : NO_ASSIGNMENTS;
 
   const showToast = useCallback((kind: "ok" | "err", text: string) => {
     setToast({ kind, text });
@@ -361,39 +375,50 @@ export function FloorBoard() {
 
   const refreshReturnPrompts = useCallback(async () => {
     if (!date) return;
+    const requested = { board, date };
+    const active = () => ({ board: activeBoardRef.current, date: activeDateRef.current });
     try {
       const res = await fetch(
         `/api/return-prompts?date=${encodeURIComponent(date)}`,
         { headers: managerAuthHeaders(managerToken) },
       );
-      if (!res.ok) return;
+      const action = panelResponse(res.status, active(), requested);
+      const key = `${requested.board}|${requested.date}`;
+      if (action === "clear") setPromptsFor({ key, prompts: [] });
+      if (action !== "apply") return;
       const data = (await res.json()) as { prompts: ReturnPromptDto[] };
+      if (panelResponse(res.status, active(), requested) !== "apply") return;
       const next = data.prompts ?? [];
       const fresh = next.filter((p) => !knownPromptIds.current.has(p.id));
       if (fresh.length > 0 && !chimeMute) {
         playReturnChime();
       }
       for (const p of next) knownPromptIds.current.add(p.id);
-      setReturnPrompts(next);
+      setPromptsFor({ key, prompts: next });
     } catch {
       /* soft fail */
     }
-  }, [date, chimeMute, managerToken]);
+  }, [board, date, chimeMute, managerToken]);
 
   const refreshTareas = useCallback(async () => {
     if (!date) return;
+    const requested = { board, date };
+    const active = () => ({ board: activeBoardRef.current, date: activeDateRef.current });
     try {
       const res = await fetch(
         `/api/tareas?date=${encodeURIComponent(date)}&board=${board}`,
         { headers: managerAuthHeaders(managerToken) },
       );
-      if (!res.ok) return;
+      const action = panelResponse(res.status, active(), requested);
+      const key = `${requested.board}|${requested.date}`;
+      if (action === "clear") setTareasFor({ key, templates: [], assignments: [] });
+      if (action !== "apply") return;
       const data = (await res.json()) as {
         templates: TareaTemplateDto[];
         assignments: TareaAssignmentDto[];
       };
-      setTareaTemplates(data.templates ?? []);
-      setTareaAssignments(data.assignments ?? []);
+      if (panelResponse(res.status, active(), requested) !== "apply") return;
+      setTareasFor({ key, templates: data.templates ?? [], assignments: data.assignments ?? [] });
     } catch {
       /* soft fail */
     }
