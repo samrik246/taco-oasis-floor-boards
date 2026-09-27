@@ -117,7 +117,7 @@ export async function paintAssignments(
           return invalid("INVALID_TARGET", "Choose either a numbered position or a position family.");
         }
         const shift = byShift.get(edit.shiftId);
-        if (!shift || shift.board !== request.board || shift.date !== request.date || shift.supersededAt) {
+        if (!shift || shift.board !== request.board || shift.date !== request.date || shift.supersededAt || shift.boardRemoved) {
           return conflict("The imported shift changed. Refresh the board and review the painted hours.");
         }
         if (

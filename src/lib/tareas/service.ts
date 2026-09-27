@@ -207,6 +207,7 @@ export async function buildTareaSuggestions(args: {
         board,
         date: args.date,
         supersededAt: null,
+        boardRemoved: false,
         startAt: { lt: hourEnd },
         endAt: { gt: hourStart },
       },

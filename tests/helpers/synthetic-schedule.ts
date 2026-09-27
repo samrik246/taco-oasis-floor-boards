@@ -85,6 +85,8 @@ export async function syntheticXlsx(
 
 export async function resetScheduleTables(prisma: PrismaClient): Promise<void> {
   await prisma.positionMoveLog.deleteMany();
+  await prisma.shiftRemovalEvent.deleteMany();
+  await prisma.shiftRemoval.deleteMany();
   await prisma.assignment.deleteMany();
   await prisma.shift.deleteMany();
   await prisma.importBatch.deleteMany();
@@ -112,7 +114,7 @@ export async function resetScheduleTables(prisma: PrismaClient): Promise<void> {
 
 /** Every row of every table an import can touch, ordered by id: "nothing changed" means equal snapshots. */
 export async function dbSnapshot(prisma: PrismaClient): Promise<string> {
-  const [employees, shifts, assignments, batches, abilities] = await Promise.all([
+  const [employees, shifts, assignments, batches, abilities, removals, removalEvents] = await Promise.all([
     prisma.employee.findMany({ orderBy: { id: "asc" } }),
     prisma.shift.findMany({ orderBy: { id: "asc" } }),
     prisma.assignment.findMany({ orderBy: { id: "asc" } }),
@@ -120,6 +122,8 @@ export async function dbSnapshot(prisma: PrismaClient): Promise<string> {
     prisma.employeeStationAbility.findMany({
       orderBy: [{ employeeId: "asc" }, { stationId: "asc" }],
     }),
+    prisma.shiftRemoval.findMany({ orderBy: { id: "asc" } }),
+    prisma.shiftRemovalEvent.findMany({ orderBy: { id: "asc" } }),
   ]);
-  return JSON.stringify({ employees, shifts, assignments, batches, abilities });
+  return JSON.stringify({ employees, shifts, assignments, batches, abilities, removals, removalEvents });
 }

@@ -30,6 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
         where: {
           board,
           date,
+          boardRemoved: false,
           OR: [{ supersededAt: null }, { assignments: { some: {} } }],
         },
         include: {

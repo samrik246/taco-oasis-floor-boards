@@ -18,7 +18,7 @@ export async function listPositionMapRows(): Promise<PositionMapRow[]> {
   const [shiftGroups, mapRows] = await Promise.all([
     prisma.shift.groupBy({
       by: ["sourcePosition", "board"],
-      where: { supersededAt: null },
+      where: { supersededAt: null, boardRemoved: false },
     }),
     prisma.positionStationMap.findMany(),
   ]);

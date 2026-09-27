@@ -18,6 +18,7 @@ const VIOLATION_MESSAGES: Record<Locale, Record<ViolationCode, string>> = {
     INVALID_HOUR: "That hour isn't on the board.",
     SWAP_SAME_ASSIGNMENT: "Pick two different people to swap.",
     SHIFT_SUPERSEDED: "That shift was replaced by a newer import.",
+    SHIFT_REMOVED: "That shift was removed from this board. Ask a manager to restore it.",
   },
   es: {
     OUT_OF_SHIFT: "Esta persona no tiene turno a esa hora.",
@@ -32,6 +33,7 @@ const VIOLATION_MESSAGES: Record<Locale, Record<ViolationCode, string>> = {
     SWAP_SAME_ASSIGNMENT: "Elige dos personas distintas para intercambiar.",
     SHIFT_SUPERSEDED:
       "Ese turno fue reemplazado por una importación más reciente.",
+    SHIFT_REMOVED: "Ese turno fue quitado de este tablero. Pide a un gerente que lo restaure.",
   },
 };
 

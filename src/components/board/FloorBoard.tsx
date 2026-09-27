@@ -39,6 +39,7 @@ import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
 import { ManagerColorEditor } from "./ManagerColorEditor";
+import { ShiftRemovalPanel } from "./ShiftRemovalPanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { RushPanel } from "./RushPanel";
 import { ManagerUnlockModal } from "./ManagerUnlockModal";
@@ -1617,7 +1618,15 @@ export function FloorBoard() {
 
       {mainView === "timeline" && (
         <div className="p-3 sm:p-4">
-          {isManager && manager?.token ? <ManagerColorEditor
+          {isManager && manager?.token ? <><ShiftRemovalPanel
+            key={`remove|${board}|${date}|${manager.id}`}
+            day={day}
+            board={board}
+            date={date}
+            managerToken={manager.token}
+            readonly={editsLocked}
+            onSaved={async () => { await refreshBoard(); bumpLedger(); }}
+          /><ManagerColorEditor
             key={`${board}|${date}`}
             day={day}
             board={board}
@@ -1631,7 +1640,7 @@ export function FloorBoard() {
             readonly={editsLocked}
             onDraftChange={refreshDraftDates}
             onSaved={async () => { await refreshBoard(); bumpLedger(); }}
-          /> : <TimelinePanel
+          /></> : <TimelinePanel
             day={day}
             date={date}
             locale={locale}

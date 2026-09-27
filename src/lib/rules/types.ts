@@ -21,7 +21,8 @@ export type ViolationCode =
   | "ASSIGNMENT_NOT_FOUND"
   | "INVALID_HOUR"
   | "SWAP_SAME_ASSIGNMENT"
-  | "SHIFT_SUPERSEDED";
+  | "SHIFT_SUPERSEDED"
+  | "SHIFT_REMOVED";
 
 export type RuleViolation = {
   code: ViolationCode;

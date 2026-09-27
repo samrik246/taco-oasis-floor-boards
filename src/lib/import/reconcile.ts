@@ -64,6 +64,7 @@ export type DatePreview = {
 export type Refusal =
   | { code: "BOARD_WIPE"; board: string; date: string; message: string }
   | { code: "PERSON_OVERLAP"; date: string; externalId: string; message: string }
+  | { code: "REMOVAL_IDENTITY"; date: string; externalId: string; message: string }
   | { code: "TAKEOVER_CONFLICT"; board: string; date: string; message: string };
 
 export type ReconcilePlan = {
