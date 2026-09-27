@@ -13,6 +13,7 @@ import {
   type ReconcilePlan,
   type Refusal,
 } from "@/lib/import/reconcile";
+import { planRemovalIdentity, type RemovalDecision } from "@/lib/import/removal-identity";
 
 /**
  * Persist a parse result. Never writes pay columns or staff email (they are
@@ -107,15 +108,34 @@ async function buildPlan(
   parsed: ParseResult,
   fingerprint: string,
   now: Date,
-): Promise<ReconcilePlan> {
-  const existing = await loadExisting(tx, fileDates(parsed));
-  return planReconcile({
+): Promise<ReconcilePlan & { removalDecisions: RemovalDecision[] }> {
+  const dates = fileDates(parsed);
+  const existing = await loadExisting(tx, dates);
+  const plan = planReconcile({
     fingerprint,
     shifts: parsed.shifts,
     skippedOpenShifts: parsed.skippedOpenShifts,
     existing,
     now,
   });
+  const removals = await tx.shiftRemoval.findMany({
+    where: { date: { in: dates }, state: "removed" },
+  });
+  const identity = planRemovalIdentity({
+    removals, existing, incoming: parsed.shifts, actions: plan.actions,
+  });
+  plan.touchesImportedDates ||= removals.length > 0;
+  plan.refusals.push(...identity.refusals);
+  // A manager remove/restore or a source relink between Preview and Confirm
+  // must invalidate the preview even when no station cells changed.
+  plan.digest = createHash("sha256").update(JSON.stringify([
+    plan.digest,
+    removals.map((r) => [r.id, r.shiftId, r.revision, r.externalId, r.date,
+      r.board, r.sourcePosition, r.startAt.toISOString(), r.endAt.toISOString()]).sort(),
+    identity.decisions.map((d) => [d.overrideId, d.action,
+      d.next?.startAt.toISOString(), d.next?.endAt.toISOString()]).sort(),
+  ])).digest("hex");
+  return Object.assign(plan, { removalDecisions: identity.decisions });
 }
 
 function assertImportable(parsed: ParseResult) {
@@ -288,6 +308,38 @@ export async function commitImport(
     const created = new Map<(typeof parsed.shifts)[number], Awaited<ReturnType<typeof createShift>>>();
     for (const n of parsed.shifts) {
       if (toCreate.has(n)) created.set(n, await createShift(n));
+    }
+
+    for (const decision of plan.removalDecisions) {
+      if (decision.action === "unchanged") continue;
+      const nextShift = decision.next && (created.get(decision.next) ??
+        (plan.actions.find((action) => "next" in action && action.next === decision.next &&
+          action.kind === "changed") as Extract<typeof plan.actions[number], { kind: "changed" }> | undefined)?.old);
+      const shiftId = decision.action === "source-missing" ? null : nextShift?.id;
+      if (decision.action !== "source-missing" && !shiftId) {
+        throw new ImportRefusedError("The removed shift changed during import.", "BOARD_CHANGED");
+      }
+      if (shiftId) await tx.shift.update({ where: { id: shiftId }, data: { boardRemoved: true } });
+      const updated = await tx.shiftRemoval.update({
+        where: { id: decision.overrideId },
+        data: {
+          shiftId,
+          ...(decision.next ? {
+            startAt: decision.next.startAt,
+            endAt: decision.next.endAt,
+          } : {}),
+          revision: { increment: 1 },
+        },
+      });
+      await tx.shiftRemovalEvent.create({ data: {
+        overrideId: updated.id,
+        action: decision.action,
+        reason: "Schedule re-import",
+        sourceJson: JSON.stringify({ externalId: updated.externalId, date: updated.date,
+          board: updated.board, sourcePosition: updated.sourcePosition,
+          startAt: updated.startAt.toISOString(), endAt: updated.endAt.toISOString(), shiftId }),
+        cellsJson: updated.cellsJson,
+      } });
     }
 
     // Re-create only future station cells on an unambiguous incoming shift.

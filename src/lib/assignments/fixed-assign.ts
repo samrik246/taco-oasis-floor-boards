@@ -45,6 +45,7 @@ export async function placeFixedAssignments(
       date: params.date,
       board: params.board,
       supersededAt: null,
+      boardRemoved: false,
       sourcePosition: { in: [...byPosition.keys()] },
     },
   });

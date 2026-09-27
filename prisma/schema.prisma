@@ -66,10 +66,56 @@ model Shift {
   /// shift keeps its started, assigned hours as history and takes no new future hour.
   supersededAt        DateTime?
   supersededByBatchId String?
+  /// Preserve staff hiding on a superseded source row after its override
+  /// becomes a tombstone or relinks to a newer occurrence.
+  boardRemoved         Boolean @default(false)
   assignments    Assignment[]
+  removalOverride ShiftRemoval?
 
   @@index([date, board])
   @@index([employeeId, date])
+}
+
+/// Board-owned visibility of one imported shift occurrence. This is not a
+/// When I Work edit. A missing current shift leaves a tombstone for an exact,
+/// unambiguous later reappearance.
+model ShiftRemoval {
+  id                String   @id @default(cuid())
+  shiftId           String?  @unique
+  shift             Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  externalId        String
+  date              String
+  board             String
+  sourcePosition    String
+  startAt           DateTime
+  endAt             DateTime
+  state             String   @default("removed") // removed | restored
+  revision          Int      @default(1)
+  /// Future station cells cleared by the latest removal; JSON is validated
+  /// before replay and never sent to the staff board.
+  cellsJson         String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  events            ShiftRemovalEvent[]
+
+  @@index([date, board, state])
+  @@index([externalId, date, sourcePosition])
+}
+
+/// Append-only manager and import history for a board removal.
+model ShiftRemovalEvent {
+  id            String       @id @default(cuid())
+  overrideId    String
+  override      ShiftRemoval @relation(fields: [overrideId], references: [id])
+  action        String       // remove | restore | relink | source-missing
+  managerId     String?      // null only for an import-owned relink
+  managerName   String?
+  reason        String
+  sourceJson    String
+  cellsJson     String
+  createdAt     DateTime     @default(now())
+
+  @@index([overrideId, createdAt])
 }
 
 model Assignment {

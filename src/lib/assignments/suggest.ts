@@ -33,7 +33,7 @@ export async function freeFavoriteFor(params: {
   if (stationTaken > 0) return null;
 
   const shifts = await prisma.shift.findMany({
-    where: { date: params.date, board: params.board, supersededAt: null },
+    where: { date: params.date, board: params.board, supersededAt: null, boardRemoved: false },
     include: { employee: true },
   });
   const covering = shifts.filter((s) =>
@@ -90,7 +90,7 @@ export async function freeFavoritesForHour(params: {
   for (const station of stations) result[station.id] = null;
 
   const shifts = await prisma.shift.findMany({
-    where: { date: params.date, board: params.board, supersededAt: null },
+    where: { date: params.date, board: params.board, supersededAt: null, boardRemoved: false },
     include: { employee: true },
   });
   const covering = shifts.filter((s) =>

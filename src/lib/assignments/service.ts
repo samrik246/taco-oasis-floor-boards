@@ -36,6 +36,11 @@ const supersededViolation: RuleViolation = {
   message: "This shift was replaced by a newer schedule. Assign the person's current shift instead.",
 };
 
+const removedViolation: RuleViolation = {
+  code: "SHIFT_REMOVED",
+  message: "This shift was removed from board service. Refresh and ask a manager to restore it first.",
+};
+
 /** A superseded shift keeps its started hours as history and takes no future hour (C1). */
 function refusesFutureHour(
   shift: { supersededAt: Date | null },
@@ -97,6 +102,7 @@ export async function createAssignment(
     return await prisma.$transaction(async (tx) => {
       const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
       if (!shift) return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] } as const;
+      if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] } as const;
       if (refusesFutureHour(shift, hourStart, params.now ?? new Date())) {
         return { ok: false, status: 422, violations: [supersededViolation] } as const;
       }
@@ -171,6 +177,7 @@ export async function createShiftAssignment(
   if (!shift) {
     return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] };
   }
+  if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] };
   const station = await prisma.station.findUnique({ where: { id: params.stationId } });
   if (!station) {
     return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] };
@@ -221,6 +228,9 @@ export async function createShiftAssignment(
     if (result.ok) {
       summary.placed += 1;
       continue;
+    }
+    if (result.violations.some((v) => v.code === "SHIFT_REMOVED")) {
+      return { ok: false, status: 422, violations: [removedViolation] };
     }
     if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
       summary.personBusy += 1;
@@ -275,6 +285,7 @@ export async function copyDayAssignments(
   const sourceAssignments = await prisma.assignment.findMany({
     where: {
       station: { board: params.board },
+      shift: { boardRemoved: false },
       hourStart: { gte: dayStart, lt: dayEnd },
     },
   });
@@ -314,6 +325,7 @@ export async function copyDayAssignments(
         date: params.targetDate,
         board: params.board,
         supersededAt: null,
+        boardRemoved: false,
       },
     });
     const targetShift = targetShifts.find((s) =>
@@ -349,9 +361,9 @@ export async function deleteAssignment(
   id: string,
 ): Promise<
   | { ok: true; id: string }
-  | { ok: false; status: 404; violations: RuleViolation[] }
+  | { ok: false; status: 404 | 422; violations: RuleViolation[] }
 > {
-  const existing = await prisma.assignment.findUnique({ where: { id } });
+  const existing = await prisma.assignment.findUnique({ where: { id }, include: { shift: true } });
   if (!existing) {
     return {
       ok: false,
@@ -361,6 +373,7 @@ export async function deleteAssignment(
       ],
     };
   }
+  if (existing.shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] };
   await prisma.assignment.delete({ where: { id } });
   return { ok: true, id };
 }
@@ -387,9 +400,12 @@ export type ClearAssignmentResult =
 export async function clearAssignment(
   params: ClearAssignmentParams,
 ): Promise<ClearAssignmentResult> {
-  const existing = await prisma.assignment.findUnique({ where: { id: params.id } });
+  const existing = await prisma.assignment.findUnique({ where: { id: params.id }, include: { shift: true } });
   if (!existing) {
     return { ok: false, status: 404, error: "Assignment not found" };
+  }
+  if (existing.shift.boardRemoved) {
+    return { ok: false, status: 422, error: removedViolation.message };
   }
   const now = params.now ?? new Date();
   if (isFutureHour(existing.hourStart, now)) {
@@ -474,6 +490,9 @@ export async function swapAssignments(
       ],
     };
   }
+  if (a.shift.boardRemoved || b.shift.boardRemoved) {
+    return { ok: false, status: 422, violations: [removedViolation] };
+  }
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -484,6 +503,9 @@ export async function swapAssignments(
         return { ok: false, status: 404, violations: [{ code: "ASSIGNMENT_NOT_FOUND", message: "One or both assignments no longer exist" }] } as const;
       }
       const [currentA, currentB] = current[0]!.id === a.id ? [current[0]!, current[1]!] : [current[1]!, current[0]!];
+      if (currentA.shift.boardRemoved || currentB.shift.boardRemoved) {
+        return { ok: false, status: 422, violations: [removedViolation] } as const;
+      }
       const plan = [
         { station: currentA.station, shift: currentB.shift, hourStart: currentA.hourStart },
         { station: currentB.station, shift: currentA.shift, hourStart: currentB.hourStart },
