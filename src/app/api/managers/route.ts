@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
     const managers = await prisma.manager.findMany({
       where: { active: true },
-      select: { id: true, name: true, codeHash: true, longIdle: true },
+      select: { id: true, name: true, codeHash: true, longIdle: true, role: true },
     });
 
     const match = managers.find((m) =>
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      manager: { id: match.id, name: match.name },
+      manager: { id: match.id, name: match.name, role: match.role },
       idleMs: managerIdleMsFor(match),
       sessionToken: signManagerSession({ id: match.id, name: match.name }),
     });

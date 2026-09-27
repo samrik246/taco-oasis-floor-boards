@@ -303,25 +303,8 @@ model Manager {
   active    Boolean  @default(true)
   /// Planning code: unlock returns LONG_MANAGER_IDLE_MS instead of MANAGER_IDLE_MS. Off for every existing manager.
   longIdle  Boolean  @default(false)
-  /// owner | manager. Any stored value other than the exact string owner fails closed.
-  role      String   @default("manager")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([active])
-}
-
-/// One row per successful board write. Written in the same transaction as that write.
-/// summary is a machine line (day, hour, station, count), never request prose.
-model BoardChangeLog {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  managerId   String
-  managerName String
-  route       String
-  date        String
-  summary     String
-
-  @@index([date, createdAt])
-  @@index([createdAt])
 }

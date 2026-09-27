@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { paintAssignments } from "@/lib/assignments/paint";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 import { isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
@@ -37,7 +38,11 @@ export async function PUT(request: Request) {
   if (!auth.ok) return auth.response;
   try {
     const body = bodySchema.parse(await request.json());
-    const result = await paintAssignments(body);
+    const result = await paintAssignments(body, new Date(), {
+      id: auth.manager.id,
+      name: auth.manager.name,
+      route: BOARD_CHANGE_ROUTES.paint,
+    });
     if (!result.ok) {
       return NextResponse.json(
         { code: result.code, error: result.message, violations: result.violations },

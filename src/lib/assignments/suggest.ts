@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { createShiftAssignment, type ShiftAssignSummary } from "./service";
 
 export type FreeFavorite = {
@@ -158,18 +159,30 @@ export async function suggestAssign(params: {
   hour: number;
   stationId: string;
   shiftId: string;
+  actor?: BoardChangeActor;
 }): Promise<SuggestAssignResult> {
   const best = await freeFavoriteFor(params);
   if (!best || best.shiftId !== params.shiftId) {
     return { ok: false, status: 422, error: "Not a free favorite" };
   }
-  const result = await createShiftAssignment({
-    shiftId: params.shiftId,
-    stationId: params.stationId,
-    date: params.date,
+  return prisma.$transaction(async (tx) => {
+    const result = await createShiftAssignment({
+      shiftId: params.shiftId,
+      stationId: params.stationId,
+      date: params.date,
+      db: tx,
+    });
+    if (!result.ok) {
+      return { ok: false as const, status: 422 as const, error: "Assign rejected" };
+    }
+    if (params.actor) {
+      await writeBoardChange(tx, params.actor, {
+        date: params.date,
+        hour: params.hour,
+        stationId: params.stationId,
+        count: result.summary.placed,
+      });
+    }
+    return { ok: true as const, summary: result.summary };
   });
-  if (!result.ok) {
-    return { ok: false, status: 422, error: "Assign rejected" };
-  }
-  return { ok: true, summary: result.summary };
 }

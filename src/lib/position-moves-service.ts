@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
 
 export type LogMoveParams = {
@@ -10,6 +11,7 @@ export type LogMoveParams = {
   assignmentId?: string | null;
   reason: string;
   note?: string | null;
+  actor?: BoardChangeActor;
 };
 
 export async function logPositionMove(params: LogMoveParams) {
@@ -27,17 +29,28 @@ export async function logPositionMove(params: LogMoveParams) {
     return { ok: false as const, status: 404 as const, error: "Employee not found" };
   }
 
-  const row = await prisma.positionMoveLog.create({
-    data: {
-      date: params.date,
-      hour: params.hour,
-      employeeId: params.employeeId,
-      fromStationId: params.fromStationId,
-      toStationId: params.toStationId,
-      assignmentId: params.assignmentId ?? null,
-      reason: params.reason as MoveReason,
-      note: params.note?.trim() || null,
-    },
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.positionMoveLog.create({
+      data: {
+        date: params.date,
+        hour: params.hour,
+        employeeId: params.employeeId,
+        fromStationId: params.fromStationId,
+        toStationId: params.toStationId,
+        assignmentId: params.assignmentId ?? null,
+        reason: params.reason as MoveReason,
+        note: params.note?.trim() || null,
+      },
+    });
+    if (params.actor) {
+      await writeBoardChange(tx, params.actor, {
+        date: params.date,
+        hour: params.hour,
+        stationId: params.toStationId ?? params.fromStationId,
+        count: 1,
+      });
+    }
+    return created;
   });
   return { ok: true as const, log: row };
 }

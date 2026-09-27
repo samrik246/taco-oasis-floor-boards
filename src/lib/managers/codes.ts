@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { isOwnerRole } from "@/lib/managers/roles";
 
 /** App-level salt — codes are never stored or shipped in plaintext. */
 const CODE_SALT = "taco-oasis-manager-v1";
@@ -51,10 +52,14 @@ export function managerIdleMsFromEnv(
 /** Idle timeout for a manager with `longIdle` set (10 minutes). Not an env setting; the client never sends it. */
 export const LONG_MANAGER_IDLE_MS = 600_000;
 
-/** Idle timeout returned from unlock: 10 minutes for a `longIdle` code, else the shared setting. */
+/** Owner desk and floor idle. Not an env setting; the client never sends it. Owner wins over longIdle. */
+export const OWNER_IDLE_MS = 300_000;
+
+/** Idle timeout returned from unlock. Role is read from the row, never from the request. */
 export function managerIdleMsFor(
-  manager: { longIdle: boolean },
+  manager: { longIdle: boolean; role?: string | null },
   env: Record<string, string | undefined> = process.env,
 ): number {
+  if (isOwnerRole(manager.role)) return OWNER_IDLE_MS;
   return manager.longIdle ? LONG_MANAGER_IDLE_MS : managerIdleMsFromEnv(env);
 }

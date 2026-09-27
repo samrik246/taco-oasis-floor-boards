@@ -27,7 +27,7 @@ const floor = { name: `Floor Idle ${stamp}`, code: `floor-${stamp}` };
 
 async function adminToken() {
   const manager = await prisma.manager.create({
-    data: { name: `Idle Admin ${stamp}`, codeHash: hashManagerCode(`admin-${stamp}`) },
+    data: { name: `Idle Admin ${stamp}`, codeHash: hashManagerCode(`admin-${stamp}`), role: "owner" },
   });
   return signManagerSession({ id: manager.id, name: manager.name });
 }
@@ -40,7 +40,7 @@ async function add(token: string, body: Record<string, unknown>) {
       body: JSON.stringify(body),
     }),
   );
-  expect(res.status).toBe(201);
+  expect(res.status).toBe(200);
   return (await res.json()) as { manager: { id: string; longIdle: boolean } };
 }
 

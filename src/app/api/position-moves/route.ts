@@ -5,6 +5,7 @@ import {
   listPositionMoves,
   logPositionMove,
 } from "@/lib/position-moves-service";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
 
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
       assignmentId: body.assignmentId,
       reason: body.reason,
       note: body.note,
+      actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.positionMove },
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });

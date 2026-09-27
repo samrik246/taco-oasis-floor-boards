@@ -1282,7 +1282,9 @@ export function FloorBoard() {
             data-testid="role-badge"
           >
             {isManager
-              ? t.managerUnlocked(manager?.name ?? t.managerView)
+              ? manager?.role === "owner"
+                ? t.ownerUnlocked(manager.name)
+                : t.managerUnlocked(manager?.name ?? t.managerView)
               : t.staffView}
           </span>
 
@@ -2065,7 +2067,12 @@ export function FloorBoard() {
           setUnlockOpen(false);
           await refreshBoard();
           setMainView("timeline");
-          showToast("ok", t.managerUnlocked(session.name));
+          showToast(
+            "ok",
+            session.role === "owner"
+              ? t.ownerUnlocked(session.name)
+              : t.managerUnlocked(session.name),
+          );
         }}
       />
     </div>

@@ -6,6 +6,8 @@ export type ManagerSession = {
   id: string;
   name: string;
   token: string;
+  /** Display only. The server re-reads role from the database. */
+  role?: string;
 };
 
 type Options = {

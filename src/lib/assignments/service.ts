@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { validateAssignment } from "@/lib/rules/assign";
 import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
@@ -7,6 +8,10 @@ import { isFutureHour } from "@/lib/rules/live-hour";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
+import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
+
+/** Caller-owned transaction. A helper that receives one must not open another. */
+export type AssignmentTx = Prisma.TransactionClient;
 
 export type AssignParams = {
   shiftId: string;
@@ -17,6 +22,10 @@ export type AssignParams = {
   hour: number;
   /** Injectable clock (tests). */
   now?: Date;
+  /** Set by PUT /api/assignments so the log shares this write's transaction. */
+  actor?: BoardChangeActor;
+  /** When set, this write joins the caller's transaction instead of opening one. */
+  db?: AssignmentTx;
 };
 
 export type AssignResult =
@@ -98,8 +107,7 @@ export async function createAssignment(
 
   const hourStart = chicagoHourStart(params.date, params.hour);
   const hourEnd = chicagoHourEnd(params.date, params.hour);
-  try {
-    return await prisma.$transaction(async (tx) => {
+  const write = async (tx: AssignmentTx): Promise<AssignResult> => {
       const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
       if (!shift) return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] } as const;
       if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] } as const;
@@ -125,8 +133,19 @@ export async function createAssignment(
       const assignment = await tx.assignment.create({
         data: { shiftId: params.shiftId, employeeId: shift.employeeId, stationId: params.stationId, hourStart, hourEnd },
       });
+      if (params.actor) {
+        await writeBoardChange(tx, params.actor, {
+          date: params.date,
+          hour: params.hour,
+          stationId: params.stationId,
+          count: 1,
+        });
+      }
       return { ok: true, assignment: toDto(assignment) } as const;
-    });
+  };
+  try {
+    if (params.db) return await write(params.db);
+    return await prisma.$transaction(write);
   } catch (error) {
     if (isUniqueConflict(error)) {
       return { ok: false, status: 422, violations: [conflictViolation("STATION_FULL")] };
@@ -142,6 +161,9 @@ export type ShiftAssignParams = {
   date: string;
   /** Injectable clock (tests). */
   now?: Date;
+  actor?: BoardChangeActor;
+  /** When set, the caller owns the transaction and writes the log row. */
+  db?: AssignmentTx;
 };
 
 export type ShiftAssignSummary = {
@@ -173,74 +195,87 @@ export type ShiftAssignResult =
 export async function createShiftAssignment(
   params: ShiftAssignParams,
 ): Promise<ShiftAssignResult> {
-  const shift = await prisma.shift.findUnique({ where: { id: params.shiftId } });
-  if (!shift) {
-    return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] };
-  }
-  if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] };
-  const station = await prisma.station.findUnique({ where: { id: params.stationId } });
-  if (!station) {
-    return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] };
-  }
-  if (station.board !== shift.board) {
-    return { ok: false, status: 422, violations: [{ code: "STATION_BOARD_MISMATCH", message: "That station belongs to the other board" }] };
-  }
+  const run = async (tx: AssignmentTx): Promise<ShiftAssignResult> => {
+    const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
+    if (!shift) {
+      return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] };
+    }
+    if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] };
+    const station = await tx.station.findUnique({ where: { id: params.stationId } });
+    if (!station) {
+      return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] };
+    }
+    if (station.board !== shift.board) {
+      return { ok: false, status: 422, violations: [{ code: "STATION_BOARD_MISMATCH", message: "That station belongs to the other board" }] };
+    }
 
-  const ability = await prisma.employeeStationAbility.findUnique({
-    where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } },
-  });
-  if ((ability?.level as AbilityLevel | undefined) === "forbidden") {
-    return { ok: false, status: 422, violations: [{ code: "FORBIDDEN_ABILITY", message: "This person can't work that station" }] };
-  }
+    const ability = await tx.employeeStationAbility.findUnique({
+      where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } },
+    });
+    if ((ability?.level as AbilityLevel | undefined) === "forbidden") {
+      return { ok: false, status: 422, violations: [{ code: "FORBIDDEN_ABILITY", message: "This person can't work that station" }] };
+    }
 
-  const overlappingHours = hourGridHours().filter((hour) => {
-    const hourStart = chicagoHourStart(params.date, hour);
-    const hourEnd = chicagoHourEnd(params.date, hour);
-    return isHourInShift(hourStart, shift.startAt, shift.endAt, hourEnd);
-  });
-  if (overlappingHours.length === 0) {
-    return { ok: false, status: 422, violations: [{ code: "OUT_OF_SHIFT", message: "This shift has no hours on the board grid" }] };
-  }
+    const overlappingHours = hourGridHours().filter((hour) => {
+      const hourStart = chicagoHourStart(params.date, hour);
+      const hourEnd = chicagoHourEnd(params.date, hour);
+      return isHourInShift(hourStart, shift.startAt, shift.endAt, hourEnd);
+    });
+    if (overlappingHours.length === 0) {
+      return { ok: false, status: 422, violations: [{ code: "OUT_OF_SHIFT", message: "This shift has no hours on the board grid" }] };
+    }
 
-  const summary: ShiftAssignSummary = {
-    placed: 0,
-    alreadyThere: 0,
-    stationOccupied: 0,
-    personBusy: 0,
-    superseded: 0,
+    const summary: ShiftAssignSummary = {
+      placed: 0,
+      alreadyThere: 0,
+      stationOccupied: 0,
+      personBusy: 0,
+      superseded: 0,
+    };
+    for (const hour of overlappingHours) {
+      const hourStart = chicagoHourStart(params.date, hour);
+      const already = await tx.assignment.findFirst({
+        where: { stationId: params.stationId, hourStart, employeeId: shift.employeeId },
+      });
+      if (already) {
+        summary.alreadyThere += 1;
+        continue;
+      }
+      const result = await createAssignment({
+        shiftId: params.shiftId,
+        stationId: params.stationId,
+        date: params.date,
+        hour,
+        now: params.now,
+        db: tx,
+      });
+      if (result.ok) {
+        summary.placed += 1;
+        continue;
+      }
+      if (result.violations.some((v) => v.code === "SHIFT_REMOVED")) {
+        return { ok: false, status: 422, violations: [removedViolation] };
+      }
+      if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
+        summary.personBusy += 1;
+      } else if (result.violations.some((v) => v.code === "SHIFT_SUPERSEDED")) {
+        summary.superseded += 1;
+      } else {
+        summary.stationOccupied += 1;
+      }
+    }
+    if (params.actor && !params.db) {
+      await writeBoardChange(tx, params.actor, {
+        date: params.date,
+        stationId: params.stationId,
+        count: summary.placed,
+      });
+    }
+    return { ok: true, summary };
   };
-  for (const hour of overlappingHours) {
-    const hourStart = chicagoHourStart(params.date, hour);
-    const already = await prisma.assignment.findFirst({
-      where: { stationId: params.stationId, hourStart, employeeId: shift.employeeId },
-    });
-    if (already) {
-      summary.alreadyThere += 1;
-      continue;
-    }
-    const result = await createAssignment({
-      shiftId: params.shiftId,
-      stationId: params.stationId,
-      date: params.date,
-      hour,
-      now: params.now,
-    });
-    if (result.ok) {
-      summary.placed += 1;
-      continue;
-    }
-    if (result.violations.some((v) => v.code === "SHIFT_REMOVED")) {
-      return { ok: false, status: 422, violations: [removedViolation] };
-    }
-    if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
-      summary.personBusy += 1;
-    } else if (result.violations.some((v) => v.code === "SHIFT_SUPERSEDED")) {
-      summary.superseded += 1;
-    } else {
-      summary.stationOccupied += 1;
-    }
-  }
-  return { ok: true, summary };
+
+  if (params.db) return run(params.db);
+  return prisma.$transaction(run);
 }
 
 export type CopyDayParams = {
@@ -248,6 +283,7 @@ export type CopyDayParams = {
   sourceDate: string;
   targetDate: string;
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type CopyDaySummary = {
@@ -280,81 +316,90 @@ export async function copyDayAssignments(
   if (params.sourceDate === params.targetDate) {
     return { ok: false, status: 422, error: "Source and target day must differ" };
   }
-  const dayStart = chicagoHourStart(params.sourceDate, HOUR_GRID_START);
-  const dayEnd = chicagoHourStart(params.sourceDate, HOUR_GRID_END);
-  const sourceAssignments = await prisma.assignment.findMany({
-    where: {
-      station: { board: params.board },
-      shift: { boardRemoved: false },
-      hourStart: { gte: dayStart, lt: dayEnd },
-    },
-  });
-
-  const summary: CopyDaySummary = {
-    copied: 0,
-    noShift: 0,
-    occupied: 0,
-    alreadyThere: 0,
-    forbidden: 0,
-  };
-
-  for (const source of sourceAssignments) {
-    if (!source.employeeId) {
-      summary.noShift += 1;
-      continue;
-    }
-    const hour = chicagoHourOf(source.hourStart);
-    const targetHourStart = chicagoHourStart(params.targetDate, hour);
-    const targetHourEnd = chicagoHourEnd(params.targetDate, hour);
-
-    const existing = await prisma.assignment.findFirst({
-      where: { stationId: source.stationId, hourStart: targetHourStart },
+  return prisma.$transaction(async (tx) => {
+    const dayStart = chicagoHourStart(params.sourceDate, HOUR_GRID_START);
+    const dayEnd = chicagoHourStart(params.sourceDate, HOUR_GRID_END);
+    const sourceAssignments = await tx.assignment.findMany({
+      where: {
+        station: { board: params.board },
+        shift: { boardRemoved: false },
+        hourStart: { gte: dayStart, lt: dayEnd },
+      },
     });
-    if (existing) {
-      if (existing.employeeId === source.employeeId) {
+
+    const summary: CopyDaySummary = {
+      copied: 0,
+      noShift: 0,
+      occupied: 0,
+      alreadyThere: 0,
+      forbidden: 0,
+    };
+
+    for (const source of sourceAssignments) {
+      if (!source.employeeId) {
+        summary.noShift += 1;
+        continue;
+      }
+      const hour = chicagoHourOf(source.hourStart);
+      const targetHourStart = chicagoHourStart(params.targetDate, hour);
+      const targetHourEnd = chicagoHourEnd(params.targetDate, hour);
+
+      const existing = await tx.assignment.findFirst({
+        where: { stationId: source.stationId, hourStart: targetHourStart },
+      });
+      if (existing) {
+        if (existing.employeeId === source.employeeId) {
+          summary.alreadyThere += 1;
+        } else {
+          summary.occupied += 1;
+        }
+        continue;
+      }
+
+      const targetShifts = await tx.shift.findMany({
+        where: {
+          employeeId: source.employeeId,
+          date: params.targetDate,
+          board: params.board,
+          supersededAt: null,
+          boardRemoved: false,
+        },
+      });
+      const targetShift = targetShifts.find((s) =>
+        isHourInShift(targetHourStart, s.startAt, s.endAt, targetHourEnd),
+      );
+      if (!targetShift) {
+        summary.noShift += 1;
+        continue;
+      }
+
+      const result = await createAssignment({
+        shiftId: targetShift.id,
+        stationId: source.stationId,
+        date: params.targetDate,
+        hour,
+        now: params.now,
+        db: tx,
+      });
+      if (result.ok) {
+        summary.copied += 1;
+      } else if (result.violations.some((v) => v.code === "FORBIDDEN_ABILITY")) {
+        summary.forbidden += 1;
+      } else if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
         summary.alreadyThere += 1;
       } else {
         summary.occupied += 1;
       }
-      continue;
     }
 
-    const targetShifts = await prisma.shift.findMany({
-      where: {
-        employeeId: source.employeeId,
+    if (params.actor) {
+      await writeBoardChange(tx, params.actor, {
         date: params.targetDate,
-        board: params.board,
-        supersededAt: null,
-        boardRemoved: false,
-      },
-    });
-    const targetShift = targetShifts.find((s) =>
-      isHourInShift(targetHourStart, s.startAt, s.endAt, targetHourEnd),
-    );
-    if (!targetShift) {
-      summary.noShift += 1;
-      continue;
+        count: summary.copied,
+      });
     }
-
-    const result = await createAssignment({
-      shiftId: targetShift.id,
-      stationId: source.stationId,
-      date: params.targetDate,
-      hour,
-      now: params.now,
-    });
-    if (result.ok) {
-      summary.copied += 1;
-    } else if (result.violations.some((v) => v.code === "FORBIDDEN_ABILITY")) {
-      summary.forbidden += 1;
-    } else if (result.violations.some((v) => v.code === "PERSON_ALREADY_ASSIGNED")) {
-      summary.alreadyThere += 1;
-    } else {
-      summary.occupied += 1;
-    }
-  }
-
-  return { ok: true, summary };
+    return { ok: true as const, summary };
+  });
 }
 
 export async function deleteAssignment(
@@ -383,6 +428,7 @@ export type ClearAssignmentParams = {
   reason?: string | null;
   note?: string | null;
   now?: Date;
+  actor?: BoardChangeActor;
 };
 
 export type ClearAssignmentResult =
@@ -409,7 +455,17 @@ export async function clearAssignment(
   }
   const now = params.now ?? new Date();
   if (isFutureHour(existing.hourStart, now)) {
-    await prisma.assignment.delete({ where: { id: params.id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.assignment.delete({ where: { id: params.id } });
+      if (params.actor) {
+        await writeBoardChange(tx, params.actor, {
+          date: chicagoYmd(existing.hourStart),
+          hour: chicagoHourOf(existing.hourStart),
+          stationId: existing.stationId,
+          count: 1,
+        });
+      }
+    });
     return { ok: true, id: params.id };
   }
   const reason = params.reason ?? "";
@@ -420,28 +476,37 @@ export async function clearAssignment(
       error: "A reason is required to clear the current or a past hour",
     };
   }
-  if (!existing.employeeId) {
+  const employeeId = existing.employeeId;
+  if (!employeeId) {
     return {
       ok: false,
       status: 422,
       error: "This assignment has no employee on record and cannot be logged",
     };
   }
-  await prisma.$transaction([
-    prisma.positionMoveLog.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.positionMoveLog.create({
       data: {
         date: chicagoYmd(existing.hourStart),
         hour: chicagoHourOf(existing.hourStart),
-        employeeId: existing.employeeId,
+        employeeId,
         fromStationId: existing.stationId,
         toStationId: null,
         assignmentId: existing.id,
         reason: reason as MoveReason,
         note: params.note?.trim() || null,
       },
-    }),
-    prisma.assignment.delete({ where: { id: params.id } }),
-  ]);
+    });
+    await tx.assignment.delete({ where: { id: params.id } });
+    if (params.actor) {
+      await writeBoardChange(tx, params.actor, {
+        date: chicagoYmd(existing.hourStart),
+        hour: chicagoHourOf(existing.hourStart),
+        stationId: existing.stationId,
+        count: 1,
+      });
+    }
+  });
   return { ok: true, id: params.id };
 }
 
@@ -453,6 +518,7 @@ export async function swapAssignments(
   assignmentIdA: string,
   assignmentIdB: string,
   now: Date = new Date(),
+  actor?: BoardChangeActor,
 ): Promise<
   | { ok: true; assignments: [AssignmentDto, AssignmentDto] }
   | { ok: false; status: 404 | 422; violations: RuleViolation[] }
@@ -565,6 +631,14 @@ export async function swapAssignments(
       await tx.assignment.updateMany({ where: { id: { in: [currentA.id, currentB.id] } }, data: { employeeId: null } });
       const u1 = await tx.assignment.update({ where: { id: currentA.id }, data: { shiftId: currentB.shiftId, employeeId: currentB.shift.employeeId } });
       const u2 = await tx.assignment.update({ where: { id: currentB.id }, data: { shiftId: currentA.shiftId, employeeId: currentA.shift.employeeId } });
+      if (actor) {
+        await writeBoardChange(tx, actor, {
+          date: chicagoYmd(currentA.hourStart),
+          hour: chicagoHourOf(currentA.hourStart),
+          stationId: `${currentA.stationId},${currentB.stationId}`,
+          count: 2,
+        });
+      }
       return { ok: true, assignments: [toDto(u1), toDto(u2)] } as const;
     });
   } catch (error) {

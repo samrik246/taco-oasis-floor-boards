@@ -19,10 +19,7 @@ test("back office login, edit a station, see it on the wall", async ({ page }) =
   await page.getByTestId("back-office-submit").click();
   await expect(page.getByTestId("back-office-app")).toBeVisible();
   await expect(page.getByTestId("back-office-manager")).toContainText(/Ana Rivera/i);
-
-  await page.getByTestId("back-office-tab-managers").click();
-  await expect(page.getByTestId("manager-Ana Rivera")).toBeVisible();
-  await expect(page.getByTestId("manager-list")).not.toContainText(/2468|codeHash/);
+  await expect(page.getByTestId("back-office-tab-managers")).toHaveCount(0);
 
   await page.getByTestId("back-office-tab-stations").click();
   await page.getByTestId("station-label-yellow").fill("Yellow Lane");

@@ -5,6 +5,7 @@ import {
   freeFavoritesForHour,
   suggestAssign,
 } from "@/lib/assignments/suggest";
+import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
@@ -71,7 +72,10 @@ export async function PUT(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
-    const result = await suggestAssign(body);
+    const result = await suggestAssign({
+      ...body,
+      actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.suggest },
+    });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }

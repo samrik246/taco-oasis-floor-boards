@@ -6,6 +6,7 @@ import { isFutureHour } from "@/lib/rules/live-hour";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
 import { PAINT_FAMILIES, type PaintFamily } from "@/lib/assignments/paint-families";
+import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 
 export type PaintEdit = {
   shiftId: string;
@@ -71,6 +72,7 @@ function isWriteConflict(error: unknown): boolean {
 export async function paintAssignments(
   request: PaintRequest,
   now: Date = new Date(),
+  actor?: BoardChangeActor,
 ): Promise<PaintResult> {
   if (request.edits.length === 0) return { ok: true, saved: 0 };
   try {
@@ -285,6 +287,16 @@ export async function paintAssignments(
             },
           });
         }
+      }
+      if (actor) {
+        const hours = [...new Set(request.edits.map((edit) => edit.hour))];
+        const stations = [...new Set(changes.map((change) => change.stationId).filter((id): id is string => id != null))];
+        await writeBoardChange(tx, actor, {
+          date: request.date,
+          hour: hours.length === 1 ? hours[0] : null,
+          stationId: stations.length === 1 ? stations[0] : null,
+          count: changes.length,
+        });
       }
       return { ok: true, saved: changes.length };
     });
