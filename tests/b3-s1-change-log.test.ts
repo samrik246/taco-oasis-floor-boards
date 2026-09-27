@@ -2,7 +2,7 @@
  * B3 S1 change log: one row per successful write route, none on a refusal,
  * and the owner screen reads a paint row beside a shift-removal event.
  */
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PUT as assignHour } from "@/app/api/assignments/route";
 import { DELETE as clearHour } from "@/app/api/assignments/[id]/route";
@@ -15,6 +15,7 @@ import { POST as swap } from "@/app/api/assignments/swap/route";
 import { GET as listChanges } from "@/app/api/admin/changes/route";
 import { POST as logMove } from "@/app/api/position-moves/route";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
+import * as boardChangeLog from "@/lib/board-change-log";
 import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
@@ -34,6 +35,8 @@ let ownerToken = "";
 let managerToken = "";
 let ownerId = "";
 let ownerName = "";
+let primaryShiftId = "";
+let targetShiftId = "";
 
 function authed(token: string | null, url: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -102,6 +105,7 @@ describe("B3 S1 board change log", () => {
         board: "caja",
       },
     });
+    primaryShiftId = shift.id;
     const otherShift = await prisma.shift.create({
       data: {
         employeeId: otherId,
@@ -122,6 +126,7 @@ describe("B3 S1 board change log", () => {
         board: "caja",
       },
     });
+    targetShiftId = targetShift.id;
     await prisma.positionStationMap.create({ data: { position: stamp, stationId: stationA } });
 
     const before = await prisma.boardChangeLog.count({ where: { managerId: ownerId } });
@@ -382,6 +387,76 @@ describe("B3 S1 board change log", () => {
     const managerLogs = await prisma.boardChangeLog.findMany({ where: { managerId: manager.id } });
     expect(managerLogs).toHaveLength(1);
     expect(managerLogs[0]?.managerName).toBe(manager.name);
+  }, 60_000);
+
+  it("A11 a thrown log write rolls back shift, suggest, fixed, and copy-day", async () => {
+    expect(primaryShiftId).not.toBe("");
+    await prisma.assignment.deleteMany({ where: { employeeId: { in: [employeeId, otherId] } } });
+    const beforeLogs = await prisma.boardChangeLog.count({ where: { managerId: ownerId } });
+    const spy = vi.spyOn(boardChangeLog, "writeBoardChange").mockRejectedValue(new Error("log failed"));
+    try {
+      const placed = async () => prisma.assignment.count({ where: { employeeId } });
+
+      const shifted = await assignShift(
+        authed(ownerToken, "http://local/api/assignments/shift", {
+          method: "PUT",
+          body: JSON.stringify({ shiftId: primaryShiftId, stationId: stationB, date }),
+        }),
+      );
+      expect(shifted.status).toBe(400);
+      expect(await shifted.json()).toMatchObject({ error: "log failed" });
+      expect(await placed()).toBe(0);
+
+      const suggested = await suggest(
+        authed(ownerToken, "http://local/api/assignments/suggest", {
+          method: "PUT",
+          body: JSON.stringify({
+            board: "caja",
+            date,
+            hour: 11,
+            stationId: stationA,
+            shiftId: primaryShiftId,
+          }),
+        }),
+      );
+      expect(suggested.status).toBe(400);
+      expect(await suggested.json()).toMatchObject({ error: "log failed" });
+      expect(await placed()).toBe(0);
+
+      const fixed = await placeFixed(
+        authed(ownerToken, "http://local/api/assignments/fixed", {
+          method: "PUT",
+          body: JSON.stringify({ board: "caja", date }),
+        }),
+      );
+      expect(fixed.status).toBe(400);
+      expect(await fixed.json()).toMatchObject({ error: "log failed" });
+      expect(await placed()).toBe(0);
+
+      await prisma.assignment.create({
+        data: {
+          shiftId: primaryShiftId,
+          employeeId,
+          stationId: stationA,
+          hourStart: chicagoHourStart(date, 14),
+          hourEnd: chicagoHourEnd(date, 14),
+        },
+      });
+      const copied = await copyDay(
+        authed(ownerToken, "http://local/api/assignments/copy-day", {
+          method: "POST",
+          body: JSON.stringify({ board: "caja", sourceDate: date, targetDate: nextDate }),
+        }),
+      );
+      expect(copied.status).toBe(400);
+      expect(await copied.json()).toMatchObject({ error: "log failed" });
+      expect(await prisma.assignment.count({ where: { shiftId: targetShiftId } })).toBe(0);
+      expect(await prisma.assignment.count({ where: { shiftId: primaryShiftId } })).toBe(1);
+
+      expect(await prisma.boardChangeLog.count({ where: { managerId: ownerId } })).toBe(beforeLogs);
+    } finally {
+      spy.mockRestore();
+    }
   }, 60_000);
 
   it("A12 owner change log lists a removal and a paint by name; manager is 403", async () => {

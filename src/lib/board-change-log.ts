@@ -1,5 +1,4 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db";
 
 export type BoardChangeActor = {
   id: string;
@@ -61,17 +60,3 @@ export async function writeBoardChange(
   });
 }
 
-/**
- * Fan-out routes (whole shift, suggest, fijos, copy-day) commit one log row
- * only after the call has already returned success. A refusal returns first,
- * so it inserts nothing. Single-write routes call `writeBoardChange` inside
- * the write's own transaction instead.
- */
-export async function commitBoardChange(
-  actor: BoardChangeActor,
-  parts: BoardChangeParts,
-): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await writeBoardChange(tx, actor, parts);
-  });
-}

@@ -8,8 +8,10 @@ import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { useManagerIdle } from "@/components/board/useManagerSession";
 
 const TOKEN_KEY = "taco-oasis-back-office-session";
+/** Written at login for display. Idle and the owner tabs follow the server, never this key. */
 const ROLE_KEY = "taco-oasis-back-office-role";
 const IDLE_KEY = "taco-oasis-back-office-idle-ms";
+type DeskRole = "unknown" | "owner" | "manager";
 
 type StationRow = {
   id: string;
@@ -70,7 +72,7 @@ async function readError(res: Response): Promise<string> {
 
 export function BackOffice() {
   const [token, setToken] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null);
+  const [deskRole, setDeskRole] = useState<DeskRole>("unknown");
   const [idleMs, setIdleMs] = useState(15_000);
   const [managerName, setManagerName] = useState("");
   const [code, setCode] = useState("");
@@ -79,30 +81,48 @@ export function BackOffice() {
   const [tab, setTab] = useState<Tab>("stations");
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    const saved = window.sessionStorage.getItem(TOKEN_KEY);
-    const savedRole = window.sessionStorage.getItem(ROLE_KEY);
-    const savedIdle = Number(window.sessionStorage.getItem(IDLE_KEY));
-    if (saved) setToken(saved);
-    if (savedRole) setRole(savedRole);
-    if (Number.isFinite(savedIdle) && savedIdle >= 100) setIdleMs(savedIdle);
-    setReady(true);
-  }, []);
-
-  const auth = useMemo(() => managerAuthHeaders(token), [token]);
-
-  function clearDesk() {
+  const clearDesk = useCallback(() => {
     window.sessionStorage.removeItem(TOKEN_KEY);
     window.sessionStorage.removeItem(ROLE_KEY);
     window.sessionStorage.removeItem(IDLE_KEY);
     setToken(null);
-    setRole(null);
+    setDeskRole("unknown");
     setManagerName("");
-  }
+  }, []);
+
+  useEffect(() => {
+    const saved = window.sessionStorage.getItem(TOKEN_KEY);
+    const savedIdle = Number(window.sessionStorage.getItem(IDLE_KEY));
+    if (saved) setToken(saved);
+    if (Number.isFinite(savedIdle) && savedIdle >= 100) setIdleMs(savedIdle);
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/managers", { headers: managerAuthHeaders(token) });
+        if (cancelled) return;
+        if (res.status === 200) setDeskRole("owner");
+        else if (res.status === 403) setDeskRole("manager");
+        else if (res.status === 401) clearDesk();
+        else setDeskRole("unknown");
+      } catch {
+        if (!cancelled) setDeskRole("unknown");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, clearDesk]);
+
+  const auth = useMemo(() => managerAuthHeaders(token), [token]);
 
   useManagerIdle({
     idleMs,
-    active: token != null && role === "owner",
+    active: token != null && deskRole !== "manager",
     onIdle: clearDesk,
   });
 
@@ -124,7 +144,7 @@ export function BackOffice() {
       setError(data.error || "Wrong manager code");
       return;
     }
-    const nextRole = data.manager.role ?? "";
+    const nextRole: DeskRole = data.manager.role === "owner" ? "owner" : "manager";
     window.sessionStorage.setItem(TOKEN_KEY, data.sessionToken);
     window.sessionStorage.setItem(ROLE_KEY, nextRole);
     if (typeof data.idleMs === "number") {
@@ -132,7 +152,7 @@ export function BackOffice() {
       setIdleMs(data.idleMs);
     }
     setToken(data.sessionToken);
-    setRole(nextRole);
+    setDeskRole(nextRole);
     setManagerName(data.manager.name);
     setCode("");
   }
@@ -206,7 +226,7 @@ export function BackOffice() {
             ["tareas", "Tareas"],
             ["seats", "Seat plan"],
             ["sales", "Sales %"],
-            ...(role === "owner" ? ([["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][]) : []),
+            ...(deskRole === "owner" ? ([["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][]) : []),
             ["positions", "Positions"],
           ] as [Tab, string][]).map(([id, label]) => (
           <button
@@ -253,13 +273,13 @@ export function BackOffice() {
       {tab === "sales" && (
         <SalesTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
-      {(tab === "managers" || tab === "cambios") && role !== "owner" && (
+      {(tab === "managers" || tab === "cambios") && deskRole !== "owner" && (
         <p className="text-sm font-semibold text-red-900" data-testid="owner-code-required">
           Owner code required
         </p>
       )}
-      {tab === "managers" && role === "owner" && <ManagersTab auth={auth} onError={setError} />}
-      {tab === "cambios" && role === "owner" && <CambiosTab auth={auth} onError={setError} />}
+      {tab === "managers" && deskRole === "owner" && <ManagersTab auth={auth} onError={setError} />}
+      {tab === "cambios" && deskRole === "owner" && <CambiosTab auth={auth} onError={setError} />}
       {tab === "positions" && (
         <PositionsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}

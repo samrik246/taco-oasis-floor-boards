@@ -71,6 +71,39 @@ test("owner unlock sees Managers and desk idle clears the token", async ({ page 
   expect(status).toBe(401);
 });
 
+test("A10 reload idles an owner token when the saved role is missing or manager", async ({ page }) => {
+  await page.route("**/api/managers", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    if (json?.manager?.role === "owner") json.idleMs = 4000;
+    await route.fulfill({ response, json });
+  });
+
+  for (const savedRole of [null, "manager"] as const) {
+    await page.goto("/back-office");
+    await page.getByTestId("back-office-code").fill("8642");
+    await page.getByTestId("back-office-submit").click();
+    await expect(page.getByTestId("back-office-tab-managers")).toBeVisible();
+
+    await page.evaluate((role) => {
+      if (role == null) sessionStorage.removeItem("taco-oasis-back-office-role");
+      else sessionStorage.setItem("taco-oasis-back-office-role", role);
+    }, savedRole);
+    await page.reload();
+    await expect(page.getByTestId("back-office-tab-managers")).toBeVisible();
+    await expect(page.getByTestId("back-office-code")).toBeVisible({ timeout: 8000 });
+    const status = await page.evaluate(async () => {
+      const res = await fetch("/api/admin/managers");
+      return res.status;
+    });
+    expect(status).toBe(401);
+  }
+});
+
 test("owner badge says Owner - 5 min and a manager badge does not", async ({ page }) => {
   await unlockFloor(page, "8642");
   await page.getByTestId("toolbar-more").click();
