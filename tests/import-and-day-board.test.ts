@@ -120,4 +120,4 @@ describe("import persist + day board data", () => {
   });
 });
 
-const CAJA_COUNT = 11;
+const CAJA_COUNT = 13;

@@ -8,9 +8,8 @@ import {
 
 const prisma = new PrismaClient();
 
-// Planner G bootstrap: idempotent seed of the five known position->station
-// keys (mana, nieves, mesero exist in the code seed; pdf_guia does not, so
-// its two keys are expected to skip as station-missing here).
+// Planner G bootstrap: all five known position->station keys now have seeded
+// stations, including the retained Cocina Guía seat.
 describe("seedPositionStationMap", () => {
   beforeAll(async () => {
     for (const s of ALL_STATIONS) {
@@ -38,25 +37,25 @@ describe("seedPositionStationMap", () => {
     await prisma.positionStationMap.deleteMany();
   });
 
-  it("seeds the three keys whose station exists, skips the two that don't", async () => {
+  it("seeds all five keys against the current station set", async () => {
     const result = await seedPositionStationMap(prisma);
-    expect(result.added).toBe(3);
-    expect(result.stationMissing).toBe(2);
+    expect(result.added).toBe(POSITION_STATION_MAP_SEED.length);
+    expect(result.stationMissing).toBe(0);
     const rows = await prisma.positionStationMap.findMany();
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(5);
     expect(rows.map((r) => r.position).sort()).toEqual(
-      ["Caja - Meser@", "Caja - Nieves", "Caja Manager"].sort(),
+      ["Caja - Meser@", "Caja - Nieves", "Caja Manager", "Cocina Guia Abrir", "Cocina Guia Cerrar"].sort(),
     );
   });
 
   it("running it twice leaves the same rows and writes nothing the second time", async () => {
     const first = await seedPositionStationMap(prisma);
-    expect(first.added).toBe(3);
+    expect(first.added).toBe(5);
     const second = await seedPositionStationMap(prisma);
     expect(second.added).toBe(0);
-    expect(second.stationMissing).toBe(2);
+    expect(second.stationMissing).toBe(0);
     const rows = await prisma.positionStationMap.findMany();
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(5);
   });
 
   it("a pre-cleared key (stationId set to null) stays null on a reseed", async () => {
@@ -72,25 +71,15 @@ describe("seedPositionStationMap", () => {
     expect(row?.stationId).toBeNull();
   });
 
-  it("seeds all five keys once the missing stations exist", async () => {
-    await prisma.station.upsert({
-      where: { id: "pdf_guia" },
-      create: {
-        id: "pdf_guia",
-        board: "cocina",
-        label: "Guía",
-        color: "gray",
-        maxConcurrent: 1,
-        sortOrder: 99,
-        priority: null,
-      },
-      update: {},
+  it("maps both Cocina Guía positions to the retained Cocina seat", async () => {
+    await seedPositionStationMap(prisma);
+    const rows = await prisma.positionStationMap.findMany({
+      where: { position: { in: ["Cocina Guia Abrir", "Cocina Guia Cerrar"] } },
+      orderBy: { position: "asc" },
     });
-    const result = await seedPositionStationMap(prisma);
-    expect(result.added).toBe(POSITION_STATION_MAP_SEED.length);
-    expect(result.stationMissing).toBe(0);
-    const rows = await prisma.positionStationMap.findMany();
-    expect(rows).toHaveLength(5);
-    await prisma.station.delete({ where: { id: "pdf_guia" } });
+    expect(rows.map((row) => row.stationId)).toEqual(["pdf_guia", "pdf_guia"]);
+    const station = await prisma.station.findUniqueOrThrow({ where: { id: "pdf_guia" } });
+    expect(station.board).toBe("cocina");
   });
+
 });

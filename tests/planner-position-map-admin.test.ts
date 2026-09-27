@@ -137,8 +137,9 @@ describe("listPositionMapRows / savePositionMapRow — Back office", () => {
   it("refuses a station on the wrong board", async () => {
     const employeeId = await makeEmployee("posmap-wrong-board");
     await makeShift(employeeId, "Caja - Nieves", "caja");
-    const result = await savePositionMapRow("Caja - Nieves", "fryer"); // cocina station
+    const result = await savePositionMapRow("Caja - Nieves", "pdf_tf1r"); // cocina station
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(422);
   });
 
   it("refuses to map a not-eligible (two-board) position", async () => {

@@ -96,7 +96,7 @@ async function seedMorning(): Promise<Seeded> {
     celia14: await assign("5203", "purple1", 14),
     dario9: await assign("5204", "blue", 9),
     dario14: await assign("5204", "blue", 14),
-    fabian9: await assign("5206", "fryer", 9),
+    fabian9: await assign("5206", "pdf_tf1r", 9),
     abrilD2: await assign("5201", "green1", 10, D2),
   };
 }
@@ -358,7 +358,7 @@ describe("C1 same-day re-import (reconcile)", () => {
     const tomorrow = await shiftOf("5310", D2);
     const worked = await assign("5301", "purple1", 11);
     const future = await assign("5301", "purple1", 14);
-    const unrelated = await assign("5309", "fryer", 10);
+    const unrelated = await assign("5309", "pdf_tf1r", 10);
     const parsed = await parse([
       r("5302", "Incoming", "8:00 am", "6:00 pm"),
       morning[1]!,

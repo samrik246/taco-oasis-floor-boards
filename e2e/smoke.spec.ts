@@ -272,15 +272,15 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "data-locale",
       "es",
     );
-    await expect(page.getByTestId("station-fryer")).toBeVisible({
+    await expect(page.getByTestId("station-pdf_tf1r")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId("station-fryer")).toContainText(/Freidora|Fryer/i);
-    await expect(page.getByTestId("station-tortilla")).toBeVisible();
-    await expect(page.getByTestId("station-birria")).toBeVisible();
-    await expect(page.getByTestId("station-taquero")).toBeVisible();
-    await expect(page.getByTestId("station-carne")).toBeVisible();
-    await expect(page.getByTestId("station-prepa")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_tf1r")).toContainText(/Tortilla y freidora 1/i);
+    await expect(page.getByTestId("station-pdf_tf2r")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_br1a")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_tq1r")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_crne")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_pr1e")).toBeVisible();
     await expect(page.getByTestId("traffic-meters")).toHaveCount(0);
     await page.getByTestId("view-toggle-tareas").click();
     await expect(page.getByTestId("tareas-panel")).toBeVisible();
@@ -350,8 +350,8 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await shot(page, "wall-mode-caja.png");
     await page.goto("/?wall=1&board=cocina");
     await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "es");
-    await expect(page.getByTestId("wall-station-fryer")).toBeVisible();
-    await expect(page.getByTestId("wall-station-fryer")).toContainText(/Freidora|Fryer/i);
+    await expect(page.getByTestId("wall-station-pdf_tf1r")).toBeVisible();
+    await expect(page.getByTestId("wall-station-pdf_tf1r")).toContainText(/Tortilla y freidora 1/i);
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");
