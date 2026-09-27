@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { ALL_STATIONS } from "@/lib/stations";
 import {
@@ -81,5 +85,38 @@ describe("seedPositionStationMap", () => {
     const station = await prisma.station.findUniqueOrThrow({ where: { id: "pdf_guia" } });
     expect(station.board).toBe("cocina");
   });
+
+  it("skips missing Guía targets and preserves a manager-cleared mapping", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "position-map-missing-"));
+    const dbUrl = `file:${path.join(root, "missing.db")}`;
+    fs.writeFileSync(path.join(root, "missing.db"), "");
+    let isolated: PrismaClient | undefined;
+    try {
+      execFileSync("pnpm", ["exec", "prisma", "db", "push", "--skip-generate"], {
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: dbUrl },
+        stdio: "pipe",
+      });
+      isolated = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      await isolated.station.createMany({
+        data: ALL_STATIONS.filter((station) => ["mana", "nieves", "mesero"].includes(station.id)),
+      });
+      await isolated.positionStationMap.create({
+        data: { position: "Caja - Nieves", stationId: null },
+      });
+
+      const result = await seedPositionStationMap(isolated);
+      expect(result).toEqual({ added: 2, stationMissing: 2 });
+      const rows = await isolated.positionStationMap.findMany({ orderBy: { position: "asc" } });
+      expect(rows.map(({ position, stationId }) => ({ position, stationId }))).toEqual([
+        { position: "Caja - Meser@", stationId: "mesero" },
+        { position: "Caja - Nieves", stationId: null },
+        { position: "Caja Manager", stationId: "mana" },
+      ]);
+    } finally {
+      await isolated?.$disconnect();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 
 });
