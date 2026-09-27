@@ -11,8 +11,11 @@
  * menu to settle, click Export Schedule (never Print or Clear), once more if
  * the fade swallowed the click; read the Start and End buttons, which When I
  * Work opens on the displayed week, and check they show this Friday and
- * Thursday (the date pickers are never opened); leave the filters on All and
- * Split checked; click Export once and wait for the file.
+ * Thursday (this week never opens a date picker); leave the filters on All
+ * and Split checked; click Export once and wait for the file. The next week
+ * (`exportNextWeek`, only with the `nextWeek` option) runs the same steps,
+ * sets the two dates with the pickers before the check, and puts this week
+ * back after.
  *
  * The dialog selectors come from the live capture of 24 Sep 2026 (probe on
  * T MAC MINI): dialog "Export Schedule", buttons "Start Date" and "End Date"
@@ -26,7 +29,7 @@
 import type { BrowserContext, Download, Locator, Page } from "@playwright/test";
 import type { WiwLogin } from "./login-file";
 import { ExportStop, type DownloadedExport, type ScheduleExporter } from "./run";
-import { dialogDate, type ExportWeek } from "./week";
+import { dialogDate, precedingWeek, type ExportWeek } from "./week";
 
 export const SCHEDULER_URL = "https://appx.wheniwork.com/scheduler";
 
@@ -51,6 +54,24 @@ export type BrowserOptions = {
    * ends with ProbeDone. The dialog's Export button is never clicked.
    */
   probe?: (page: Page) => Promise<void>;
+  /** The job's own launch accepts downloads. A probe passes false: the browser cancels any download. */
+  acceptDownloads?: boolean;
+  /**
+   * The next-week step (next-week-dialog.ts). Absent: the exporter has no
+   * `exportNextWeek` and the run logs `next=skipped reason=NO_BROWSER_STEP`.
+   */
+  nextWeek?: NextWeekDialog;
+};
+
+/**
+ * Moves the open dialog off the week it opened on, and puts this week back
+ * after the download. `note` takes fixed-code log lines only.
+ */
+export type NextWeekDialog = {
+  /** Set Start and End to `week`. The export then checks both dates as for this week. */
+  set(page: Page, box: Locator, week: ExportWeek, note?: (line: string) => Promise<void>): Promise<void>;
+  /** After the download: the dialog must open on `thisWeek` again for the next timer run. Never throws. */
+  restore(page: Page, thisWeek: ExportWeek, note?: (line: string) => Promise<void>): Promise<void>;
 };
 
 /** A probe run reached the dialog step and captured it. Not an export. */
@@ -180,74 +201,80 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
       const { chromium } = await import("@playwright/test");
       return chromium.launchPersistentContext(opts.profileDir, {
         headless: opts.headless ?? false,
-        acceptDownloads: true,
+        acceptDownloads: opts.acceptDownloads ?? true,
         viewport: { width: 1440, height: 900 },
       });
     });
 
-  return {
-    async exportWeek(week: ExportWeek, readLogin: () => Promise<WiwLogin>, note?: (line: string) => Promise<void>) {
-      try {
-        context = await launch();
-      } catch {
-        // No GUI session, or Chromium is not installed for this user.
-        throw new ExportStop("PAGE", "BROWSER");
-      }
-      context.setDefaultTimeout(step);
-      const page = context.pages()[0] ?? (await context.newPage());
-      const url = opts.schedulerUrl ?? SCHEDULER_URL;
+  /** One export. With `nextWeek` the dialog is moved to `week` first and this week put back after; without, it must already show `week`. */
+  async function exportFor(
+    week: ExportWeek,
+    readLogin: () => Promise<WiwLogin>,
+    note: ((line: string) => Promise<void>) | undefined,
+    nextWeek: { dialog: NextWeekDialog; thisWeek: ExportWeek } | null,
+  ): Promise<DownloadedExport> {
+    try {
+      context = await launch();
+    } catch {
+      // No GUI session, or Chromium is not installed for this user.
+      throw new ExportStop("PAGE", "BROWSER");
+    }
+    context.setDefaultTimeout(step);
+    const page = context.pages()[0] ?? (await context.newPage());
+    const url = opts.schedulerUrl ?? SCHEDULER_URL;
 
-      try {
-        await page.goto(url, { waitUntil: "domcontentloaded" });
-      } catch {
-        throw new ExportStop("PAGE", "OPEN");
-      }
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+    } catch {
+      throw new ExportStop("PAGE", "OPEN");
+    }
 
-      let screen: Screen | null = await screenOf(page, step);
-      if (screen === "login") {
-        await signIn(page, await readLogin(), step);
-        // Signed in, When I Work may land on another page first: open the scheduler again.
-        screen = await screenOf(page, step).catch(() => null);
-        if (screen === null) {
-          await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
-          screen = await screenOf(page, step);
-        }
-        // Back on the sign-in page: wrong password or a changed form. Never a second try.
-        if (screen === "login") throw new ExportStop("LOGIN", "REJECTED");
+    let screen: Screen | null = await screenOf(page, step);
+    if (screen === "login") {
+      await signIn(page, await readLogin(), step);
+      // Signed in, When I Work may land on another page first: open the scheduler again.
+      screen = await screenOf(page, step).catch(() => null);
+      if (screen === null) {
+        await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+        screen = await screenOf(page, step);
       }
-      if (screen === "mfa" || screen === "captcha") throw stopFor(screen);
+      // Back on the sign-in page: wrong password or a changed form. Never a second try.
+      if (screen === "login") throw new ExportStop("LOGIN", "REJECTED");
+    }
+    if (screen === "mfa" || screen === "captcha") throw stopFor(screen);
 
-      // More Actions, then Export Schedule only.
-      await moreActions(page).first().click();
-      const exportItem = page.getByRole("menuitem", { name: /^export schedule$/i })
-        .or(page.getByRole("button", { name: /^export schedule$/i }))
-        .or(page.getByRole("link", { name: /^export schedule$/i }));
-      try {
-        await exportItem.first().waitFor({ state: "visible", timeout: step });
-      } catch {
-        throw new ExportStop("PAGE", "MENU");
-      }
-      await page.waitForTimeout(opts.menuSettleMs ?? 800);
+    // More Actions, then Export Schedule only.
+    await moreActions(page).first().click();
+    const exportItem = page.getByRole("menuitem", { name: /^export schedule$/i })
+      .or(page.getByRole("button", { name: /^export schedule$/i }))
+      .or(page.getByRole("link", { name: /^export schedule$/i }));
+    try {
+      await exportItem.first().waitFor({ state: "visible", timeout: step });
+    } catch {
+      throw new ExportStop("PAGE", "MENU");
+    }
+    await page.waitForTimeout(opts.menuSettleMs ?? 800);
+    await exportItem.first().click();
+
+    // The fade can swallow the click: no dialog, menu still open. Click the same item once more.
+    const dialog = exportDialog(page);
+    let opened = await shows(dialog, opts.dialogRetryMs ?? 3_000);
+    if (!opened && (await exportItem.first().isVisible().catch(() => false)) && (await dialog.count()) === 0) {
+      await note?.("menu retry=1");
       await exportItem.first().click();
+      opened = await shows(dialog, step);
+    } else if (!opened) {
+      opened = await shows(dialog, step);
+    }
+    if (opts.probe) {
+      await opts.probe(page);
+      throw new ProbeDone();
+    }
+    if (!opened) throw new ExportStop("PAGE", "DIALOG_OPEN");
 
-      // The fade can swallow the click: no dialog, menu still open. Click the same item once more.
-      const dialog = exportDialog(page);
-      let opened = await shows(dialog, opts.dialogRetryMs ?? 3_000);
-      if (!opened && (await exportItem.first().isVisible().catch(() => false)) && (await dialog.count()) === 0) {
-        await note?.("menu retry=1");
-        await exportItem.first().click();
-        opened = await shows(dialog, step);
-      } else if (!opened) {
-        opened = await shows(dialog, step);
-      }
-      if (opts.probe) {
-        await opts.probe(page);
-        throw new ProbeDone();
-      }
-      if (!opened) throw new ExportStop("PAGE", "DIALOG_OPEN");
-
-      const box = dialog.first();
-      const { start, end, split, submit } = dialogControls(box);
+    const box = dialog.first();
+    const { start, end, split, submit } = dialogControls(box);
+    const submitExport = async (): Promise<DownloadedExport> => {
       await checkDate(start, dialogDate(week.friday));
       await checkDate(end, dialogDate(week.thursday));
 
@@ -261,7 +288,30 @@ export function playwrightExporter(opts: BrowserOptions): ScheduleExporter {
       } catch {
         throw new ExportStop("PAGE", "NO_DOWNLOAD");
       }
-    },
+    };
+    if (!nextWeek) return submitExport();
+
+    // Whatever happens after the dialog moves off this week, put this week back
+    // before the browser closes: the timer's next run shares this browser folder.
+    // A saved download stays until the browser closes, so this is safe after one too.
+    try {
+      await nextWeek.dialog.set(page, box, week, note);
+      return await submitExport();
+    } finally {
+      await nextWeek.dialog.restore(page, nextWeek.thisWeek, note);
+    }
+  }
+
+  const nextWeek = opts.nextWeek;
+  return {
+    exportWeek: (week, readLogin, note) => exportFor(week, readLogin, note, null),
+
+    ...(nextWeek
+      ? {
+          exportNextWeek: (week: ExportWeek, readLogin: () => Promise<WiwLogin>, note?: (line: string) => Promise<void>) =>
+            exportFor(week, readLogin, note, { dialog: nextWeek, thisWeek: precedingWeek(week) }),
+        }
+      : {}),
 
     async close() {
       const c = context;

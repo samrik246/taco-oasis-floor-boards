@@ -29,7 +29,7 @@ We need a **web app on iPad/monitor** that:
 ### Beta (build now)
 - Upload `.xlsx` Restaurant export (When I Work style)
 - Parse shifts; split Caja / Cocina
-- Day picker for dates present in file
+- Day picker for dates present in file (staff: Chicago today only; manager: every imported day)
 - Live-ish board UI: stations × now/hour scrubber
 - Manual assign / swap / clear with rule engine
 - Employee ability tags (editable stubs)
@@ -175,7 +175,14 @@ Table `EmployeeStationAbility`:
 - Mark break (removes from station but still “on shift”)
 
 ### Crew vs manager (beta)
-Single mode with edit enabled. Add `?readonly=1` query for display-only.
+Staff see **Chicago today only**, read-only. A manager session (the `x-manager-session` header) is required to see or plan any other day and for every write.
+
+- Today is the server's Chicago date, never a date the client sends. At Chicago midnight staff move to the new day.
+- Day-scoped reads (`GET /api/days`, `/api/boards/:board/days/:date`, `/api/tareas`, `/api/return-prompts`, `/api/position-moves`) open today to staff and refuse any other day with 401. `GET /api/days` lists only today to staff. `GET /api/employees/:id/hours` is manager-only because a week includes planned days. These responses send `Cache-Control: private, no-store`.
+- Writes (`/api/assignments*`, `POST /api/tareas`) need a manager session.
+- Locking or idling out drops the board back to today. A manager's private paint draft for a planned day survives the lock and returns when that manager unlocks and reopens the day.
+- The tablet's offline cache keeps today's board only. It never saves a planned day, and it refuses any cached day that is not today, yesterday included, so a wall offline overnight shows the offline banner rather than yesterday.
+- `/api/upcoming*` stays open (catering orders, not the staff schedule). `?readonly=1` still gives display-only.
 
 ---
 

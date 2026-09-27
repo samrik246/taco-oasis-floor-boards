@@ -4,6 +4,7 @@ import {
   acknowledgeReturnPrompt,
   listOpenReturnPrompts,
 } from "@/lib/tareas/return-service";
+import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,10 @@ export async function GET(req: Request) {
     if (!date) {
       return NextResponse.json({ error: "date required" }, { status: 422 });
     }
+    const access = await requireDayAccess(req, date);
+    if (!access.ok) return access.response;
     const prompts = await listOpenReturnPrompts(date);
-    return NextResponse.json({ prompts });
+    return NextResponse.json({ prompts }, { headers: NO_STORE });
   } catch (e) {
     console.error(e);
     return NextResponse.json(

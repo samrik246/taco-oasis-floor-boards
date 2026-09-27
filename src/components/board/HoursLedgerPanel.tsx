@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import type { EmployeeHoursLedger } from "@/lib/ledger-types";
+import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { cn } from "@/lib/utils";
 import { stationLabel, tareaLabel, type Locale, type Messages } from "@/lib/i18n";
 
 type Props = {
+  /** The hours route is manager-only: a week includes planned days. */
+  managerToken: string | null;
   employeeId: string | null;
   employeeName: string | null;
   weekOf: string;
@@ -19,6 +22,7 @@ type Props = {
  * Hours this week by station + tarea for the selected employee.
  */
 export function HoursLedgerPanel({
+  managerToken,
   employeeId,
   employeeName,
   weekOf,
@@ -43,6 +47,7 @@ export function HoursLedgerPanel({
       try {
         const res = await fetch(
           `/api/employees/${employeeId}/hours?weekOf=${encodeURIComponent(weekOf)}`,
+          { headers: managerAuthHeaders(managerToken) },
         );
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -66,7 +71,7 @@ export function HoursLedgerPanel({
     return () => {
       cancelled = true;
     };
-  }, [employeeId, weekOf, refreshKey]);
+  }, [employeeId, weekOf, refreshKey, managerToken]);
 
   if (!employeeId) {
     return (

@@ -1,5 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 
+/** Planned days are manager-only on the API too; sign in the test's own request context. */
+async function managerHeaders(page: Page) {
+  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
+  expect(res.ok()).toBe(true);
+  const { sessionToken } = await res.json() as { sessionToken: string };
+  return { "x-manager-session": sessionToken };
+}
+
 type Day = {
   stations: { id: string; maxConcurrent: number }[];
   shifts: {
@@ -19,7 +27,7 @@ async function unlock(page: Page) {
 
 async function loadSample(page: Page) {
   await unlock(page);
-  const daysResponse = await page.request.get("/api/days");
+  const daysResponse = await page.request.get("/api/days", { headers: await managerHeaders(page) });
   const days = await daysResponse.json() as { dates: string[] };
   if (!days.dates.includes("2026-09-20")) {
     await page.getByTestId("toolbar-more").click();
@@ -44,7 +52,7 @@ async function stageOpenHour(page: Page) {
   expect(match).not.toBeNull();
   const shiftId = match![1]!;
   const hour = Number(match![2]);
-  const response = await page.request.get("/api/boards/caja/days/2026-09-20");
+  const response = await page.request.get("/api/boards/caja/days/2026-09-20", { headers: await managerHeaders(page) });
   expect(response.ok()).toBe(true);
   const day = await response.json() as Day;
   const shift = day.shifts.find((s) => s.id === shiftId);
@@ -191,7 +199,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await expect(page.getByTestId("paint-selected")).not.toContainText("—");
     await page.setViewportSize({ width: 820, height: 1080 });
     const target = await stageOpenHour(page);
-    const before = await page.request.get("/api/boards/caja/days/2026-09-20");
+    const before = await page.request.get("/api/boards/caja/days/2026-09-20", { headers: await managerHeaders(page) });
     const beforeDay = await before.json() as Day;
     expect(beforeDay.shifts.find((s) => s.id === target.shiftId)?.assignments.some((a) =>
       a.stationId === target.stationId && chicagoHour(a.hourStart) === target.hour,
@@ -202,7 +210,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await stageOpenHour(page);
     await page.getByTestId("paint-save").click();
     await expect(page.getByTestId("paint-feedback")).toContainText(/Guardado|Saved/i);
-    const after = await page.request.get("/api/boards/caja/days/2026-09-20");
+    const after = await page.request.get("/api/boards/caja/days/2026-09-20", { headers: await managerHeaders(page) });
     const afterDay = await after.json() as Day;
     expect(afterDay.shifts.find((s) => s.id === target.shiftId)?.assignments.some((a) =>
       a.stationId === target.stationId && chicagoHour(a.hourStart) === target.hour,
@@ -210,9 +218,10 @@ test.describe("condensed staff board and manager color editor", () => {
 
     await page.getByTestId("compact-manager").click();
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+    // Staff see today only: the lock drops the planned day.
+    await expect(page.getByTestId("compact-date")).not.toHaveValue("2026-09-20");
     await expect(page.getByTestId("schedule-panel")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByTestId("schedule-grid")).toBeVisible();
     const headerHeight = await page.locator("header").evaluate((el) => el.getBoundingClientRect().height);
     expect(headerHeight).toBeLessThan(230);
   });
@@ -229,13 +238,16 @@ test.describe("condensed staff board and manager color editor", () => {
     await page.getByTestId("compact-manager").click();
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     await expect(page.getByTestId("manager-color-editor")).toHaveCount(0);
-    await expect(page.getByTestId("compact-date").locator("option[value='2026-09-20']")).not.toContainText(/borrador|draft/i);
+    // Staff see today only: the planned day and its draft marker are gone from the list.
+    await expect(page.getByTestId("compact-date").locator("option[value='2026-09-20']")).toHaveCount(0);
     await unlock(page);
+    await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
     await page.waitForTimeout(2200);
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     await expect(page.getByTestId("manager-color-editor")).toHaveCount(0);
     await unlock(page);
+    await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
     await page.reload();
     await unlock(page);
@@ -246,7 +258,8 @@ test.describe("condensed staff board and manager color editor", () => {
   });
 
   test("automatic date and offline-cache changes retain a private draft without writing", async ({ page }) => {
-    await page.clock.install();
+    // The offline cache holds Chicago today only, so the browser's today is the cached day.
+    await page.clock.install({ time: new Date("2026-09-21T17:00:00Z") });
     await page.route("**/api/managers", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       const response = await route.fetch();
@@ -271,7 +284,7 @@ test.describe("condensed staff board and manager color editor", () => {
     expect(paintWrites).toHaveLength(0);
 
     await page.unroute("**/api/days");
-    const cacheResponse = await page.request.get("/api/boards/caja/days/2026-09-21");
+    const cacheResponse = await page.request.get("/api/boards/caja/days/2026-09-21", { headers: await managerHeaders(page) });
     const cachedDay = await cacheResponse.json();
     await page.evaluate((day) => localStorage.setItem("taco-oasis-last-board-v1", JSON.stringify({
       version: 1, board: "caja", date: "2026-09-21", day, savedAt: new Date().toISOString(),
@@ -374,7 +387,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await loadSample(page);
     const target = await stageOpenHour(page);
     await expect(page.getByTestId("paint-storage-error")).toBeVisible();
-    const response = await page.request.get("/api/boards/caja/days/2026-09-20");
+    const response = await page.request.get("/api/boards/caja/days/2026-09-20", { headers: await managerHeaders(page) });
     const day = await response.json() as Day;
     expect(day.shifts.find((shift) => shift.id === target.shiftId)?.assignments.some((assignment) =>
       assignment.stationId === target.stationId && chicagoHour(assignment.hourStart) === target.hour,

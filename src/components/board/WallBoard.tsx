@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { KioskLock, kioskRequested } from "@/components/board/KioskLock";
 import { assignmentsAtStationHour, displayName, stationColorClass } from "@/components/board/board-helpers";
 import type { DayBoardDto } from "@/components/board/types";
+import { forecastForScreen, offlineRefreshState } from "@/lib/board/refresh-state";
 import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
@@ -36,7 +37,11 @@ export function WallBoard() {
   const [now, setNow] = useState(() => new Date());
   const [day, setDay] = useState<DayBoardDto | null>(null);
   const [offline, setOffline] = useState(false);
-  const [forecast, setForecast] = useState<RushForecast | null>(null);
+  const [heldForecast, setHeldForecast] = useState<{
+    board: "caja" | "cocina";
+    date: string;
+    forecast: RushForecast;
+  } | null>(null);
 
   const date = useMemo(() => {
     if (offline && day?.date) return day.date;
@@ -60,8 +65,8 @@ export function WallBoard() {
       setOffline(false);
       saveLastBoard({ board, date: ymd, day: data });
     } catch {
-      const cached = readLastBoardFor(board);
-      if (cached) setDay(cached.day as DayBoardDto);
+      // Today's cache only; none means the banner and no board, never yesterday's.
+      setDay(offlineRefreshState<DayBoardDto>(board, readLastBoardFor(board)).day);
       setOffline(true);
     }
   }, [board]);
@@ -82,7 +87,7 @@ export function WallBoard() {
         );
         if (!res.ok) return;
         const data = (await res.json()) as { forecast: RushForecast };
-        if (!cancel) setForecast(data.forecast);
+        if (!cancel) setHeldForecast({ board, date, forecast: data.forecast });
       } catch {
         /* wall still shows seats */
       }
@@ -92,6 +97,9 @@ export function WallBoard() {
     };
   }, [board, date]);
 
+  // Offline across midnight the fetch above fails and keeps yesterday's forecast;
+  // it only counts for the board and date it was fetched for.
+  const forecast = forecastForScreen(heldForecast, { board, date });
   const lead =
     forecast && date
       ? rushLeadNotice({ forecast, now, dateYmd: date, locale })

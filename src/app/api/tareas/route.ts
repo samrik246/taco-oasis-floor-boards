@@ -8,6 +8,8 @@ import {
   setTareaStatus,
 } from "@/lib/tareas/service";
 import { isFloorBoardId } from "@/lib/board-config";
+import { requireManagerSession } from "@/lib/managers/require-session";
+import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,11 @@ export async function GET(req: Request) {
     const board =
       boardRaw && isFloorBoardId(boardRaw) ? boardRaw : undefined;
 
+    if (date) {
+      const access = await requireDayAccess(req, date);
+      if (!access.ok) return access.response;
+    }
+
     const templates = await listTareaTemplates(board);
 
     if (suggest && date && hourRaw != null) {
@@ -33,7 +40,7 @@ export async function GET(req: Request) {
         forceLemon,
         board,
       });
-      return NextResponse.json({ templates, suggestions });
+      return NextResponse.json({ templates, suggestions }, { headers: NO_STORE });
     }
 
     if (!date) {
@@ -41,7 +48,7 @@ export async function GET(req: Request) {
     }
 
     const assignments = await listTareaAssignments(date, board);
-    return NextResponse.json({ templates, assignments });
+    return NextResponse.json({ templates, assignments }, { headers: NO_STORE });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Failed to load tareas" }, { status: 500 });
@@ -56,7 +63,10 @@ const postSchema = z.object({
   forceLemon: z.boolean().optional(),
 });
 
+/** Assigning a tarea plans someone's time: manager session required. */
 export async function POST(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
     const result = await assignTarea(body);

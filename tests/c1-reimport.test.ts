@@ -11,6 +11,8 @@ import { getEmployeeWeekHours } from "@/lib/ledger";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { chicagoDateTime } from "@/lib/time";
 import { GET as getDay } from "@/app/api/boards/[board]/days/[date]/route";
+import { hashManagerCode } from "@/lib/managers/codes";
+import { signManagerSession } from "@/lib/managers/session";
 import {
   dbSnapshot,
   resetScheduleTables,
@@ -258,9 +260,17 @@ describe("C1 same-day re-import (reconcile)", () => {
     const darioBefore = await shiftOf("5204");
     const celiaBefore = await shiftOf("5203");
     await previewAndCommit(AFTERNOON);
-    const res = await getDay(new Request(`http://local/api/boards/caja/days/${D}`), {
+    // D is not today, so only a manager may read its board.
+    const manager = await prisma.manager.create({
+      data: { name: "C1 Reimport Manager", codeHash: hashManagerCode("8642"), active: true },
+    });
+    const token = signManagerSession({ id: manager.id, name: manager.name });
+    const res = await getDay(new Request(`http://local/api/boards/caja/days/${D}`, {
+      headers: { "x-manager-session": token },
+    }), {
       params: Promise.resolve({ board: "caja", date: D }),
     });
+    await prisma.manager.delete({ where: { id: manager.id } });
     const day = (await res.json()) as {
       shifts: Array<{ id: string; supersededAt: string | null; assignments: Array<{ id: string }> }>;
     };
