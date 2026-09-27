@@ -75,6 +75,15 @@ test.describe("condensed staff board and manager color editor", () => {
   test.use({ viewport: { width: 820, height: 1080 } });
 
   test("all numbered families show Auto beside their distinct numbered slots", async ({ page }) => {
+    // Palette coverage loads a sample and inspects both boards; the CI-only
+    // 1.5-second manager timeout is exercised by its dedicated idle tests.
+    await page.route("**/api/managers", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      if (!response.ok()) return route.fulfill({ response });
+      const body = await response.json() as Record<string, unknown>;
+      await route.fulfill({ response, json: { ...body, idleMs: 120_000 } });
+    });
     const families = {
       caja: {
         green: [["green1", "Green 1", "green"], ["green2", "Green 2 / Jolt", "lime"]],
@@ -92,7 +101,11 @@ test.describe("condensed staff board and manager color editor", () => {
     } as const;
     await page.route("**/api/boards/*/days/2026-09-20", async (route) => {
       const response = await route.fetch();
+      if (!response.ok()) return route.fulfill({ response });
       const day = await response.json() as { stations: { id: string; label: string; color: string; sortOrder: number; shortCode?: string }[] };
+      if (!Array.isArray(day.stations) || day.stations.length === 0) {
+        return route.fulfill({ response });
+      }
       const board = route.request().url().includes("/cocina/") ? "cocina" : "caja";
       const template = day.stations[0]!;
       for (const members of Object.values(families[board])) {
