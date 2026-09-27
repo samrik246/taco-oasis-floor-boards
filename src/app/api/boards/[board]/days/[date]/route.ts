@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
+import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
 
 export const runtime = "nodejs";
 
@@ -11,10 +12,13 @@ const paramsSchema = z.object({
 
 type RouteContext = { params: Promise<{ board: string; date: string }> };
 
-export async function GET(_request: Request, context: RouteContext) {
+/** Today is open to staff; any other day needs a manager session. */
+export async function GET(request: Request, context: RouteContext) {
   try {
     const raw = await context.params;
     const { board, date } = paramsSchema.parse(raw);
+    const access = await requireDayAccess(request, date);
+    if (!access.ok) return access.response;
 
     const [stations, shifts] = await Promise.all([
       prisma.station.findMany({
@@ -43,7 +47,7 @@ export async function GET(_request: Request, context: RouteContext) {
       }),
     ]);
 
-    return NextResponse.json({
+    const body = {
       board,
       date,
       stations: stations.map((s) => ({
@@ -81,7 +85,9 @@ export async function GET(_request: Request, context: RouteContext) {
           hourEnd: a.hourEnd.toISOString(),
         })),
       })),
-    });
+    };
+
+    return NextResponse.json(body, { headers: NO_STORE });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Bad request";
     if (err instanceof z.ZodError) {

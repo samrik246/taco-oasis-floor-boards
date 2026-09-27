@@ -14,7 +14,7 @@ const bodySchema = z.object({
 
 /**
  * PUT /api/assignments — create assignment with server-side rule validation.
- * Returns 422 + violation codes on rule failure.
+ * Returns 422 + violation codes on rule failure. Manager session required.
  */
 export async function PUT(request: Request) {
   const auth = await requireManagerSession(request);

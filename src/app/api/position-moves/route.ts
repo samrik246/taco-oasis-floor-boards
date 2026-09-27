@@ -6,6 +6,7 @@ import {
   logPositionMove,
 } from "@/lib/position-moves-service";
 import { requireManagerSession } from "@/lib/managers/require-session";
+import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,13 @@ export async function GET(req: Request) {
     if (!date) {
       return NextResponse.json({ error: "date required" }, { status: 422 });
     }
+    const access = await requireDayAccess(req, date);
+    if (!access.ok) return access.response;
     const logs = await listPositionMoves(date);
-    return NextResponse.json({ logs, reasons: MOVE_REASONS });
+    return NextResponse.json(
+      { logs, reasons: MOVE_REASONS },
+      { headers: NO_STORE },
+    );
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Failed to load moves" }, { status: 500 });

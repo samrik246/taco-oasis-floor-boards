@@ -2,6 +2,14 @@ import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
+/** Planned days are manager-only on the API too; sign in the test's own request context. */
+async function managerHeaders(page: Page) {
+  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
+  expect(res.ok()).toBe(true);
+  const { sessionToken } = await res.json() as { sessionToken: string };
+  return { "x-manager-session": sessionToken };
+}
+
 async function shot(page: Page, name: string) {
   const dir = process.env.STORE_MEDIA;
   if (!dir) return;
@@ -90,7 +98,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     );
 
     await unlockManager(page);
-    const days = await (await page.request.get("/api/days")).json() as { dates: string[] };
+    const days = await (await page.request.get("/api/days", { headers: await managerHeaders(page) })).json() as { dates: string[] };
     if (!days.dates.includes("2026-09-20")) {
       await page.getByTestId("load-sample").click();
       await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
@@ -98,6 +106,14 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       });
     }
     await lockManager(page);
+
+    // Staff: the day list holds Chicago today only, and a planned day's direct URL is refused.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+    const staffDays = await (await page.request.get("/api/days")).json() as { dates: string[] };
+    expect(staffDays.dates.every((d) => d === today)).toBe(true);
+    expect((await page.request.get("/api/boards/caja/days/2026-09-20")).status()).toBe(401);
+    await expect(page.getByTestId("date-bar")).not.toHaveAttribute("data-date", "2026-09-20");
+
     await unlockManager(page);
 
     await page.getByTestId("board-toggle-caja").click();
@@ -249,6 +265,8 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera/i, {
       timeout: 10_000,
     });
+    // Locking dropped the board back to today; the manager returns to the planned day.
+    await selectDate(page, "2026-09-20");
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("manager-notes")).toBeVisible();
     await expect(page.getByTestId("hours-ledger")).toBeVisible();

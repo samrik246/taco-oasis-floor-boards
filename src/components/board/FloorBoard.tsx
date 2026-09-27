@@ -280,9 +280,14 @@ export function FloorBoard() {
     setLedgerRefreshKey((k) => k + 1);
   }, []);
 
+  // Staff get today only from /api/days; a manager gets every imported day.
+  // Re-runs on unlock and lock, so locking drops back to today.
+  const managerToken = manager?.token ?? null;
   const refreshDates = useCallback(async () => {
     try {
-      const res = await fetch("/api/days");
+      const res = await fetch("/api/days", {
+        headers: managerAuthHeaders(managerToken),
+      });
       if (!res.ok) {
         setLoadError("Could not load available dates.");
         return;
@@ -297,7 +302,7 @@ export function FloorBoard() {
     } catch {
       setLoadError("Network error loading dates.");
     }
-  }, [manager, retainedDraftDates]);
+  }, [manager, managerToken, retainedDraftDates]);
 
   const refreshBoard = useCallback(async () => {
     if (!date) {
@@ -308,7 +313,18 @@ export function FloorBoard() {
     const requestedDate = date;
     setLoading(true);
     try {
-      const res = await fetch(`/api/boards/${requestedBoard}/days/${requestedDate}`);
+      const res = await fetch(`/api/boards/${requestedBoard}/days/${requestedDate}`, {
+        headers: managerAuthHeaders(managerToken),
+      });
+      if (res.status === 401) {
+        // Not offline: this day needs a manager. Show nothing; /api/days
+        // (re-run on lock) moves the bar back to today.
+        if (isCurrentBoardRequest(
+          { board: activeBoardRef.current, date: activeDateRef.current },
+          { board: requestedBoard, date: requestedDate },
+        )) setDay(null);
+        return;
+      }
       if (!res.ok) throw new Error("load");
       const data = (await res.json()) as DayBoardDto;
       if (!isCurrentBoardRequest(
@@ -341,13 +357,14 @@ export function FloorBoard() {
     } finally {
       setLoading(false);
     }
-  }, [board, date, showToast, t]);
+  }, [board, date, managerToken, showToast, t]);
 
   const refreshReturnPrompts = useCallback(async () => {
     if (!date) return;
     try {
       const res = await fetch(
         `/api/return-prompts?date=${encodeURIComponent(date)}`,
+        { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok) return;
       const data = (await res.json()) as { prompts: ReturnPromptDto[] };
@@ -361,13 +378,14 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date, chimeMute]);
+  }, [date, chimeMute, managerToken]);
 
   const refreshTareas = useCallback(async () => {
     if (!date) return;
     try {
       const res = await fetch(
         `/api/tareas?date=${encodeURIComponent(date)}&board=${board}`,
+        { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok) return;
       const data = (await res.json()) as {
@@ -379,7 +397,7 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date, board]);
+  }, [date, board, managerToken]);
 
   const refreshSuggestions = useCallback(async () => {
     if (!date || !selectedTareaTemplateId) {
@@ -389,6 +407,7 @@ export function FloorBoard() {
     try {
       const res = await fetch(
         `/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
+        { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok) return;
       const data = (await res.json()) as { suggestions: SuggestionDto[] };
@@ -396,7 +415,7 @@ export function FloorBoard() {
     } catch {
       /* soft fail */
     }
-  }, [date, hour, selectedTareaTemplateId, board]);
+  }, [date, hour, selectedTareaTemplateId, board, managerToken]);
 
   const refreshPhase1 = useCallback(async () => {
     await Promise.all([
@@ -1024,9 +1043,17 @@ export function FloorBoard() {
 
   async function assignTarea(employeeId: string, forceLemon: boolean) {
     if (readonly || offline || !selectedTareaTemplateId) return;
+    if (!isManager || !manager?.token) {
+      setUnlockOpen(true);
+      showToast("err", t.managerOnly);
+      return;
+    }
     const res = await fetch("/api/tareas", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...managerAuthHeaders(manager?.token),
+      },
       body: JSON.stringify({
         date,
         employeeId,
@@ -1615,6 +1642,7 @@ export function FloorBoard() {
           {showManagerPanels && (
             <div className="flex flex-col gap-3">
               <HoursLedgerPanel
+                managerToken={manager?.token ?? null}
                 employeeId={ledgerEmployeeId}
                 employeeName={ledgerEmployeeName}
                 weekOf={date}
@@ -1940,6 +1968,7 @@ export function FloorBoard() {
             {showManagerPanels && (
               <>
                 <HoursLedgerPanel
+                  managerToken={manager?.token ?? null}
                   employeeId={ledgerEmployeeId}
                   employeeName={ledgerEmployeeName}
                   weekOf={date}

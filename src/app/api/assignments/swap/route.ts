@@ -12,6 +12,7 @@ const bodySchema = z.object({
 
 /**
  * POST /api/assignments/swap — swap people on two assignments with re-validation.
+ * Manager session required.
  */
 export async function POST(request: Request) {
   const auth = await requireManagerSession(request);
