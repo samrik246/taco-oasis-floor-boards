@@ -42,3 +42,16 @@ export function panelResponse(
   if (status === 401) return "clear";
   return status >= 200 && status < 300 ? "apply" : "keep";
 }
+
+/**
+ * A held forecast only counts for the board and date it was fetched for. The
+ * wall keeps its last forecast when a refresh fails (offline), so after
+ * midnight yesterday's weekday forecast must not raise today's rush notice.
+ */
+export function forecastForScreen<F>(
+  held: { board: CachedFloorBoard["board"]; date: string; forecast: F } | null,
+  active: { board: CachedFloorBoard["board"]; date: string },
+): F | null {
+  if (!held || !isCurrentBoardRequest(active, held)) return null;
+  return held.forecast;
+}

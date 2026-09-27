@@ -9,7 +9,7 @@ import { GET as employeeHours } from "@/app/api/employees/[id]/hours/route";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
 import { requireDayAccess } from "@/lib/managers/day-access";
-import { offlineRefreshState, panelResponse } from "@/lib/board/refresh-state";
+import { forecastForScreen, offlineRefreshState, panelResponse } from "@/lib/board/refresh-state";
 import { readLastBoard, readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoToday } from "@/lib/upcoming/source";
 import { chicagoDateTime } from "@/lib/time";
@@ -233,5 +233,21 @@ describe("staff panels (return prompts, tareas) never keep another day", () => {
   it("OK on the day on screen applies; another failure keeps today's panel (offline)", () => {
     expect(panelResponse(200, today, today)).toBe("apply");
     expect(panelResponse(503, today, today)).toBe("keep");
+  });
+});
+
+describe("wall rush notice never uses another day's forecast", () => {
+  const forecast = { weekday: 5, ranges: [{ startHour: 11, endHour: 13 }] };
+
+  it("a forecast held from yesterday gives no notice after midnight", () => {
+    const held = { board: "caja" as const, date: "2026-09-26", forecast };
+    expect(forecastForScreen(held, { board: "caja", date: "2026-09-27" })).toBeNull();
+    expect(forecastForScreen(held, { board: "cocina", date: "2026-09-26" })).toBeNull();
+    expect(forecastForScreen(null, { board: "caja", date: "2026-09-26" })).toBeNull();
+  });
+
+  it("today's held forecast still counts while offline", () => {
+    const held = { board: "caja" as const, date: "2026-09-26", forecast };
+    expect(forecastForScreen(held, { board: "caja", date: "2026-09-26" })).toBe(forecast);
   });
 });
