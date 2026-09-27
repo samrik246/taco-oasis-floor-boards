@@ -33,6 +33,19 @@ type Fake = {
   stuck?: boolean;
   /** The dialog is a form: Enter in a field submits it (an Export). */
   form?: boolean;
+  /** Day cells never take a click (an overlay sits on them). */
+  stuckDay?: boolean;
+  /**
+   * The live picker's shape (Milo's capture, 25 Sep): a table of day buttons
+   * named "25 September 2026"; Start disables days after End, End disables days
+   * before Start, and a month arrow with nothing to reach is disabled.
+   */
+  live?: boolean;
+  /** Drive the probe's Start-then-End order (the first live run's). */
+  startFirst?: boolean;
+  /** The dates the dialog opens on, and the restaurant day the probe runs (yyyy-MM-dd). */
+  dates?: [string, string];
+  now?: string;
   /** The calendar has no next-month control. */
   noNextMonth?: boolean;
   /** The calendar's forward control is named "Clear and next": the probe must refuse it. */
@@ -66,6 +79,8 @@ const scheduler = (fake: Fake) => `<h1>Scheduler</h1>
 const KIND = ${JSON.stringify(fake.picker)};
 const STICKY = ${!!fake.sticky || !!fake.stuck};
 const STUCK = ${!!fake.stuck};
+const STUCK_DAY = ${!!fake.stuckDay};
+const LIVE = ${!!fake.live};
 const NO_NEXT = ${!!fake.noNextMonth};
 const TRAP = ${!!fake.trapNext};
 const MONTHS = ${JSON.stringify(MONTHS)};
@@ -73,7 +88,7 @@ const pad = (n) => String(n).padStart(2, '0');
 const shown = (d) => pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + '/' + d.getFullYear();
 function openDlg() {
   const saved = STICKY && localStorage.getItem('range');
-  const [s, e] = saved ? JSON.parse(saved) : ['05/31/2030', '06/06/2030'];
+  const [s, e] = saved ? JSON.parse(saved) : ${JSON.stringify(fake.dates ?? ["05/31/2030", "06/06/2030"])};
   document.getElementById('s').textContent = s;
   document.getElementById('e').textContent = e;
   document.getElementById('dlg').hidden = false;
@@ -103,13 +118,35 @@ function openPicker(id) {
   month = new Date(y, m - 1, 1);
   render();
 }
+const parse = (v) => { const [m, d, y] = v.split('/').map(Number); return new Date(y, m - 1, d); };
+function renderLive() {
+  const other = parse(document.getElementById(field === 's' ? 'e' : 's').textContent);
+  const bad = (at) => field === 's' ? at > other : at < other;
+  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  let cells = '';
+  for (let d = 1; d <= days; d++) {
+    const at = new Date(month.getFullYear(), month.getMonth(), d);
+    cells += '<td><button type="button" aria-label="' + d + ' ' + MONTHS[at.getMonth()] + ' ' + at.getFullYear() + '" data-v="' + shown(at) + '"' + (bad(at) ? ' disabled' : '') + '>' + d + '</button></td>';
+  }
+  const nextFirst = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+  const prevLast = new Date(month.getFullYear(), month.getMonth(), 0);
+  const nextOff = field === 's' && nextFirst > other;
+  const prevOff = field === 'e' && prevLast < other;
+  document.getElementById('portal').innerHTML = '<div role="dialog">' +
+    '<button type="button" aria-label="Previous month"' + (prevOff ? ' disabled' : '') + ' onclick="month.setMonth(month.getMonth()-1); renderLive()">&lt;</button>' +
+    '<button type="button" aria-label="Change to year view">' + MONTHS[month.getMonth()] + ' ' + month.getFullYear() + '</button>' +
+    '<button type="button" aria-label="Next month"' + (nextOff ? ' disabled' : '') + ' onclick="month.setMonth(month.getMonth()+1); renderLive()">&gt;</button>' +
+    '<table><tr>' + cells + '</tr></table></div>';
+  for (const c of document.querySelectorAll('[data-v]')) c.onclick = () => set(c.dataset.v);
+}
 function render() {
+  if (LIVE) return renderLive();
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   let cells = '';
   for (let d = 1; d <= days; d++) {
     const at = new Date(month.getFullYear(), month.getMonth(), d);
     const label = 'Choose ' + at.toLocaleDateString('en-US', { weekday: 'long' }) + ', ' + MONTHS[at.getMonth()] + ' ' + d + ', ' + at.getFullYear();
-    cells += '<div role="option" tabindex="0" aria-label="' + label + '" data-v="' + shown(at) + '">' + d + '</div>';
+    cells += '<div role="option" tabindex="0" aria-label="' + label + '" data-v="' + shown(at) + '"' + (STUCK_DAY ? ' style="pointer-events:none"' : '') + '>' + d + '</div>';
   }
   const next = NO_NEXT ? '' : TRAP ? '<button onclick="fetch(\\'/clear\\'); month.setMonth(month.getMonth()+1); render()">Clear and next</button>'
     : '<button type="button" aria-label="Previous Month" onclick="month.setMonth(month.getMonth()-1); render()">&lt;</button>' +
@@ -177,10 +214,12 @@ async function probe(fake: Fake) {
     importMode: "apply" as const,
   };
   const result = await runProbeNextWeek(settings, {
-    now: () => NOW,
+    now: () => (fake.now ? chicagoDateTime(fake.now, "7:00 pm") : NOW),
     readLogin: async () => new WiwLogin(SECRET_EMAIL, SECRET_PASSWORD),
     stepTimeoutMs: 2_000,
     menuSettleMs: 50,
+    actionTimeoutMs: 1_000,
+    startFirst: fake.startFirst,
     exporter: (hook) =>
       playwrightExporter({
         profileDir: "/unused",
@@ -208,8 +247,10 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
     expect(res.result.exitCode).toBe(PROBE_EXIT);
     expect(res.log).toContain("start this=2030-05-31..2030-06-06 next=2030-06-07..2030-06-13");
     expect(res.log).toContain("dialog before start=05/31/2030 end=06/06/2030 week=this");
-    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=set shows start=06/07/2030 end=06/06/2030");
-    expect(res.log).toContain("try field=end picker=page route=calendar pages=0 result=set shows start=06/07/2030 end=06/13/2030");
+    // End first, then Start (moving later): the live picker disables Start days after End.
+    expect(res.log).toContain("order=end,start");
+    expect(res.log).toContain("try field=end picker=page route=calendar pages=0 result=set shows start=05/31/2030 end=06/13/2030");
+    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=set shows start=06/07/2030 end=06/13/2030");
     expect(res.log).toContain("picker_opens=2");
     expect(res.log).toContain("dialog after start=06/07/2030 end=06/13/2030 week=next");
     expect(res.log).toContain("reached=yes");
@@ -252,9 +293,11 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
     expect(res.seen.exports).toBe(0);
   });
 
-  it("no picker: records zero opens and reached=no", async () => {
+  it("no picker: records zero opens and reached=no, exit 5 NOT_REACHED with the profile clear", async () => {
     const res = await probe({ picker: "none" });
-    expect(res.result.exitCode).toBe(PROBE_EXIT);
+    expect(res.result.exitCode).toBe(STOP_EXIT);
+    expect(res.log).toContain("profile=clear");
+    expect(res.log).toContain("stop=PAGE reason=NOT_REACHED");
     expect(res.log).toContain("try field=start picker=none route=none pages=0 result=not_found shows start=05/31/2030 end=06/06/2030");
     expect(res.log).toContain("picker_opens=0");
     expect(res.log).toContain("dialog after start=05/31/2030 end=06/06/2030 week=this");
@@ -287,9 +330,9 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
   });
 
   it("a dialog that will not go back to this week: restore week=other, exit 5 RESTORE", async () => {
-    // The fake keeps only the first dates ever picked (the new Start, the old End).
+    // The fake keeps only the first dates ever picked (the old Start, the new End).
     const res = await probe({ picker: "calendar", stuck: true });
-    expect(res.log).toContain("reopen start=06/07/2030 end=06/06/2030 week=other");
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/13/2030 week=other");
     expect(res.log).toContain("restore week=other");
     expect(res.log).toContain("stop=PAGE reason=RESTORE");
     expect(res.result.exitCode).toBe(STOP_EXIT);
@@ -299,6 +342,67 @@ describe("B2 probe-next-week (fake scheduler)", { timeout: 60_000 }, () => {
   it("this week on reopen: no restore step", async () => {
     const res = await probe({ picker: "calendar" });
     expect(res.log).not.toContain("restore");
+  });
+
+  it("a day cell that never takes a click: step marker and error class, then close, reopen and exit 5 STEP", async () => {
+    const res = await probe({ picker: "calendar", stuckDay: true });
+    expect(res.log).toContain("step=start.open");
+    expect(res.log).toContain("step=start.day");
+    expect(res.log).toContain("step_error=start.day error=TimeoutError call=locator.click");
+    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=error");
+    expect(res.log).toContain("step=end.day");
+    expect(res.log).toContain("step=reopen");
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/06/2030 week=this");
+    expect(res.log).toContain("profile=clear");
+    expect(res.log).toContain("step_errors=end.day,start.day");
+    expect(res.log).toContain("stop=PAGE reason=STEP");
+    expect(res.result.exitCode).toBe(STOP_EXIT);
+    expect(res.seen.exports).toBe(0);
+    // Only the class and the API name: no message text.
+    expect(res.log).not.toMatch(/Timeout \d+ms|waiting for|intercepts pointer/);
+  });
+
+  it("a stuck day on a dialog that remembers dates: restore still runs", async () => {
+    const res = await probe({ picker: "calendar", stuckDay: true, sticky: true });
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/06/2030 week=this");
+    expect(res.log).toContain("profile=clear");
+  });
+
+  it("live picker shape: End first, then Start, reaches next week and restores", async () => {
+    const res = await probe({ picker: "calendar", live: true, sticky: true });
+    expect(res.log).toContain("order=end,start");
+    expect(res.log).toContain("try field=end picker=page route=calendar pages=0 result=set shows start=05/31/2030 end=06/13/2030");
+    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=set shows start=06/07/2030 end=06/13/2030");
+    expect(res.log).toContain("reached=yes");
+    expect(res.log).toContain("reopen start=06/07/2030 end=06/13/2030 week=next");
+    expect(res.log).toContain("restore order=start,end");
+    expect(res.log).toContain("restore week=this");
+    expect(res.log).toContain("profile=clear");
+    expect(res.log).not.toContain("step_disabled");
+    expect(res.log).not.toContain("step_error");
+    expect(res.result.exitCode).toBe(PROBE_EXIT);
+    expect(res.seen.exports).toBe(0);
+  });
+
+  it("live picker shape: a disabled control is logged and skipped at once, never waited on", async () => {
+    // Start first, as the first live run did: with End still this Thursday, Fri 7 Jun is disabled in Start.
+    const res = await probe({ picker: "calendar", live: true, startFirst: true });
+    expect(res.log).toContain("order=start,end");
+    expect(res.log).toContain("step_disabled=start.day");
+    expect(res.log).toContain("try field=start picker=page route=calendar pages=1 result=disabled shows start=05/31/2030 end=06/06/2030");
+    expect(res.log).toContain("stop=PAGE reason=NOT_REACHED");
+    expect(res.log).not.toContain("step_error");
+    expect(res.log).toContain("reopen start=05/31/2030 end=06/06/2030 week=this");
+    expect(res.log).toContain("profile=clear");
+  });
+
+  it("live picker shape: a disabled Next month is logged and skipped, not waited on", async () => {
+    // Start first, the live shape of 25 Sep: this week ends on the month's last day (Thu 31 Oct 2030), next
+    // week starts in November, and End is still 31 Oct, so Start's Next month is disabled.
+    const res = await probe({ picker: "calendar", live: true, startFirst: true, dates: ["10/25/2030", "10/31/2030"], now: "2030-10-28" });
+    expect(res.log).toContain("start this=2030-10-25..2030-10-31 next=2030-11-01..2030-11-07");
+    expect(res.log).toContain("step_disabled=start.next");
+    expect(res.log).not.toContain("step_error");
   });
 
   it("typed field in a form dialog: never presses Enter, so the form never submits", async () => {

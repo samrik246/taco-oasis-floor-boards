@@ -6,7 +6,9 @@
  * Same steps as a run up to the dialog wait (sign-in and menu unchanged).
  * Then, in the open Export Schedule dialog:
  * - read the Start and End buttons (this week, as the export expects);
- * - click Start Date, record whether a date picker opened, and try to pick
+ * - set End before Start when moving later (When I Work disables Start days
+ *   after End), Start before End when moving back; for each,
+ *   click the date button, record whether a date picker opened, and try to pick
  *   the following Friday: type it if the picker is a text field, else click
  *   the day in the calendar, paging forward at most twice;
  * - the same for End Date and the following Thursday;
@@ -25,6 +27,13 @@
  * marks the visible picker-shaped elements and dialogs with a
  * `data-probe-before` attribute in the page (in the browser only; When I Work
  * gets nothing).
+ *
+ * Each action inside the dialog logs `step=<name>` first and has its own
+ * 5-second timeout; a throw logs `step_error=<name> error=<class>
+ * call=<api>` (never the message text) and the probe goes on to close,
+ * reopen and, when needed, restore. The log then says `profile=clear|unchecked`.
+ * Exit 6 only when next week was reached with no step error and the profile is
+ * clear; otherwise exit 5 with reason RESTORE, STEP or NOT_REACHED.
  *
  * Never clicked: the dialog's Export button, or any control named Export,
  * Print, Clear, Publish, Delete, Save, Remove or Submit (`safeClick`). The
@@ -63,7 +72,7 @@ export type FieldTry = {
   picker: "dialog" | "page" | "none";
   route: "typed" | "calendar" | "already" | "none";
   pages: number;
-  result: "set" | "not_found" | "refused_click";
+  result: "set" | "not_found" | "refused_click" | "disabled" | "error";
   shownAfter: Shown;
 };
 
@@ -79,6 +88,8 @@ export type NextWeekCapture = {
   reopen: Shown | "failed";
   /** Set only when the reopen did not show this week: the put-back tries and the week shown after. */
   restore: { tries: FieldTry[]; shown: Shown | "failed"; week: string } | null;
+  /** Steps that threw, in order. */
+  stepErrors: string[];
   files: string[];
 };
 
@@ -107,7 +118,14 @@ async function firstVisible(l: Locator): Promise<Locator | null> {
 }
 
 /** Click only a control whose name and text carry none of the forbidden words. */
-export async function safeClick(l: Locator): Promise<boolean> {
+export type ClickResult = "clicked" | "refused" | "disabled";
+
+/**
+ * Click only a control whose name and text carry none of the forbidden words,
+ * and never a disabled one: `click()` on a disabled control waits out the
+ * whole timeout (the 30 s stall of the first live run, a disabled Next month).
+ */
+export async function safeClick(l: Locator): Promise<ClickResult> {
   const label = [
     await l.getAttribute("aria-label").catch(() => null),
     await l.getAttribute("title").catch(() => null),
@@ -115,9 +133,13 @@ export async function safeClick(l: Locator): Promise<boolean> {
   ]
     .filter(Boolean)
     .join(" ");
-  if (FORBIDDEN.test(label)) return false;
+  if (FORBIDDEN.test(label)) return "refused";
+  const disabled =
+    (await l.isDisabled({ timeout: 1_000 }).catch(() => false)) ||
+    (await l.getAttribute("aria-disabled").catch(() => null)) === "true";
+  if (disabled) return "disabled";
   await l.click();
-  return true;
+  return "clicked";
 }
 
 /** Accessible names a calendar gives one day. */
@@ -126,7 +148,7 @@ function dayName(ymd: string): RegExp {
   const day = format(d, "d");
   const months = `${format(d, "MMMM")}|${format(d, "MMM")}`;
   return new RegExp(
-    `(\\b(${months})\\s+${day}(st|nd|rd|th)?,?\\s+${format(d, "yyyy")}\\b)|${format(d, "yyyy-MM-dd")}|${format(d, "MM/dd/yyyy")}`,
+    `(\\b(${months})\\s+${day}(st|nd|rd|th)?,?\\s+${format(d, "yyyy")}\\b)|(^|\\s)${day}\\s+(${months})\\s+${format(d, "yyyy")}\\b|${format(d, "yyyy-MM-dd")}|${format(d, "MM/dd/yyyy")}`,
     "i",
   );
 }
@@ -189,6 +211,39 @@ async function openedPicker(page: Page, box: Locator): Promise<{ where: "dialog"
   return null;
 }
 
+/** Live step markers: `step=<name>` before each action, `step_error=<name> error=<class> call=<api>` on a throw. */
+export type Steps = { log: (line: string) => Promise<void>; errors: string[] };
+
+/** A step threw. Carries the step name only. */
+class StepFailed extends Error {
+  constructor(readonly step: string) {
+    super(step);
+    this.name = "StepFailed";
+  }
+}
+
+/**
+ * The error's class and the Playwright call that threw ("locator.click"), from
+ * the head of its message. Never the rest of the message: it can quote the page.
+ */
+export function errorCode(err: unknown): string {
+  const cls = err instanceof Error ? err.name.replace(/[^A-Za-z]/g, "") || "Error" : "Unknown";
+  const call = err instanceof Error ? /^([A-Za-z]+\.[A-Za-z]+):/.exec(err.message)?.[1] : undefined;
+  return `error=${cls} call=${call ?? "-"}`;
+}
+
+async function step<T>(steps: Steps, name: string, fn: () => Promise<T>): Promise<T> {
+  await steps.log(`step=${name}`);
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof StepFailed) throw err;
+    steps.errors.push(name);
+    await steps.log(`step_error=${name} ${errorCode(err)}`);
+    throw new StepFailed(name);
+  }
+}
+
 /** MM/dd/yyyy to yyyy-MM-dd. */
 function isoOf(shown: string): string {
   const [m, d, y] = shown.split("/");
@@ -202,65 +257,93 @@ async function trySet(
   ymd: string,
   files: Files,
   counts: { pickerOpens: number },
-  /** File-name prefix: "" for the next-week try, "restore-" for putting this week back. */
+  steps: Steps,
+  /** Step and file-name prefix: "" for the next-week try, "restore-" for putting this week back. */
   tag = "",
 ): Promise<FieldTry> {
   const c = dialogControls(box);
   const button = field === "start" ? c.start : c.end;
   const want = dialogDate(ymd);
-  const shownNow = await readShown(box);
+  const name = `${tag ? "restore." : ""}${field}`;
+  const shownNow = await step(steps, `${name}.read`, () => readShown(box));
   if ((field === "start" ? shownNow.start : shownNow.end) === want) {
     return { field, picker: "none", route: "already", pages: 0, result: "set", shownAfter: shownNow };
   }
-  await markVisible(page);
-  if (!(await safeClick(button.first()))) {
-    return { field, picker: "none", route: "none", pages: 0, result: "refused_click", shownAfter: shownNow };
-  }
-  await page.waitForTimeout(800);
-  const opened = await openedPicker(page, box);
-  if (opened) counts.pickerOpens += 1;
-
-  const out: FieldTry = { field, picker: opened?.where ?? "none", route: "none", pages: 0, result: "not_found", shownAfter: shownNow };
-  if (opened) {
-    await shoot(files, opened.picker, `${tag}${field}-picker.png`);
-    await save(files, `${tag}${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
-  }
-
-  // A text field took focus (typed picker): type the date, then Tab out. Never Enter:
-  // in a form dialog Enter submits, which is an Export by another route.
-  const FOCUSED = "input:focus, [contenteditable='true']:focus";
-  const focused = opened ? box.locator(FOCUSED).or(opened.picker.locator(FOCUSED)) : box.locator(FOCUSED);
-  if ((await focused.count()) === 1 && (await focused.isVisible().catch(() => false))) {
-    out.route = "typed";
-    await focused.fill(want);
-    await focused.press("Tab");
-    await page.waitForTimeout(500);
-  } else if (opened) {
-    out.route = "calendar";
-    // Page toward the date: forward for next week, back when putting this week back.
-    const current = field === "start" ? shownNow.start : shownNow.end;
-    const back = current !== null && ymd < isoOf(current);
-    const word = back ? /prev|previous|back/i : /next/i;
-    const attr = back ? '[aria-label*="prev" i]' : '[aria-label*="next" i]';
-    let day = await findDay(opened.picker, ymd);
-    while (!day && out.pages < 2) {
-      const next = await firstVisible(opened.picker.getByRole("button", { name: word }).or(opened.picker.locator(attr)));
-      if (!next || !(await safeClick(next))) break;
-      out.pages += 1;
-      await page.waitForTimeout(400);
-      day = await findDay(opened.picker, ymd);
+  const out: FieldTry = { field, picker: "none", route: "none", pages: 0, result: "not_found", shownAfter: shownNow };
+  try {
+    const opened = await step(steps, `${name}.open`, async () => {
+      await markVisible(page);
+      const clicked = await safeClick(button.first());
+      if (clicked !== "clicked") return clicked;
+      await page.waitForTimeout(800);
+      return openedPicker(page, box);
+    });
+    if (opened === "refused" || opened === "disabled") {
+      if (opened === "disabled") await steps.log(`step_disabled=${name}.open`);
+      out.result = opened === "refused" ? "refused_click" : "disabled";
+      return out;
     }
-    if (day) {
-      if (!(await safeClick(day))) {
-        out.result = "refused_click";
-        out.shownAfter = await readShown(box);
-        return out;
+    if (opened) counts.pickerOpens += 1;
+    out.picker = opened?.where ?? "none";
+    if (opened) {
+      await step(steps, `${name}.capture`, async () => {
+        await shoot(files, opened.picker, `${tag}${field}-picker.png`);
+        await save(files, `${tag}${field}-picker.aria.yml`, `${await opened.picker.ariaSnapshot().catch(() => "")}\n`);
+      });
+    }
+
+    // A text field took focus (typed picker): type the date, then Tab out. Never Enter:
+    // in a form dialog Enter submits, which is an Export by another route.
+    const FOCUSED = "input:focus, [contenteditable='true']:focus";
+    const focused = opened ? box.locator(FOCUSED).or(opened.picker.locator(FOCUSED)) : box.locator(FOCUSED);
+    if ((await focused.count()) === 1 && (await focused.isVisible().catch(() => false))) {
+      out.route = "typed";
+      await step(steps, `${name}.fill`, async () => {
+        await focused.fill(want);
+        await focused.press("Tab");
+        await page.waitForTimeout(500);
+      });
+    } else if (opened) {
+      out.route = "calendar";
+      // Page toward the date: forward for next week, back when putting this week back.
+      const current = field === "start" ? shownNow.start : shownNow.end;
+      const back = current !== null && ymd < isoOf(current);
+      const word = back ? /prev|previous|back/i : /next/i;
+      const attr = back ? '[aria-label*="prev" i]' : '[aria-label*="next" i]';
+      let day = await step(steps, `${name}.find`, () => findDay(opened.picker, ymd));
+      while (!day && out.pages < 2) {
+        const moved = await step(steps, `${name}.${back ? "prev" : "next"}`, async () => {
+          const arrow = await firstVisible(opened.picker.getByRole("button", { name: word }).or(opened.picker.locator(attr)));
+          if (!arrow) return false;
+          const clicked = await safeClick(arrow);
+          if (clicked === "disabled") await steps.log(`step_disabled=${name}.${back ? "prev" : "next"}`);
+          if (clicked !== "clicked") return false;
+          await page.waitForTimeout(400);
+          return true;
+        });
+        if (!moved) break;
+        out.pages += 1;
+        day = await step(steps, `${name}.find`, () => findDay(opened.picker, ymd));
       }
-      await page.waitForTimeout(500);
+      if (day) {
+        const clicked = await step(steps, `${name}.day`, async () => {
+          const r = await safeClick(day);
+          if (r === "disabled") await steps.log(`step_disabled=${name}.day`);
+          if (r === "clicked") await page.waitForTimeout(500);
+          return r;
+        });
+        if (clicked !== "clicked") out.result = clicked === "disabled" ? "disabled" : "refused_click";
+      }
     }
+    out.shownAfter = await step(steps, `${name}.read`, () => readShown(box));
+    if (out.result === "not_found" && (field === "start" ? out.shownAfter.start : out.shownAfter.end) === want) {
+      out.result = "set";
+    }
+  } catch (err) {
+    if (!(err instanceof StepFailed)) throw err;
+    out.result = "error";
+    out.shownAfter = await readShown(box).catch(() => ({ start: null, end: null }));
   }
-  out.shownAfter = await readShown(box);
-  if ((field === "start" ? out.shownAfter.start : out.shownAfter.end) === want) out.result = "set";
   return out;
 }
 
@@ -275,7 +358,8 @@ async function closeDialog(page: Page, box: Locator): Promise<boolean> {
 }
 
 /** Reload the scheduler and open the dialog once more, as the timer will. The dialog, or null. */
-async function reopen(page: Page, step: number, menuSettleMs: number): Promise<Locator | null> {
+async function reopen(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Locator | null> {
+  await steps.log("step=reopen");
   try {
     await page.reload({ waitUntil: "domcontentloaded" });
     const more = page.getByRole("button", { name: /more actions/i });
@@ -294,18 +378,25 @@ async function reopen(page: Page, step: number, menuSettleMs: number): Promise<L
       await dialog.first().waitFor({ state: "visible", timeout: step });
     }
     return dialog.first();
-  } catch {
+  } catch (err) {
+    steps.errors.push("reopen");
+    await steps.log(`step_error=reopen ${errorCode(err)}`);
     return null;
   }
 }
 
 /** Reopen, read the dates, close. */
-async function reopenAndRead(page: Page, step: number, menuSettleMs: number): Promise<Shown | "failed"> {
-  const box = await reopen(page, step, menuSettleMs);
+async function reopenAndRead(page: Page, step: number, menuSettleMs: number, steps: Steps): Promise<Shown | "failed"> {
+  const box = await reopen(page, step, menuSettleMs, steps);
   if (!box) return "failed";
-  const shown = await readShown(box);
-  await closeDialog(page, box);
+  const shown = await readShown(box).catch(() => "failed" as const);
+  await safeClose(page, box, steps);
   return shown;
+}
+
+/** Close, logged as a step; a failure is recorded and the probe goes on. */
+async function safeClose(page: Page, box: Locator, steps: Steps): Promise<boolean> {
+  return step(steps, "close", () => closeDialog(page, box)).catch(() => false);
 }
 
 export function weekOf(shown: Shown | "failed", thisWeek: ExportWeek, nextWeek: ExportWeek): string {
@@ -315,51 +406,91 @@ export function weekOf(shown: Shown | "failed", thisWeek: ExportWeek, nextWeek: 
   return "other";
 }
 
+/**
+ * Both dates, in the order the picker allows. When I Work disables Start days
+ * after End (and End days before Start): moving later sets End first, moving
+ * earlier sets Start first.
+ */
+async function setWeek(
+  page: Page,
+  box: Locator,
+  target: ExportWeek,
+  files: Files,
+  counts: { pickerOpens: number },
+  steps: Steps,
+  tag = "",
+  startFirst = false,
+): Promise<FieldTry[]> {
+  const shown = await readShown(box).catch(() => ({ start: null, end: null }) as Shown);
+  const later = shown.end === null || target.thursday > isoOf(shown.end);
+  const order: Array<["start" | "end", string]> = later && !startFirst
+    ? [["end", target.thursday], ["start", target.friday]]
+    : [["start", target.friday], ["end", target.thursday]];
+  await steps.log(`${tag ? "restore " : ""}order=${order.map(([f]) => f).join(",")}`);
+  const tries: FieldTry[] = [];
+  for (const [field, ymd] of order) {
+    if (!(await box.isVisible().catch(() => false))) break;
+    tries.push(await trySet(page, box, field, ymd, files, counts, steps, tag));
+  }
+  return tries;
+}
+
 export async function captureNextWeek(
   page: Page,
   week: ExportWeek,
-  opts: { logDir: string; stamp: string; step: number; menuSettleMs: number },
+  opts: {
+    logDir: string;
+    stamp: string;
+    step: number;
+    menuSettleMs: number;
+    actionTimeoutMs: number;
+    steps: Steps;
+    /** Tests only: the first live run's Start-then-End order. */
+    startFirst?: boolean;
+  },
 ): Promise<NextWeekCapture | null> {
+  const { steps } = opts;
   const dialog = exportDialog(page);
   if ((await dialog.count()) === 0) return null;
+  // A stuck control fails in seconds, so the close/reopen/restore steps still run.
+  page.setDefaultTimeout(opts.actionTimeoutMs);
   const box = dialog.first();
   const nextWeek = followingWeek(week);
   const files: Files = { stamp: opts.stamp, dir: opts.logDir, list: [] };
   const counts = { pickerOpens: 0 };
+  const none: Shown = { start: null, end: null };
 
-  const before = await readShown(box);
-  await shoot(files, box, "1-dialog-open.png");
-  await save(files, "1-dialog-open.txt", `${await box.innerText().catch(() => "")}\n`);
+  const before = await step(steps, "dialog.read", () => readShown(box)).catch(() => none);
+  await step(steps, "dialog.capture", async () => {
+    await shoot(files, box, "1-dialog-open.png");
+    await save(files, "1-dialog-open.txt", `${await box.innerText().catch(() => "")}\n`);
+  }).catch(() => undefined);
 
-  const tries: FieldTry[] = [];
-  tries.push(await trySet(page, box, "start", nextWeek.friday, files, counts));
-  if (await box.isVisible().catch(() => false)) {
-    tries.push(await trySet(page, box, "end", nextWeek.thursday, files, counts));
-  }
+  const tries = await setWeek(page, box, nextWeek, files, counts, steps, "", opts.startFirst);
   const open = await box.isVisible().catch(() => false);
-  const after = open ? await readShown(box) : { start: null, end: null };
+  const after = open ? await step(steps, "after.read", () => readShown(box)).catch(() => none) : none;
   if (open) {
-    await shoot(files, box, "2-dialog-after.png");
-    await save(files, "2-dialog-after.txt", `${await box.innerText().catch(() => "")}\n`);
+    await step(steps, "after.capture", async () => {
+      await shoot(files, box, "2-dialog-after.png");
+      await save(files, "2-dialog-after.txt", `${await box.innerText().catch(() => "")}\n`);
+    }).catch(() => undefined);
   }
   const reached = after.start === dialogDate(nextWeek.friday) && after.end === dialogDate(nextWeek.thursday);
-  const closed = open ? await closeDialog(page, box) : true;
+  const closed = open ? await safeClose(page, box, steps) : true;
 
-  // The timer shares this browser folder. If the dialog now opens on anything
-  // but this week, put this week back the same safe way and read it once more.
-  const again = await reopenAndRead(page, opts.step, opts.menuSettleMs);
+  // Always, whatever failed above: the timer shares this browser folder. If the
+  // dialog now opens on anything but this week, put this week back the same safe
+  // way and read it once more.
+  const again = await reopenAndRead(page, opts.step, opts.menuSettleMs, steps);
   let restore: NextWeekCapture["restore"] = null;
   if (weekOf(again, week, nextWeek) !== "this") {
-    const box2 = await reopen(page, opts.step, opts.menuSettleMs);
+    const box2 = await reopen(page, opts.step, opts.menuSettleMs, steps);
     const restoreTries: FieldTry[] = [];
     if (box2) {
-      restoreTries.push(await trySet(page, box2, "start", week.friday, files, counts, "restore-"));
-      if (await box2.isVisible().catch(() => false)) {
-        restoreTries.push(await trySet(page, box2, "end", week.thursday, files, counts, "restore-"));
-      }
-      if (await box2.isVisible().catch(() => false)) await closeDialog(page, box2);
+      restoreTries.push(...(await setWeek(page, box2, week, files, counts, steps, "restore-")));
+      if (await box2.isVisible().catch(() => false)) await safeClose(page, box2, steps);
     }
-    const check = await reopenAndRead(page, opts.step, opts.menuSettleMs);
+    const check = await reopenAndRead(page, opts.step, opts.menuSettleMs, steps);
     restore = { tries: restoreTries, shown: check, week: weekOf(check, week, nextWeek) };
   }
   return {
@@ -373,6 +504,7 @@ export async function captureNextWeek(
     closed,
     reopen: again,
     restore,
+    stepErrors: [...steps.errors],
     files: files.list,
   };
 }
@@ -384,6 +516,10 @@ export type NextWeekDeps = {
   now?: () => Date;
   stepTimeoutMs?: number;
   menuSettleMs?: number;
+  /** Per-action timeout inside the dialog. */
+  actionTimeoutMs?: number;
+  /** Tests only: set Start before End, as the first live run did. */
+  startFirst?: boolean;
 };
 
 const d = (s: string | null) => s ?? "-";
@@ -409,10 +545,14 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
       stamp: now().toISOString().replace(/[:.]/g, "-"),
       step: deps.stepTimeoutMs ?? 30_000,
       menuSettleMs: deps.menuSettleMs ?? 800,
+      actionTimeoutMs: deps.actionTimeoutMs ?? 5_000,
+      steps: { log, errors: [] },
+      startFirst: deps.startFirst,
     });
   });
 
   let stop: ExportStop | null = null;
+  let thrown: string | null = null;
   try {
     const download = await exporter.exportWeek(week, async () => {
       try {
@@ -425,7 +565,10 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
     await download.discard().catch(() => undefined);
     stop = new ExportStop("PAGE", "PROBE_NOT_ATTACHED");
   } catch (err) {
-    if (!(err instanceof ProbeDone)) stop = err instanceof ExportStop ? err : new ExportStop("PAGE", "STEP");
+    if (!(err instanceof ProbeDone)) {
+      if (!(err instanceof ExportStop)) thrown = errorCode(err);
+      stop = err instanceof ExportStop ? err : new ExportStop("PAGE", "STEP");
+    }
   } finally {
     await exporter.close().catch(() => undefined);
   }
@@ -434,7 +577,7 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
   if (!stop && hooked && !done) stop = new ExportStop("PAGE", "DIALOG_OPEN");
   if (stop || !done) {
     const s = stop ?? new ExportStop("PAGE", "STEP");
-    await log(`stop=${s.code}${s.reason ? ` reason=${s.reason}` : ""}`);
+    await log(`stop=${s.code}${s.reason ? ` reason=${s.reason}` : ""}${thrown ? ` ${thrown}` : ""}`);
     await log(`downloads=${downloads}`);
     await log(`end exit=${STOP_EXIT}`);
     return { exitCode: STOP_EXIT, stop: s.code, capture: null, downloads };
@@ -468,9 +611,14 @@ export async function runProbeNextWeek(settings: WiwExportSettings, deps: NextWe
     await log(`restore week=${done.restore.week}`);
   }
   for (const f of done.files) await log(`file=${f} mode=600`);
-  if (done.restore && done.restore.week !== "this") {
-    // The 07:00 run would stop on DIALOG_DATE. Nobody runs the timer window until this is fixed.
-    await log("stop=PAGE reason=RESTORE");
+  // The profile is clear for the timer only when the dialog reopens (or is put back) on this week.
+  const clear = weekOf(again, week, next) === "this" || done.restore?.week === "this";
+  await log(`profile=${clear ? "clear" : "unchecked"}`);
+  if (done.stepErrors.length > 0) await log(`step_errors=${done.stepErrors.join(",")}`);
+  // Exit 6 only for a clean capture that reached next week with the profile clear.
+  const reason = !clear ? "RESTORE" : done.stepErrors.length > 0 ? "STEP" : !done.reached ? "NOT_REACHED" : null;
+  if (reason) {
+    await log(`stop=PAGE reason=${reason}`);
     await log(`end exit=${STOP_EXIT}`);
     return { exitCode: STOP_EXIT, stop: "PAGE", capture: done, downloads };
   }
