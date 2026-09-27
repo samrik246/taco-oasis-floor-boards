@@ -90,12 +90,12 @@ describe("abilities seed + block (SPEC §4.3 / §4.7)", () => {
     const seeds = seedAbilitiesFromPositions(["Caja Manager"]);
     expect(seeds.find((s) => s.stationId === "mana")?.level).toBe("preferred");
     expect(seeds.find((s) => s.stationId === "green1")?.level).toBe("ok");
-    expect(seeds.find((s) => s.stationId === "fryer")?.level).toBe("forbidden");
+    expect(seeds.find((s) => s.stationId === "pdf_tf1r")?.level).toBe("forbidden");
   });
 
   it("seeds preferred taquero for Cocina positions", () => {
     const seeds = seedAbilitiesFromPositions(["Cocina - Taquero"]);
-    expect(seeds.find((s) => s.stationId === "taquero")?.level).toBe(
+    expect(seeds.find((s) => s.stationId === "pdf_tq1r")?.level).toBe(
       "preferred",
     );
     expect(seeds.find((s) => s.stationId === "green1")?.level).toBe(

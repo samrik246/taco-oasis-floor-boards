@@ -63,7 +63,7 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
                   <p className="font-medium tabular-nums">{t.importTransferred(d.assignmentsToTransfer.length)}</p>
                   <ul className="ml-4 list-disc text-xs" data-testid="import-transfers">
                     {d.assignmentsToTransfer.map((cell, i) => (
-                      <li key={i}>{formatHourLabel(cell.hour)} · {stationLabel(locale, cell.stationId, cell.stationId)}</li>
+                      <li key={i}>{formatHourLabel(cell.hour)} · {stationLabel(locale, cell.stationId)}</li>
                     ))}
                   </ul>
                 </div>
@@ -79,7 +79,7 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
                   <ul className="mt-1 text-xs" data-testid="import-removals">
                     {d.assignmentsToRemove.map((r, i) => (
                       <li key={i}>
-                        {formatHourLabel(r.hour)} · {stationLabel(locale, r.stationId, r.stationId)}
+                        {formatHourLabel(r.hour)} · {stationLabel(locale, r.stationId)}
                       </li>
                     ))}
                   </ul>

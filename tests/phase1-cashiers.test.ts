@@ -349,7 +349,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
       abilities: [
         ...ALL_STATIONS.filter((s) => s.board === "cocina").map((s) => ({
           stationId: s.id,
-          level: (s.id === "fryer" ? "preferred" : "ok") as
+        level: (s.id === "pdf_tf1r" ? "preferred" : "ok") as
             | "preferred"
             | "ok",
         })),
@@ -369,7 +369,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
 
     const seat = await createAssignment({
       shiftId: shift.id,
-      stationId: "fryer",
+      stationId: "pdf_tf1r",
       date: "2026-09-20",
       hour: 12,
     });
@@ -439,7 +439,7 @@ describe("Phase 1 integration: traffic + tareas + return + moves", () => {
 
     const ledger = await getEmployeeWeekHours(created.employee.id, "2026-09-20");
     expect(ledger).toBeTruthy();
-    expect(ledger!.byStation.some((r) => r.stationId === "fryer")).toBe(true);
+    expect(ledger!.byStation.some((r) => r.stationId === "pdf_tf1r")).toBe(true);
     expect(ledger!.byTarea.length).toBeGreaterThanOrEqual(1);
     expect(ledger!.totalTareaMinutes).toBeGreaterThan(0);
 

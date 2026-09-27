@@ -200,7 +200,8 @@ describe("copyDayAssignments — Planner B", () => {
     const cocinaEmployeeId = await makeEmployee("copy-day-cocina");
     const cocinaShift = await makeShift(cocinaEmployeeId, SOURCE_DATE, "10:00 am", "2:00 pm", "cocina");
     await makeShift(cocinaEmployeeId, TARGET_DATE, "10:00 am", "2:00 pm", "cocina");
-    await createAssignment({ shiftId: cocinaShift.id, stationId: "fryer", date: SOURCE_DATE, hour: 11 });
+    const seated = await createAssignment({ shiftId: cocinaShift.id, stationId: "pdf_tf1r", date: SOURCE_DATE, hour: 11 });
+    expect(seated.ok).toBe(true);
 
     const result = await copyDayAssignments({ board: "caja", sourceDate: SOURCE_DATE, targetDate: TARGET_DATE });
     expect(result.ok).toBe(true);

@@ -1,0 +1,399 @@
+{
+  "recorded_at": "2026-09-26T14:21:43.574447+00:00",
+  "status": "owner_decisions_recorded_implementation_pending",
+  "card_event_id": "536fdd9fe510d56e637a0fe659a649d69bf972567f340c337894be5470f2167b",
+  "answer_event_id": "ae78910c8d6558cb05a97e34d7209508488e91af67b6703228f3b603c5842cca",
+  "assignment_event_id": "fb5571f0171867a455066836d2be5dfa77da10b6350bd4a65758f2ea33b29d33",
+  "question_map_sha256": "91599155d46019ea7d0b2546470512087d742e5d30fb3b2ee7a0eae6f37317b7",
+  "inventory_read_at": "2026-09-26T13:22:30.561492+00:00",
+  "implementation_owner": "Yuki X OpenAI",
+  "independent_checker": "Zane X OpenAI",
+  "deletion_guard": "Delete the six old seats only if no saved assignment or board history references them. If any reference exists, stop and report the count; preserve referenced records. Reference status is not determined by this decision record.",
+  "counts": {
+    "rename": 13,
+    "keep": 19,
+    "remove_if_unreferenced": 6
+  },
+  "decisions": [
+    {
+      "question": 1,
+      "station_id": "mana",
+      "board": "caja",
+      "code_at_memo": "MANAGER",
+      "label_at_memo": "MANA (Manager)",
+      "final_label": "Manager",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 2,
+      "station_id": "green1",
+      "board": "caja",
+      "code_at_memo": "G1",
+      "label_at_memo": "Green 1",
+      "final_label": "Green 1",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 3,
+      "station_id": "green2",
+      "board": "caja",
+      "code_at_memo": "G2",
+      "label_at_memo": "Green 2 / Jolt",
+      "final_label": "Green 2 / Jolt",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 4,
+      "station_id": "purple1",
+      "board": "caja",
+      "code_at_memo": "P1",
+      "label_at_memo": "Purple 1",
+      "final_label": "Purple 1",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 5,
+      "station_id": "purple2",
+      "board": "caja",
+      "code_at_memo": "P2",
+      "label_at_memo": "Purple 2",
+      "final_label": "Purple 2 / Jolt",
+      "action": "rename",
+      "basis": "Owner write-in; wording recorded as Apex interpreted"
+    },
+    {
+      "question": 6,
+      "station_id": "yellow",
+      "board": "caja",
+      "code_at_memo": "YEL",
+      "label_at_memo": "Yellow / Outside",
+      "final_label": "Yellow 1",
+      "action": "rename",
+      "basis": "Owner write-in; wording recorded as Apex interpreted"
+    },
+    {
+      "question": 7,
+      "station_id": "yellow2",
+      "board": "caja",
+      "code_at_memo": "YEL2",
+      "label_at_memo": "Yellow 2",
+      "final_label": "Yellow 2",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 8,
+      "station_id": "blue",
+      "board": "caja",
+      "code_at_memo": "BLU",
+      "label_at_memo": "Blue / Outside",
+      "final_label": "Blue / Outside",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 9,
+      "station_id": "multi",
+      "board": "caja",
+      "code_at_memo": "MULTI",
+      "label_at_memo": "MULTI",
+      "final_label": "MULTI",
+      "action": "keep",
+      "basis": "B"
+    },
+    {
+      "question": 10,
+      "station_id": "nieves",
+      "board": "caja",
+      "code_at_memo": "NIE1",
+      "label_at_memo": "Nieves 1",
+      "final_label": "Nieves 1",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 11,
+      "station_id": "nieves2",
+      "board": "caja",
+      "code_at_memo": "NIE2",
+      "label_at_memo": "Nieves 2",
+      "final_label": "Nieves 2",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 12,
+      "station_id": "mesero",
+      "board": "caja",
+      "code_at_memo": "MES",
+      "label_at_memo": "Mesero",
+      "final_label": "Mesero",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 13,
+      "station_id": "clean",
+      "board": "caja",
+      "code_at_memo": "LIMPIEZA",
+      "label_at_memo": "Limpieza / Clean",
+      "final_label": "Trapear Piso",
+      "action": "rename",
+      "basis": "Owner write-in; wording recorded as Apex interpreted"
+    },
+    {
+      "question": 14,
+      "station_id": "pdf_guia",
+      "board": "cocina",
+      "code_at_memo": "GUIA",
+      "label_at_memo": "Guía",
+      "final_label": "Guía",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 15,
+      "station_id": "pdf_pr1e",
+      "board": "cocina",
+      "code_at_memo": "PR1E",
+      "label_at_memo": "Preparación 1",
+      "final_label": "Preparación 1",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 16,
+      "station_id": "pdf_pr2e",
+      "board": "cocina",
+      "code_at_memo": "PR2E",
+      "label_at_memo": "Preparación 2",
+      "final_label": "Preparación 2",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 17,
+      "station_id": "pdf_pr3e",
+      "board": "cocina",
+      "code_at_memo": "PR3E",
+      "label_at_memo": "Preparación 3",
+      "final_label": "Preparación 3",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 18,
+      "station_id": "pdf_tf1r",
+      "board": "cocina",
+      "code_at_memo": "TF1R",
+      "label_at_memo": "Tortilla Freidora 1",
+      "final_label": "Tortilla y freidora 1",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 19,
+      "station_id": "pdf_tf2r",
+      "board": "cocina",
+      "code_at_memo": "TF2R",
+      "label_at_memo": "Tortilla Freidora 2",
+      "final_label": "Tortilla y freidora 2",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 20,
+      "station_id": "pdf_tq1r",
+      "board": "cocina",
+      "code_at_memo": "TQ1R",
+      "label_at_memo": "Taquero 1 + Relleno",
+      "final_label": "Taquero 1 + Relleno",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 21,
+      "station_id": "pdf_tq2r",
+      "board": "cocina",
+      "code_at_memo": "TQ2R",
+      "label_at_memo": "Taquero 2 + Relleno",
+      "final_label": "Taquero 2 + Relleno",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 22,
+      "station_id": "pdf_tq3r",
+      "board": "cocina",
+      "code_at_memo": "TQ3R",
+      "label_at_memo": "Taquero 3",
+      "final_label": "Taquero 3 - relleno + tareas",
+      "action": "rename",
+      "basis": "Owner write-in; wording recorded as Apex interpreted"
+    },
+    {
+      "question": 23,
+      "station_id": "pdf_br1a",
+      "board": "cocina",
+      "code_at_memo": "BR1A",
+      "label_at_memo": "Birria 1",
+      "final_label": "Birria 1",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 24,
+      "station_id": "pdf_br2a",
+      "board": "cocina",
+      "code_at_memo": "BR2A",
+      "label_at_memo": "Birria 2",
+      "final_label": "Birria 2",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 25,
+      "station_id": "pdf_crne",
+      "board": "cocina",
+      "code_at_memo": "CRNE",
+      "label_at_memo": "Carne",
+      "final_label": "Carne",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 26,
+      "station_id": "pdf_pstl",
+      "board": "cocina",
+      "code_at_memo": "PSTL",
+      "label_at_memo": "Pasteles",
+      "final_label": "Pasteles",
+      "action": "keep",
+      "basis": "A"
+    },
+    {
+      "question": 27,
+      "station_id": "pdf_rlno",
+      "board": "cocina",
+      "code_at_memo": "RLNO",
+      "label_at_memo": "Relleno",
+      "final_label": "Rellenar",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 28,
+      "station_id": "pdf_rngn",
+      "board": "cocina",
+      "code_at_memo": "RNGN",
+      "label_at_memo": "RNGN",
+      "final_label": "Relleno general",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 29,
+      "station_id": "pdf_tsrea",
+      "board": "cocina",
+      "code_at_memo": "TSR1",
+      "label_at_memo": "Trastes + Tareas 1",
+      "final_label": "Trastes 1 + Tareas",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 30,
+      "station_id": "pdf_tsr2",
+      "board": "cocina",
+      "code_at_memo": "TSR2",
+      "label_at_memo": "Trastes 2",
+      "final_label": "Trastes 2 + Tareas",
+      "action": "rename",
+      "basis": "Owner write-in; wording recorded as Apex interpreted"
+    },
+    {
+      "question": 31,
+      "station_id": "pdf_tsr3",
+      "board": "cocina",
+      "code_at_memo": "TSR3",
+      "label_at_memo": "Trastes + Tareas 3",
+      "final_label": "Trastes 3 + Tareas",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 32,
+      "station_id": "pdf_tsr4",
+      "board": "cocina",
+      "code_at_memo": "TSR4",
+      "label_at_memo": "Trastes + Tareas 4",
+      "final_label": "Trastes 4 + Tareas",
+      "action": "rename",
+      "basis": "A"
+    },
+    {
+      "question": 33,
+      "station_id": "fryer",
+      "board": "cocina",
+      "code_at_memo": "FRY",
+      "label_at_memo": "Fryer",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal overrides earlier A selection"
+    },
+    {
+      "question": 34,
+      "station_id": "tortilla",
+      "board": "cocina",
+      "code_at_memo": "TOR",
+      "label_at_memo": "Tortilla",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal overrides earlier A selection"
+    },
+    {
+      "question": 35,
+      "station_id": "birria",
+      "board": "cocina",
+      "code_at_memo": "BIR",
+      "label_at_memo": "Birria",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal"
+    },
+    {
+      "question": 36,
+      "station_id": "taquero",
+      "board": "cocina",
+      "code_at_memo": "TAQ",
+      "label_at_memo": "Taquero",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal"
+    },
+    {
+      "question": 37,
+      "station_id": "carne",
+      "board": "cocina",
+      "code_at_memo": "CAR",
+      "label_at_memo": "Carne",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal"
+    },
+    {
+      "question": 38,
+      "station_id": "prepa",
+      "board": "cocina",
+      "code_at_memo": "PRE",
+      "label_at_memo": "Prepa",
+      "final_label": null,
+      "action": "remove_if_unreferenced",
+      "basis": "Explicit removal"
+    }
+  ]
+}

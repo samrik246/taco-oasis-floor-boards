@@ -1111,6 +1111,7 @@ export function FloorBoard() {
       templates={tareaTemplates}
       assignments={tareaAssignments}
       suggestions={suggestions}
+      stations={day?.stations ?? []}
       selectedTemplateId={selectedTareaTemplateId}
       onSelectTemplate={setSelectedTareaTemplateId}
       onAssign={(id, force) => void assignTarea(id, force)}
@@ -1555,7 +1556,12 @@ export function FloorBoard() {
         />
       )}
 
-      <ViolationsBanner violations={violations} t={t} />
+      <ViolationsBanner
+        violations={violations}
+        stations={day?.stations ?? []}
+        locale={locale}
+        t={t}
+      />
 
       {mainView === "timeline" && (
         <div className="p-3 sm:p-4">

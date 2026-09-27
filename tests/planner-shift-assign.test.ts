@@ -218,7 +218,7 @@ describe("createShiftAssignment — Planner A", () => {
     const shift = await makeShift(employeeId, "10:00 am", "2:00 pm", "caja");
     const result = await createShiftAssignment({
       shiftId: shift.id,
-      stationId: "fryer", // cocina station
+      stationId: "pdf_tf1r", // retained cocina station
       date: DATE,
     });
     expect(result.ok).toBe(false);

@@ -7,7 +7,7 @@
 import type { BusynessLevel } from "@/lib/load-stations";
 import {
   allLoadStationDefs,
-  loadStationForSeat,
+  loadStationsForSeat,
 } from "@/lib/load-stations";
 import {
   BOARD_CONFIGS,
@@ -80,7 +80,7 @@ export function draftReturnPrompts(args: {
 
     const onFloater =
       floaterIds.has(assignee.seatId) || floaterSeatIdsFor(assignee.seatId);
-    const load = loadStationForSeat(assignee.seatId);
+    const load = loadStationsForSeat(assignee.seatId).find((station) => slammed.has(station.id));
     const relevantLoad = onFloater
       ? [...slammed][0]
       : load && slammed.has(load.id)

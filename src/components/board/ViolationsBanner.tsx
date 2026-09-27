@@ -1,15 +1,19 @@
 "use client";
 
 import type { BoardViolation } from "@/lib/violations";
-import type { Messages } from "@/lib/i18n";
+import { boardStationLabel, type Locale, type Messages } from "@/lib/i18n";
+import { violationMessage } from "@/lib/violation-messages";
+import type { StationDto } from "./types";
 
 type Props = {
   violations: BoardViolation[];
+  stations: readonly StationDto[];
+  locale: Locale;
   t: Messages;
 };
 
 /** Red banner listing slipped-in rule breaks (SPEC slice 12). */
-export function ViolationsBanner({ violations, t }: Props) {
+export function ViolationsBanner({ violations, stations, locale, t }: Props) {
   if (violations.length === 0) return null;
 
   return (
@@ -24,7 +28,8 @@ export function ViolationsBanner({ violations, t }: Props) {
           <li key={`${v.assignmentId}-${v.code}-${i}`}>
             <span className="font-extrabold">{v.code}</span>
             {" — "}
-            {v.employeeName} @ {v.stationId} ({v.hourLabel}): {v.message}
+            {v.employeeName} @ {boardStationLabel(locale, v.stationId, stations)} ({v.hourLabel}):{" "}
+            {violationMessage(locale, v.code, v.message)}
           </li>
         ))}
       </ul>

@@ -4,10 +4,12 @@ import { cn } from "@/lib/utils";
 import type { BusynessLevel } from "@/lib/load-stations";
 import {
   busynessLabel,
+  boardStationLabel,
   loadStationLabel,
   type Locale,
   type Messages,
 } from "@/lib/i18n";
+import type { StationDto } from "./types";
 
 export type TrafficMeterDto = {
   loadStationId: string;
@@ -32,6 +34,7 @@ const LEVEL_STYLE: Record<BusynessLevel, string> = {
 
 type Props = {
   traffic: TrafficStateDto | null;
+  stations: readonly StationDto[];
   readonly: boolean;
   /** Training switch is manager-only. */
   canToggle: boolean;
@@ -43,6 +46,7 @@ type Props = {
 
 export function TrafficMetersPanel({
   traffic,
+  stations,
   readonly,
   canToggle,
   onToggle,
@@ -92,7 +96,10 @@ export function TrafficMetersPanel({
               {busynessLabel(locale, m.level)}
             </div>
             <div className="text-[10px] font-medium opacity-80">
-              {t.seats}: {m.seatIds.join(", ")}
+              {t.seats}:{" "}
+              {m.seatIds
+                .map((id) => boardStationLabel(locale, id, stations))
+                .join(", ")}
             </div>
           </div>
         ))}

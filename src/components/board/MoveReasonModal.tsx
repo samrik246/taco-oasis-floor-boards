@@ -32,7 +32,7 @@ export function MoveReasonModal({
 
   if (!pending) return null;
 
-  const seat = stationLabel(locale, pending.fromStationId, pending.fromStationId);
+  const seat = stationLabel(locale, pending.fromStationId);
 
   return (
     <div

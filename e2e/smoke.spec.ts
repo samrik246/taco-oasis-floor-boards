@@ -48,7 +48,7 @@ async function selectDate(page: Page, targetYmd: string) {
 
 /**
  * Phase 1 + Kitchen smoke: Cashiers path + Kitchen toggle/stations/tareas.
- * Uses fresh disposable DB (prisma/e2e.db) via playwright webServer.
+ * Uses the fresh disposable DB selected by the Playwright webServer config.
  * Also covers bilingual cocina UI, timeline view, manager unlock + idle timeout.
  */
 test.describe("phase 1 cashiers + kitchen smoke", () => {
@@ -59,7 +59,9 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       const body = await response.json() as Record<string, unknown>;
       await route.fulfill({ response, json: { ...body, idleMs: 120_000 } });
     });
-    const e2eDb = path.resolve(process.cwd(), "prisma/e2e.db");
+    const testRoot = process.env.FLOOR_BOARDS_TEST_ROOT;
+    expect(testRoot).toBeTruthy();
+    const e2eDb = path.join(testRoot!, "e2e.db");
     expect(fs.existsSync(e2eDb)).toBe(true);
 
     await page.goto("/");
@@ -127,9 +129,12 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     );
     const positionBlock = page.locator("[data-text-kind='position']").first();
     await expect(positionBlock).toBeVisible();
-    await expect(positionBlock).toHaveText(
-      (await positionBlock.getAttribute("data-code")) ?? "",
-    );
+    const fullPositionName = (await positionBlock.getAttribute("title")) ?? "";
+    expect(fullPositionName).not.toBe("");
+    await expect(positionBlock).toHaveText(fullPositionName);
+    expect(fullPositionName).not.toBe((await positionBlock.getAttribute("data-code")) ?? "");
+    await positionBlock.click();
+    await expect(positionBlock.locator("xpath=following-sibling::span")).toHaveText(fullPositionName);
     await page.getByTestId("schedule-sort-position").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
       "data-sort",
@@ -267,15 +272,15 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "data-locale",
       "es",
     );
-    await expect(page.getByTestId("station-fryer")).toBeVisible({
+    await expect(page.getByTestId("station-pdf_tf1r")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId("station-fryer")).toContainText(/Freidora|Fryer/i);
-    await expect(page.getByTestId("station-tortilla")).toBeVisible();
-    await expect(page.getByTestId("station-birria")).toBeVisible();
-    await expect(page.getByTestId("station-taquero")).toBeVisible();
-    await expect(page.getByTestId("station-carne")).toBeVisible();
-    await expect(page.getByTestId("station-prepa")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_tf1r")).toContainText(/Tortilla y freidora 1/i);
+    await expect(page.getByTestId("station-pdf_tf2r")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_br1a")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_tq1r")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_crne")).toBeVisible();
+    await expect(page.getByTestId("station-pdf_pr1e")).toBeVisible();
     await expect(page.getByTestId("traffic-meters")).toHaveCount(0);
     await page.getByTestId("view-toggle-tareas").click();
     await expect(page.getByTestId("tareas-panel")).toBeVisible();
@@ -345,8 +350,8 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await shot(page, "wall-mode-caja.png");
     await page.goto("/?wall=1&board=cocina");
     await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "es");
-    await expect(page.getByTestId("wall-station-fryer")).toBeVisible();
-    await expect(page.getByTestId("wall-station-fryer")).toContainText(/Freidora|Fryer/i);
+    await expect(page.getByTestId("wall-station-pdf_tf1r")).toBeVisible();
+    await expect(page.getByTestId("wall-station-pdf_tf1r")).toContainText(/Tortilla y freidora 1/i);
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");

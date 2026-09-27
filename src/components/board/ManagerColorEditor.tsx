@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourStart } from "@/lib/hour-grid";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
-import { displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
+import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
+import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
@@ -31,6 +32,28 @@ type Props = {
 
 type Draft = Record<string, PaintEdit>;
 type PendingReason = { edit: PaintEdit; name: string; from: string };
+type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string | null; detail?: string };
+
+function familyChoice(id: string): PaintFamily | null {
+  const name = id.startsWith("family:") ? id.slice(7) : null;
+  return isPaintFamily(name) ? name : null;
+}
+
+function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
+  if (!day) return [];
+  const complete = (Object.keys(PAINT_FAMILIES) as PaintFamily[]).filter((family) =>
+    PAINT_FAMILIES[family].every((id) => day.stations.some((station) => station.id === id)),
+  );
+  return day.stations.flatMap((station): PaletteChoice[] => {
+    const family = familyForStation(station.id);
+    const exact = { id: station.id, stationIds: [station.id], label: station.label, color: station.color };
+    if (!family || !complete.includes(family) || station.id !== PAINT_FAMILIES[family][0]) return [exact];
+    const members = PAINT_FAMILIES[family].map((id) => day.stations.find((candidate) => candidate.id === id)!);
+    return [{ id: `family:${family}`, stationIds: PAINT_FAMILIES[family],
+      label: PAINT_FAMILY_LABELS[family], color: null,
+      detail: members.map((member) => `${member.label} (${member.color})`).join(" · ") }, exact];
+  });
+}
 
 function draftKey(shiftId: string, hour: number): string {
   return `${shiftId}|${hour}`;
@@ -60,6 +83,9 @@ function editStillMatches(day: DayBoardDto, date: string, edit: PaintEdit): bool
   const current = currentAssignment(shift, date, edit.hour);
   if (current?.id !== (edit.expected?.id ?? undefined) ||
       current?.stationId !== (edit.expected?.stationId ?? undefined)) return false;
+  if (edit.family) return PAINT_FAMILIES[edit.family].every((id) =>
+    day.stations.some((station) => station.id === id)) &&
+    PAINT_FAMILIES[edit.family].some((id) => abilityFor(shift, id) !== "forbidden");
   return edit.stationId == null || (
     day.stations.some((station) => station.id === edit.stationId) &&
     abilityFor(shift, edit.stationId) !== "forbidden"
@@ -91,7 +117,8 @@ export function ManagerColorEditor({
     title: "Pintar posiciones",
     palette: "Puestos y colores",
     erase: "Borrar",
-    pick: "Elige un puesto o Borrar, luego toca una hora.",
+    pick: "Elige una familia para número automático o un puesto específico; luego toca una hora.",
+    auto: "Auto",
     selected: "Seleccionado",
     pending: (n: number) => `${n} cambio${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}; el personal ve solo lo guardado.`,
     saved: "Guardado. El personal puede ver los cambios.",
@@ -107,6 +134,7 @@ export function ManagerColorEditor({
     storageClearError: "Este dispositivo no pudo borrar el borrador local; puede reaparecer aunque ya lo hayas guardado o descartado.",
     removeStale: "Quitar del borrador",
     forbidden: "Esta persona no puede trabajar en ese puesto.",
+    full: "Todos los números están ocupados en esa hora. Nadie fue reemplazado.",
     needChoice: "Elige un puesto o Borrar primero.",
     reasonTitle: "Motivo para cambiar un puesto actual o pasado",
     noPerson: "Sin persona",
@@ -114,7 +142,8 @@ export function ManagerColorEditor({
     title: "Color positions",
     palette: "Positions and colors",
     erase: "Erase",
-    pick: "Pick a position or Erase, then tap one hour.",
+    pick: "Pick a family for an automatic number or a specific position, then tap an hour.",
+    auto: "Auto",
     selected: "Selected",
     pending: (n: number) => `${n} pending change${n === 1 ? "" : "s"}; staff see saved assignments only.`,
     saved: "Saved. Staff can see the changes.",
@@ -130,6 +159,7 @@ export function ManagerColorEditor({
     storageClearError: "This device could not clear the local draft; it may reappear even after saving or discarding.",
     removeStale: "Remove from draft",
     forbidden: "This person cannot work that position.",
+    full: "All numbered positions are occupied at that hour. Nobody was replaced.",
     needChoice: "Pick a position or Erase first.",
     reasonTitle: "Reason for changing a current or past position",
     noPerson: "No person",
@@ -155,6 +185,7 @@ export function ManagerColorEditor({
     unassignedLabel: t.timelineUnassigned,
     stationLabelFor: (id) => displayStationLabel(locale, day.stations.find((s) => s.id === id) ?? { id, label: id, color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null }),
   }) : [], [day, date, hours, locale, t]);
+  const choices = useMemo(() => paletteChoices(day), [day]);
 
   function commitDraft(next: Draft, nextUndo: Draft[]) {
     const retained = writePaintDraft(managerId, board, date, Object.values(next));
@@ -193,7 +224,8 @@ export function ManagerColorEditor({
   function stage(edit: PaintEdit) {
     const k = draftKey(edit.shiftId, edit.hour);
     const next = { ...draftState.draft };
-    if (edit.stationId === edit.expected?.stationId || (edit.stationId == null && edit.expected == null)) {
+    if (!edit.family && (edit.stationId === edit.expected?.stationId ||
+        (edit.stationId == null && edit.expected == null))) {
       delete next[k];
     } else {
       next[k] = edit;
@@ -208,27 +240,50 @@ export function ManagerColorEditor({
       setFeedback({ kind: "err", text: copy.needChoice });
       return;
     }
-    const stationId = selected === "erase" ? null : selected;
-    if (stationId && abilityFor(shift, stationId) === "forbidden") {
+    const family = familyChoice(selected);
+    const stationId = selected === "erase" || family ? null : selected;
+    if ((family && PAINT_FAMILIES[family].every((id) => abilityFor(shift, id) === "forbidden")) ||
+        (stationId && abilityFor(shift, stationId) === "forbidden")) {
       setFeedback({ kind: "err", text: copy.forbidden });
       return;
     }
     const assignment = currentAssignment(shift, date, hour);
+    const validCurrentFamily = family && assignment &&
+      (PAINT_FAMILIES[family] as readonly string[]).includes(assignment.stationId) &&
+      abilityFor(shift, assignment.stationId) !== "forbidden";
+    if (family && day && !validCurrentFamily) {
+      const currentTime = chicagoHourStart(date, hour).getTime();
+      const occupied = day.shifts.flatMap((person) => person.assignments).filter((cell) =>
+        new Date(cell.hourStart).getTime() === currentTime &&
+        !Object.values(draftState.draft).some((pending) => pending.expected?.id === cell.id));
+      const free = PAINT_FAMILIES[family].some((id) => {
+        const station = day.stations.find((candidate) => candidate.id === id);
+        return station && abilityFor(shift, id) !== "forbidden" &&
+          occupied.filter((cell) => cell.stationId === id).length +
+          Object.values(draftState.draft).filter((pending) => pending.hour === hour && pending.stationId === id).length < station.maxConcurrent;
+      });
+      if (!free) {
+        setFeedback({ kind: "err", text: copy.full });
+        return;
+      }
+    }
     const edit: PaintEdit = {
       shiftId: shift.id,
       hour,
       expectedShift: { startAt: shift.startAt, endAt: shift.endAt, employeeId: shift.employee.id, sourcePosition: shift.sourcePosition },
       expected: assignment ? { id: assignment.id, stationId: assignment.stationId } : null,
       stationId,
+      ...(family ? { family } : {}),
     };
-    if (assignment && stationId !== assignment.stationId && !isFutureHour(chicagoHourStart(date, hour), new Date())) {
+    if (assignment && !validCurrentFamily && stationId !== assignment.stationId &&
+        !isFutureHour(chicagoHourStart(date, hour), new Date())) {
       setPendingReason({ snapshot, edit, name: personName(shift), from: assignment.stationId });
       return;
     }
     stage(edit);
   }
 
-  const selectedStation = day?.stations.find((station) => station.id === selected);
+  const selectedChoice = choices.find((choice) => choice.id === selected);
 
   return (
     <section className="min-w-0 rounded-lg border-2 border-neutral-900 bg-white p-3" data-testid="manager-color-editor">
@@ -255,7 +310,7 @@ export function ManagerColorEditor({
         const shift = day?.shifts.find((candidate) => candidate.id === edit.shiftId);
         const target = day?.stations.find((station) => station.id === edit.stationId);
         return <li key={draftKey(edit.shiftId, edit.hour)} className="flex flex-wrap items-center justify-between gap-2 rounded border border-red-800 px-2 py-1 text-sm">
-          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {target ? displayStationLabel(locale, target) : edit.stationId ?? copy.erase}</span>
+          <span>{shift ? personName(shift) : edit.expectedShift.sourcePosition} · {formatHourLabel(edit.hour)} · {edit.family ? PAINT_FAMILY_LABELS[edit.family] : target ? displayStationLabel(locale, target) : edit.stationId ? boardStationLabel(locale, edit.stationId, day?.stations ?? []) : copy.erase}</span>
           <button type="button" className="touch-target min-h-11 rounded border border-red-800 px-2 font-bold" onClick={() => {
             const next = { ...draftState.draft };
             delete next[draftKey(edit.shiftId, edit.hour)];
@@ -267,16 +322,17 @@ export function ManagerColorEditor({
         <aside className="min-w-0" aria-label={copy.palette}>
           <h3 className="mb-2 text-sm font-bold">{copy.palette}</h3>
           <div className="flex gap-2 overflow-x-auto pb-1 md:max-h-[65vh] md:flex-col md:overflow-y-auto" data-testid="paint-palette">
-            {(day?.stations ?? []).map((station) => {
-              const people = day ? assignmentsAtStationHour(day.shifts, station.id, date, selectedHour).map(({ shift }) => displayName(shift)) : [];
-              return <button key={station.id} type="button" className={cn("touch-target min-h-11 rounded-md border-2 px-2 py-2 text-left text-sm font-bold md:w-full", stationColorClass(station.color), selected === station.id && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === station.id} onClick={() => setSelected(station.id)} data-testid={`paint-palette-${station.id}`}>
-                <span className="block">{displayStationLabel(locale, station)}</span>
+            {choices.map((choice) => {
+              const people = day ? choice.stationIds.flatMap((id) => assignmentsAtStationHour(day.shifts, id, date, selectedHour).map(({ shift }) => displayName(shift))) : [];
+              return <button key={choice.id} type="button" className={cn("touch-target min-h-11 w-48 shrink-0 rounded-md border-2 px-2 py-2 text-left text-sm font-bold md:w-full", choice.color ? stationColorClass(choice.color) : "border-neutral-800 bg-neutral-100 text-neutral-950", selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`}>
+                <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
+                {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
                 <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
               </button>;
             })}
             <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 text-left text-sm font-bold md:w-full", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
           </div>
-          <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedStation ? displayStationLabel(locale, selectedStation) : selected === "erase" ? copy.erase : "—"}</p>
+          <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedChoice?.label ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>
         <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix">
           <table className="min-w-full border-collapse text-left text-xs">
@@ -294,7 +350,10 @@ export function ManagerColorEditor({
                 const edit = draft[draftKey(shift.id, hour)];
                 const stationId = edit ? edit.stationId : cell.stationId;
                 const station = day?.stations.find((s) => s.id === stationId);
-                const label = station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
+                const label = edit?.family && edit.expected?.stationId === cell.stationId ?
+                  (station ? displayStationLabel(locale, station) : cell.stationId ? boardStationLabel(locale, cell.stationId, day?.stations ?? []) : "") :
+                  edit?.family ? `${PAINT_FAMILY_LABELS[edit.family]} · ${copy.auto}` :
+                    station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
                   {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
                 </td>;
