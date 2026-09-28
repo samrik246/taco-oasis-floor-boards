@@ -12,6 +12,7 @@ import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, t
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory } from "@/lib/mandatory";
+import { comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
 import { buildTimelineRows, personName } from "./timeline-rows";
@@ -101,6 +102,7 @@ export function ManagerColorEditor({
 }: Props) {
   const hours = useMemo(() => hourGridHours(), []);
   const [selected, setSelected] = useState<string | "erase" | null>(null);
+  const [rowSort, setRowSort] = useState<ScheduleSort>("time");
   const [draftState, setDraftState] = useState<{ draft: Draft; undo: Draft[] }>(() => {
     const saved = readPaintDraft(managerId, board, date);
     return {
@@ -137,6 +139,11 @@ export function ManagerColorEditor({
     removeStale: "Quitar del borrador",
     forbidden: "Esta persona no puede trabajar en ese puesto.",
     full: "Todos los números están ocupados en esa hora. Nadie fue reemplazado.",
+    taken: (seat: string, hour: string) => `${seat} ya está ocupado a las ${hour}.`,
+    sortLabel: "Orden de filas",
+    sortClock: "Entrada",
+    sortName: "Nombre",
+    sortPosition: "Puesto",
     needChoice: "Elige un puesto o Borrar primero.",
     markFailed: "No se pudo marcar el puesto.",
     reasonTitle: "Motivo para cambiar un puesto actual o pasado",
@@ -163,6 +170,11 @@ export function ManagerColorEditor({
     removeStale: "Remove from draft",
     forbidden: "This person cannot work that position.",
     full: "All numbered positions are occupied at that hour. Nobody was replaced.",
+    taken: (seat: string, hour: string) => `${seat} is already taken at ${hour}.`,
+    sortLabel: "Row order",
+    sortClock: "Clock-in",
+    sortName: "Name",
+    sortPosition: "Position",
     needChoice: "Pick a position or Erase first.",
     markFailed: "Could not mark the position.",
     reasonTitle: "Reason for changing a current or past position",
@@ -181,14 +193,47 @@ export function ManagerColorEditor({
   const undo = draftState.undo;
   const activePendingReason = pendingReason?.snapshot === snapshot ? pendingReason : null;
 
-  const rows = useMemo(() => day ? buildTimelineRows({
-    shifts: day.shifts,
-    date,
-    hours,
-    offLabel: t.timelineOffShift,
-    unassignedLabel: t.timelineUnassigned,
-    stationLabelFor: (id) => displayStationLabel(locale, day.stations.find((s) => s.id === id) ?? { id, label: id, color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null }),
-  }) : [], [day, date, hours, locale, t]);
+  const rows = useMemo(() => {
+    if (!day) return [];
+    const built = buildTimelineRows({
+      shifts: day.shifts,
+      date,
+      hours,
+      offLabel: t.timelineOffShift,
+      unassignedLabel: t.timelineUnassigned,
+      stationLabelFor: (id) => displayStationLabel(locale, day.stations.find((s) => s.id === id) ?? { id, label: id, color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null }),
+    });
+    const stationOrder = new Map(day.stations.map((station) => [station.id, station.sortOrder]));
+    return [...built].sort((a, b) => {
+      const pendingFor = (shift: ShiftDto) => {
+        const edit = draft[draftKey(shift.id, selectedHour)];
+        if (!edit) return null;
+        const current = currentAssignment(shift, date, selectedHour)?.stationId ?? null;
+        if (edit.family && current && (PAINT_FAMILIES[edit.family] as readonly string[]).includes(current)) {
+          return { stationId: current };
+        }
+        return { stationId: edit.stationId };
+      };
+      return comparePintarRows(
+        {
+          name: personName(a.shift),
+          employeeId: a.shift.employee.id,
+          startAt: a.shift.startAt,
+          shiftId: a.shift.id,
+          stationId: stationAtSelectedHour(a.shift.assignments, date, selectedHour, pendingFor(a.shift)),
+        },
+        {
+          name: personName(b.shift),
+          employeeId: b.shift.employee.id,
+          startAt: b.shift.startAt,
+          shiftId: b.shift.id,
+          stationId: stationAtSelectedHour(b.shift.assignments, date, selectedHour, pendingFor(b.shift)),
+        },
+        rowSort,
+        stationOrder,
+      );
+    });
+  }, [day, date, hours, locale, t, draft, selectedHour, rowSort]);
   const choices = useMemo(() => paletteChoices(day), [day]);
   const gaps = useMemo(() => {
     if (board !== "cocina" || !day?.mandatory) return [];
@@ -266,6 +311,33 @@ export function ManagerColorEditor({
       return;
     }
     const assignment = currentAssignment(shift, date, hour);
+    if (stationId && day) {
+      const hourStartMs = chicagoHourStart(date, hour).getTime();
+      const movingOut = new Set(
+        Object.values(draftState.draft)
+          .filter((pending) => {
+            if (pending.hour !== hour || pending.expected?.stationId !== stationId) return false;
+            if (pending.family && (PAINT_FAMILIES[pending.family] as readonly string[]).includes(stationId)) return false;
+            return pending.stationId !== stationId;
+          })
+          .map((pending) => pending.expected!.id),
+      );
+      const savedTaken = day.shifts.some((person) => person.assignments.some((cell) =>
+        cell.stationId === stationId &&
+        new Date(cell.hourStart).getTime() === hourStartMs &&
+        cell.id !== assignment?.id &&
+        !movingOut.has(cell.id),
+      ));
+      const pendingIn = Object.values(draftState.draft).some((pending) =>
+        pending.hour === hour && pending.stationId === stationId && pending.shiftId !== shift.id,
+      );
+      if (savedTaken || pendingIn) {
+        const station = day.stations.find((candidate) => candidate.id === stationId);
+        const seat = station ? displayStationLabel(locale, station) : stationId;
+        setFeedback({ kind: "err", text: copy.taken(seat, formatHourLabel(hour)) });
+        return;
+      }
+    }
     const validCurrentFamily = family && assignment &&
       (PAINT_FAMILIES[family] as readonly string[]).includes(assignment.stationId) &&
       abilityFor(shift, assignment.stationId) !== "forbidden";
@@ -382,7 +454,16 @@ export function ManagerColorEditor({
           </div>
           <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedChoice?.label ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>
-        <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix">
+        <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix" data-sort={rowSort}>
+          <div className="mb-2 inline-flex rounded-lg border-2 border-neutral-700 p-1" role="group" aria-label={copy.sortLabel} data-testid="paint-sort">
+            {([
+              ["time", copy.sortClock],
+              ["name", copy.sortName],
+              ["position", copy.sortPosition],
+            ] as const).map(([id, label]) => (
+              <button key={id} type="button" className={cn("touch-target min-h-11 rounded-md px-3 text-sm font-semibold", rowSort === id ? "bg-neutral-800 text-white" : "bg-white text-neutral-900")} aria-pressed={rowSort === id} onClick={() => setRowSort(id)} data-testid={`paint-sort-${id}`}>{label}</button>
+            ))}
+          </div>
           <table className="min-w-full border-collapse text-left text-xs">
             <thead><tr>
               <th className="sticky left-0 z-20 min-w-[10rem] border-b-2 border-r-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" scope="col">{t.person}</th>
@@ -402,8 +483,11 @@ export function ManagerColorEditor({
                   (station ? displayStationLabel(locale, station) : cell.stationId ? boardStationLabel(locale, cell.stationId, day?.stations ?? []) : "") :
                   edit?.family ? `${PAINT_FAMILY_LABELS[edit.family]} · ${copy.auto}` :
                     station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
+                const savedNumber = !edit && cell.kind === "seated"
+                  ? shift.assignments.find((item) => item.stationId === cell.stationId && new Date(item.hourStart).getTime() === chicagoHourStart(date, hour).getTime())?.seatNumber
+                  : null;
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{savedNumber != null && <span className="ml-1 tabular-nums" data-testid={`paint-seat-${shift.id}-${hour}`}> {savedNumber}</span>}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
                 </td>;
               })}
             </tr>)}</tbody>

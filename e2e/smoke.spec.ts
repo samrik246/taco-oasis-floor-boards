@@ -147,7 +147,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(positionBlock).toBeVisible();
     const fullPositionName = (await positionBlock.getAttribute("title")) ?? "";
     expect(fullPositionName).not.toBe("");
-    await expect(positionBlock).toHaveText(fullPositionName);
+    const seatBadge = positionBlock.locator("[data-testid^='schedule-seat-']");
+    await expect(seatBadge).toHaveCount(1);
+    await expect(seatBadge).toHaveText(/^\s*\d+\s*$/);
+    await expect(positionBlock).toContainText(fullPositionName);
     expect(fullPositionName).not.toBe((await positionBlock.getAttribute("data-code")) ?? "");
     await positionBlock.click();
     await expect(positionBlock.locator("xpath=following-sibling::span")).toHaveText(fullPositionName);

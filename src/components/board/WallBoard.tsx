@@ -184,7 +184,15 @@ export function WallBoard() {
               </div>
               <p className="text-4xl font-black leading-tight md:text-5xl" data-testid={`wall-who-${station.id}`}>
                 {occupied.length
-                  ? occupied.map((item) => displayName(item.shift)).join(", ")
+                  ? occupied.map((item, index) => (
+                      <span key={item.assignment.id}>
+                        {index > 0 ? ", " : ""}
+                        {displayName(item.shift)}
+                        {item.assignment.seatNumber != null && (
+                          <span className="ml-2 text-2xl font-black tabular-nums" data-testid={`wall-seat-${station.id}`}> {item.assignment.seatNumber}</span>
+                        )}
+                      </span>
+                    ))
                   : t.wallEmptySeat}
               </p>
             </section>

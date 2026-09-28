@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { ALL_STATIONS } from "@/lib/stations";
 import { hourGridHours, chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 const DEMO_DATES = ["2026-09-20", "2026-09-21"] as const;
 
@@ -18,11 +19,13 @@ const CAJA_SEED_STATIONS = new Set(["mana", "green1", "purple1", "nieves"]);
  * Idempotent: skips hours that already have an assignment for that person
  * or a full station. Uses bulk create for speed.
  */
-export async function seedDemoScheduleAssignments(): Promise<{
+export async function seedDemoScheduleAssignments(
+  dates: readonly string[] = DEMO_DATES,
+): Promise<{
   created: number;
   dates: string[];
 }> {
-  const dates = [...DEMO_DATES];
+  const selected = [...dates];
   const toCreate: Array<{
     shiftId: string;
     employeeId: string;
@@ -31,7 +34,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
     hourEnd: Date;
   }> = [];
 
-  for (const date of dates) {
+  for (const date of selected) {
     for (const board of ["caja", "cocina"] as const) {
       const stations = ALL_STATIONS.filter((s) => {
         if (s.board !== board) return false;
@@ -107,10 +110,19 @@ export async function seedDemoScheduleAssignments(): Promise<{
   }
 
   if (toCreate.length > 0) {
-    await prisma.assignment.createMany({ data: toCreate });
+    await prisma.$transaction(async (tx) => {
+      for (const row of toCreate) {
+        const seatNumber = await seatNumberForWrite(tx, {
+          stationId: row.stationId,
+          hourStart: row.hourStart,
+          employeeId: row.employeeId,
+        });
+        await tx.assignment.create({ data: { ...row, seatNumber } });
+      }
+    });
   }
 
-  return { created: toCreate.length, dates };
+  return { created: toCreate.length, dates: selected };
 }
 
 export function demoDates(): readonly string[] {

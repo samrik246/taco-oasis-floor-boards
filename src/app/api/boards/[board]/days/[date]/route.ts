@@ -4,6 +4,7 @@ import { z } from "zod";
 import { NO_STORE, optionalManager, requireDayAccess } from "@/lib/managers/day-access";
 import { requestIsOwner } from "@/lib/managers/require-session";
 import { loadMandatoryDay } from "@/lib/mandatory-store";
+import { fillMissingSeatNumbers } from "@/lib/assignments/seat-number";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,13 @@ export async function GET(request: Request, context: RouteContext) {
       }),
     ]);
 
+    const seatNumbers = fillMissingSeatNumbers(shifts.flatMap((sh) => sh.assignments.map((a) => ({
+      id: a.id,
+      stationId: a.stationId,
+      hourStartMs: a.hourStart.getTime(),
+      seatNumber: a.seatNumber,
+    }))));
+
     const body = {
       board,
       date,
@@ -95,6 +103,7 @@ export async function GET(request: Request, context: RouteContext) {
           abilityBlocked: sh.employee.abilities.some(
             (ability) => ability.stationId === a.stationId && ability.level === "forbidden",
           ),
+          seatNumber: seatNumbers.get(a.id) ?? null,
         })),
       })),
       ...(board === "cocina" && manager ? { mandatory: await loadMandatoryDay(date, owner) } : {}),

@@ -332,6 +332,7 @@ function renderRowCells(
       color: string;
       startHour: number;
       span: number;
+      seatNumber: number | null;
     }>;
   },
   hours: number[],
@@ -369,6 +370,9 @@ function renderRowCells(
                 title={fullLabel}
               >
                 {visibleText}
+                {block.seatNumber != null && (
+                  <span className="ml-1 text-[10px] font-black tabular-nums" data-testid={`schedule-seat-${block.stationId}-${block.startHour}`}> {block.seatNumber}</span>
+                )}
               </summary>
               <span className="absolute left-0 top-full z-30 hidden min-w-max max-w-72 rounded border border-neutral-900 bg-white px-2 py-1 text-left text-xs font-bold normal-case tracking-normal text-neutral-950 shadow-lg group-open:block group-focus-within:block">
                 {fullLabel}
