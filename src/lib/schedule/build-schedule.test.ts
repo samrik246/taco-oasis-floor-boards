@@ -100,7 +100,7 @@ describe("buildScheduleGrid", () => {
     );
     const ana = grid.sections
       .flatMap((s) => s.rows)
-      .find((r) => r.externalId === "100");
+      .find((r) => r.employeeId === "e1");
     expect(ana?.blocks[0]).toMatchObject({
       stationId: "fryer",
       code: "FRY",
@@ -131,14 +131,14 @@ describe("buildScheduleGrid", () => {
     expect(grid.sections.every((s) => s.kind === "thin")).toBe(true);
     const ana = grid.sections
       .find((s) => s.stationId === "fryer")
-      ?.rows.find((r) => r.externalId === "100");
+      ?.rows.find((r) => r.employeeId === "e1");
     expect(ana?.blocks.every((b) => b.text === "Ana" && b.textKind === "person")).toBe(
       true,
     );
     expect(ana?.blocks.map((b) => b.code)).toEqual(["FRY", "TOR"]);
     const luis = grid.sections
       .flatMap((s) => s.rows)
-      .find((r) => r.externalId === "200");
+      .find((r) => r.employeeId === "e2");
     expect(luis?.blocks[0]?.text).toBe("Luis");
   });
 

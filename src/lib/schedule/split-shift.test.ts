@@ -76,8 +76,8 @@ describe("A1: a split shift gets one row per shift", () => {
       expect(new Set(rows.map((r) => r.shiftId)).size).toBe(3);
       const early = rows.find((r) => r.shiftId === "sh-early")!;
       const late = rows.find((r) => r.shiftId === "sh-late")!;
-      expect(early.externalId).toBe("0042");
-      expect(late.externalId).toBe("0042");
+      expect(early.employeeId).toBe("e1");
+      expect(late.employeeId).toBe("e1");
       expect(early.name).toBe(late.name);
       expect(early.laterShiftOfPerson).toBe(false);
       expect(late.laterShiftOfPerson).toBe(true);

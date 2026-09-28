@@ -2,6 +2,14 @@
 
 import { useEffect } from "react";
 
+const RELEASE_EVENT = "color-boards-kiosk-release";
+
+/** Lets one intentional in-app return pass the leave prompt. The back trap stays. */
+export function releaseKioskLock(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(RELEASE_EVENT));
+}
+
 /**
  * Chrome Add-to-Home-Screen kiosk: fullscreen, trapped back button,
  * and a leave prompt. Active only when the page is opened with ?kiosk=1
@@ -10,12 +18,18 @@ import { useEffect } from "react";
 export function KioskLock({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return;
+    let released = false;
+    const release = () => {
+      released = true;
+    };
 
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (released) return;
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener(RELEASE_EVENT, release);
 
     const trapBack = () => {
       window.history.pushState({ kiosk: true }, "", window.location.href);
@@ -35,6 +49,7 @@ export function KioskLock({ active }: { active: boolean }) {
 
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener(RELEASE_EVENT, release);
       window.removeEventListener("popstate", trapBack);
       window.removeEventListener("pointerdown", enterFullscreen);
     };

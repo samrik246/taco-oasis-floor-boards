@@ -18,7 +18,7 @@ export type ScheduleShiftLike = {
   supersededAt?: string | null;
   employee: {
     id: string;
-    externalId: string;
+    externalId?: string;
     firstName: string;
     lastName: string;
   };
@@ -68,7 +68,6 @@ export type ScheduleBlock = {
 export type SchedulePersonRow = {
   shiftId: string;
   employeeId: string;
-  externalId: string;
   name: string;
   /** ISO start of the shift used for this row. */
   startAt: string;
@@ -421,7 +420,6 @@ export function buildScheduleGrid(opts: {
       laterShiftOfPerson: !sh.supersededAt && firstShiftByEmp.get(sh.employee.id) !== sh,
       ended: Boolean(sh.supersededAt),
       employeeId: sh.employee.id,
-      externalId: sh.employee.externalId,
       name: personName(sh),
       startAt: sh.startAt,
       startLabel: formatStartLabel(sh.startAt),

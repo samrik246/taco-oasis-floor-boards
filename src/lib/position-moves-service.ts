@@ -60,7 +60,7 @@ export async function listPositionMoves(date: string) {
     where: { date },
     include: {
       employee: {
-        select: { id: true, firstName: true, lastName: true, externalId: true },
+        select: { id: true, firstName: true, lastName: true },
       },
     },
     orderBy: { createdAt: "desc" },

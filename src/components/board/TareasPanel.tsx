@@ -23,7 +23,6 @@ export type TareaAssignmentDto = {
     id: string;
     firstName: string;
     lastName: string;
-    externalId: string;
   };
 };
 

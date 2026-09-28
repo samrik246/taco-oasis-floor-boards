@@ -382,3 +382,11 @@ model StaffBreakLock {
   id        Int      @id
   updatedAt DateTime @updatedAt
 }
+
+/// One keypad pause per board. Five wrong codes in 15 minutes pause that board for 60 seconds.
+model StaffPasscodeAttempt {
+  board       String    @id
+  failures    Int
+  windowStart DateTime
+  lockedUntil DateTime?
+}

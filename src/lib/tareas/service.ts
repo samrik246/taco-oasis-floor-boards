@@ -62,7 +62,7 @@ export async function listTareaAssignments(
     include: {
       template: true,
       employee: {
-        select: { id: true, firstName: true, lastName: true, externalId: true },
+        select: { id: true, firstName: true, lastName: true },
       },
     },
     orderBy: [{ status: "asc" }, { assignedAt: "desc" }],
@@ -151,7 +151,7 @@ export async function assignTarea(args: {
     include: {
       template: true,
       employee: {
-        select: { id: true, firstName: true, lastName: true, externalId: true },
+        select: { id: true, firstName: true, lastName: true },
       },
     },
   });
@@ -176,7 +176,7 @@ export async function setTareaStatus(args: {
     include: {
       template: true,
       employee: {
-        select: { id: true, firstName: true, lastName: true, externalId: true },
+        select: { id: true, firstName: true, lastName: true },
       },
     },
   });

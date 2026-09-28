@@ -19,11 +19,19 @@ export type AbilityDto = {
 
 export type EmployeeDto = {
   id: string;
-  externalId: string;
+  /** Owner pages only. The floor day payload does not send this. */
+  externalId?: string;
   firstName: string;
   lastName: string;
   email: string | null;
   abilities?: AbilityDto[];
+};
+
+export type BreakStripeDto = {
+  employeeId: string;
+  shiftId: string;
+  startAt: string;
+  endAt: string;
 };
 
 export type AssignmentDto = {
@@ -74,6 +82,8 @@ export type DayBoardDto = {
   stationUse?: StationUseDto[];
   /** Cocina manager and owner only. Absent for staff and for caja. */
   mandatory?: MandatoryDto;
+  /** Saved breaks on live shifts. No names and no passcode data. */
+  breaks?: BreakStripeDto[];
 };
 
 export type BoardKindUi = "caja" | "cocina";
