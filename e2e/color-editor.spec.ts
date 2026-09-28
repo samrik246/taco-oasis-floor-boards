@@ -95,7 +95,7 @@ async function stageOpenHour(page: Page) {
 test.describe("condensed staff board and manager color editor", () => {
   test.use({ viewport: { width: 820, height: 1080 } });
 
-  test("all numbered families show Auto beside their distinct numbered slots", async ({ page }) => {
+  test("numbered seats stay on the palette and a specific seat writes no family", async ({ page }) => {
     // Palette coverage loads a sample and inspects both boards; the CI-only
     // 1.5-second manager timeout is exercised by its dedicated idle tests.
     await page.route("**/api/managers", async (route) => {
@@ -140,22 +140,20 @@ test.describe("condensed staff board and manager color editor", () => {
     });
     await page.goto("/");
     await loadSample(page);
-    for (const [family, members] of Object.entries(families.caja)) {
-      await expect(page.getByTestId(`paint-palette-family:${family}`)).toBeVisible();
+    await expect(page.locator("[data-testid^='paint-palette-family:']")).toHaveCount(0);
+    for (const members of Object.values(families.caja)) {
       for (const [id] of members) await expect(page.getByTestId(`paint-palette-${id}`)).toBeVisible();
     }
-    await expect(page.getByTestId("paint-palette-family:green")).toContainText("Green 2 / Jolt (lime)");
-    await expect(page.getByTestId("paint-palette-family:yellow")).toContainText("Yellow / Outside (yellow)");
     await page.getByTestId("paint-palette-green2").click();
     await expect(page.getByTestId("paint-selected")).toContainText("Green 2 / Jolt");
-    await page.getByTestId("paint-palette-family:nieves").click();
-    await page.getByTestId("paint-matrix").locator("td[data-kind='open'] button").first().click();
-    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+    const painted = await stageOpenHour(page);
     const draft = await page.evaluate(() => Object.entries(localStorage)
       .filter(([key]) => key.startsWith("taco-oasis-paint-draft-v1:") && !key.includes(":dates:"))
       .map(([, value]) => JSON.parse(value) as { edits: { family?: string; stationId: string | null }[] }));
-    expect(draft.flatMap((item) => item.edits)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ family: "nieves", stationId: null }),
+    const edits = draft.flatMap((item) => item.edits);
+    expect(edits.some((edit) => edit.family)).toBe(false);
+    expect(edits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stationId: painted.stationId }),
     ]));
     await page.reload();
     await unlock(page);
@@ -164,15 +162,13 @@ test.describe("condensed staff board and manager color editor", () => {
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
     await page.screenshot({ path: "test-results/nine-family-caja.png", fullPage: true });
     await page.getByTestId("compact-board").selectOption("cocina");
-    for (const [family, members] of Object.entries(families.cocina)) {
-      await expect(page.getByTestId(`paint-palette-family:${family}`)).toBeVisible();
+    await expect(page.locator("[data-testid^='paint-palette-family:']")).toHaveCount(0);
+    for (const members of Object.values(families.cocina)) {
       for (const [id] of members) await expect(page.getByTestId(`paint-palette-${id}`)).toBeVisible();
     }
-    await expect(page.getByTestId("paint-palette-family:taquero")).toContainText("Taquero 1 + Relleno (pink)");
-    await expect(page.getByTestId("paint-palette-family:taquero")).toContainText("Taquero 3 (maroon)");
     await page.screenshot({ path: "test-results/nine-family-cocina.png", fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
-    for (const id of ["family:taquero", "pdf_tq1r", "pdf_tq3r", "family:trastes", "pdf_tsrea", "pdf_tsr4"]) {
+    for (const id of ["pdf_tq1r", "pdf_tq3r", "pdf_tsrea", "pdf_tsr4"]) {
       const choice = page.getByTestId(`paint-palette-${id}`);
       await choice.scrollIntoViewIfNeeded();
       await expect(choice).toBeInViewport();
@@ -185,9 +181,9 @@ test.describe("condensed staff board and manager color editor", () => {
       expect(size.width).toBeLessThanOrEqual(200);
       expect(size.scrollWidth).toBeLessThanOrEqual(size.contentWidth + 1);
     }
-    await page.getByTestId("paint-palette-family:taquero").scrollIntoViewIfNeeded();
+    await page.getByTestId("paint-palette-pdf_tq1r").scrollIntoViewIfNeeded();
     await page.screenshot({ path: "test-results/nine-family-cocina-phone-taquero.png" });
-    await page.getByTestId("paint-palette-family:trastes").scrollIntoViewIfNeeded();
+    await page.getByTestId("paint-palette-pdf_tsrea").scrollIntoViewIfNeeded();
     await page.screenshot({ path: "test-results/nine-family-cocina-phone-trastes.png" });
   });
 

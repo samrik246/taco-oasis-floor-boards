@@ -8,7 +8,8 @@ import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, t
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
-import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, isPaintFamily, paletteSlots, type PaintFamily } from "@/lib/assignments/paint-families";
+import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
+import { paletteStationIds } from "@/lib/assignments/palette-order";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
@@ -36,7 +37,7 @@ type Props = {
 
 type Draft = Record<string, PaintEdit>;
 type PendingReason = { edit: PaintEdit; name: string; from: string };
-type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string | null; detail?: string };
+type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string | null };
 
 function familyChoice(id: string): PaintFamily | null {
   const name = id.startsWith("family:") ? id.slice(7) : null;
@@ -46,18 +47,14 @@ function familyChoice(id: string): PaintFamily | null {
 function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
   if (!day) return [];
   const byId = new Map(day.stations.map((station) => [station.id, station]));
-  return paletteSlots(day.stations).flatMap((slot): PaletteChoice[] => {
-    if (slot.kind === "family") {
-      const members = PAINT_FAMILIES[slot.family].map((id) => byId.get(id)!);
-      return [{
-        id: `family:${slot.family}`,
-        stationIds: PAINT_FAMILIES[slot.family],
-        label: PAINT_FAMILY_LABELS[slot.family],
-        color: null,
-        detail: members.map((member) => `${member.label} (${member.color})`).join(" · "),
-      }];
-    }
-    const station = byId.get(slot.id)!;
+  // Saved stationUse only. A paint draft is not an input, so the buttons stay put.
+  return paletteStationIds({
+    stations: day.stations,
+    stationUse: day.stationUse,
+    extraStationIds: day.mandatory?.extraStationIds,
+  }).flatMap((id): PaletteChoice[] => {
+    const station = byId.get(id);
+    if (!station) return [];
     return [{ id: station.id, stationIds: [station.id], label: station.label, color: station.color }];
   });
 }
@@ -142,7 +139,7 @@ export function ManagerColorEditor({
     title: "Pintar posiciones",
     palette: "Puestos y colores",
     erase: "Borrar",
-    pick: "Elige una familia para número automático o un puesto específico; luego toca una hora.",
+    pick: "Elige un puesto o Borrar; luego toca una hora.",
     auto: "Auto",
     selected: "Seleccionado",
     pending: (n: number) => `${n} cambio${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}; el personal ve solo lo guardado.`,
@@ -173,7 +170,7 @@ export function ManagerColorEditor({
     title: "Color positions",
     palette: "Positions and colors",
     erase: "Erase",
-    pick: "Pick a family for an automatic number or a specific position, then tap an hour.",
+    pick: "Pick a position or Erase, then tap an hour.",
     auto: "Auto",
     selected: "Selected",
     pending: (n: number) => `${n} pending change${n === 1 ? "" : "s"}; staff see saved assignments only.`,
@@ -428,6 +425,7 @@ export function ManagerColorEditor({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold" role="status" data-testid="paint-pending">{copy.pending(pendingCount)}</span>
+          <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-3 text-sm font-bold", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
           <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-700 px-3 text-sm font-bold disabled:opacity-50" onClick={() => {
             const previous = undo.at(-1);
             if (!previous) return;
@@ -458,21 +456,20 @@ export function ManagerColorEditor({
           <div className="flex gap-2 overflow-x-auto pb-1 md:max-h-[65vh] md:flex-col md:overflow-y-auto" data-testid="paint-palette">
             {choices.map((choice) => {
               const people = day ? choice.stationIds.flatMap((id) => assignmentsAtStationHour(day.shifts, id, date, selectedHour).map(({ shift }) => displayName(shift))) : [];
-              const stationId = choice.id.startsWith("family:") ? null : choice.id;
-              const missing = stationId != null && gaps.some((gap) => gap.stationId === stationId && gap.hour === selectedHour);
-              const marked = stationId != null && (day?.mandatory?.extraStationIds.includes(stationId) ?? false);
-              const canToggle = day?.mandatory?.canMark === true && stationId != null && !isDefaultMandatory(stationId);
+              const stationId = choice.id;
+              const station = day?.stations.find((item) => item.id === stationId);
+              const missing = gaps.some((gap) => gap.stationId === stationId && gap.hour === selectedHour);
+              const marked = day?.mandatory?.extraStationIds.includes(stationId) ?? false;
+              const canToggle = day?.mandatory?.canMark === true && !isDefaultMandatory(stationId);
               return <div key={choice.id} className="relative w-48 shrink-0 md:w-full">
                 <button type="button" className={cn("touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", canToggle && "pb-7", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"}>
-                  <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
-                  {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
+                  <span className="block">{station ? displayStationLabel(locale, station) : choice.label}</span>
                   <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
                   {missing && <span className="block text-xs font-bold uppercase">Falta</span>}
                 </button>
-                {canToggle && stationId && <button type="button" className="touch-target absolute bottom-1 left-1 z-10 flex items-end justify-start border-0 bg-transparent p-0" aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}><span data-mandatory-face className={cn("pointer-events-none self-end whitespace-nowrap rounded-full border border-neutral-900 px-2 py-0.5 text-[11px] font-bold leading-tight", marked ? "bg-neutral-900 text-white" : "bg-white text-neutral-950")}>Obligatorio hoy</span></button>}
+                {canToggle && <button type="button" className="touch-target absolute bottom-1 left-1 z-10 flex items-end justify-start border-0 bg-transparent p-0" aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}><span data-mandatory-face className={cn("pointer-events-none self-end whitespace-nowrap rounded-full border border-neutral-900 px-2 py-0.5 text-[11px] font-bold leading-tight", marked ? "bg-neutral-900 text-white" : "bg-white text-neutral-950")}>Obligatorio hoy</span></button>}
               </div>;
             })}
-            <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 text-left text-sm font-bold md:w-full", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
           </div>
           <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedChoice?.label ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>

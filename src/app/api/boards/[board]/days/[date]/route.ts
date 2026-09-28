@@ -5,6 +5,7 @@ import { NO_STORE, optionalManager, requireDayAccess } from "@/lib/managers/day-
 import { requestIsOwner } from "@/lib/managers/require-session";
 import { loadMandatoryDay } from "@/lib/mandatory-store";
 import { fillMissingSeatNumbers } from "@/lib/assignments/seat-number";
+import { loadStationUse } from "@/lib/assignments/station-use";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,7 @@ export async function GET(request: Request, context: RouteContext) {
           seatNumber: seatNumbers.get(a.id) ?? null,
         })),
       })),
+      stationUse: await loadStationUse(board, date, stations.map((s) => s.id)),
       ...(board === "cocina" && manager ? { mandatory: await loadMandatoryDay(date, owner) } : {}),
     };
 
