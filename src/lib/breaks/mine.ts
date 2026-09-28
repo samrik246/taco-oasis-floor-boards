@@ -18,6 +18,8 @@ import { chicagoToday } from "@/lib/upcoming/source";
 
 export type BreakSlot = { startAt: string; endAt: string };
 
+export type BlockedQuarter = BreakSlot & { reason: "blackout" | "overlap" };
+
 function clockLabel(hour: number, minute: number): string {
   const suffix = hour >= 12 ? "pm" : "am";
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
@@ -69,17 +71,18 @@ export function blockedBreakQuarters(input: {
   board: "caja" | "cocina";
   shifts: readonly BreakShift[];
   otherBreaks: readonly { board: string; startAt: Date; endAt: Date }[];
-}): BreakSlot[] {
+}): BlockedQuarter[] {
   const windows = currentOnBoard(input.shifts, input.board);
   const blackouts = breakBlackouts(input.date, input.board);
-  const blocked: BreakSlot[] = [];
+  const blocked: BlockedQuarter[] = [];
   for (const start of quarterStarts(input.date)) {
     const end = new Date(start.getTime() + 15 * 60_000);
     const inside = windows.some((shift) => start.getTime() >= shift.startAt.getTime() && end.getTime() <= shift.endAt.getTime());
     if (!inside) continue;
     const blackout = blackouts.some((window) => intervalsOverlap(start, end, window.start, window.end));
     const taken = input.otherBreaks.some((row) => row.board === input.board && intervalsOverlap(start, end, row.startAt, row.endAt));
-    if (blackout || taken) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString() });
+    if (blackout) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "blackout" });
+    else if (taken) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "overlap" });
   }
   return blocked;
 }

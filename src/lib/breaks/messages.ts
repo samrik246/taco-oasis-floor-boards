@@ -15,6 +15,10 @@ export const BREAK_REFUSAL_TEXT: Record<string, string> = {
 export const BREAK_WRONG_CODE = "Ese código no coincide.";
 export const BREAK_COLLISION = "Código repetido, pide ayuda a un gerente";
 export const BREAK_PAUSE = "Espera 1 minuto";
+export const BREAK_PAUSE_READY = "Ya puedes intentar";
+export const BREAK_QUARTER_BLOCKED = "Bloqueado";
+export const BREAK_QUARTER_TAKEN = "Ocupado";
+export const BREAK_QUARTER_OUTSIDE = "Fuera";
 export const BREAK_UNCONFIGURED = "Descansos no configurado";
 export const BREAK_EXPIRED = "Se acabó el tiempo. Entra otra vez.";
 

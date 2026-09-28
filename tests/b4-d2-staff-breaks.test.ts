@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import { formatInTimeZone } from "date-fns-tz";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { GET as boardDay } from "@/app/api/boards/[board]/days/[date]/route";
@@ -21,8 +22,19 @@ import type { DayBoardDto } from "@/components/board/types";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { reservePasscodeAttempt } from "@/lib/breaks/attempts";
 import { dropBreakForShift, dropImportedBreaks } from "@/lib/breaks/import-drop";
-import { breakLengthMinutes, breakLengthsForStart, breakStartChoices } from "@/lib/breaks/picker-steps";
-import { offeredBreakSlots } from "@/lib/breaks/mine";
+import {
+  breakLengthMinutes,
+  breakLengthsForStart,
+  boardKioskReturnHref,
+  breakQuarterFaces,
+  breakSaveLine,
+  breakStartChoices,
+  preferredBreakLength,
+  shiftAllowanceLine,
+  staffBreakHref,
+} from "@/lib/breaks/picker-steps";
+import { blockedBreakQuarters, offeredBreakSlots } from "@/lib/breaks/mine";
+import { TIMEZONE } from "@/lib/constants";
 import { hashStaffPasscode, newPasscodeSalt, passcodeMatches } from "@/lib/breaks/passcode";
 import { BREAK_REFUSAL_TEXT } from "@/lib/breaks/messages";
 import { readStaffSession, signStaffSession } from "@/lib/breaks/session";
@@ -277,6 +289,73 @@ describe("B4 D2 staff breaks", () => {
     expect(lengths.every((slot) => slot.startAt === eight)).toBe(true);
     expect(breakLengthMinutes(lengths[0]!)).toBe(15);
     expect(rows.filter((slot) => slot.startAt === eight).length).toBe(lengths.length);
+  });
+
+  it("preselects the full allowance, or the longest length that still fits", () => {
+    const rows = slots(wednesday, "8:00 am", "4:00 pm");
+    const eight = chicagoDateTime(wednesday, "8:00 am").toISOString();
+    const late = chicagoDateTime(wednesday, "3:30 pm").toISOString();
+    const morning = breakLengthsForStart(rows, eight);
+    const edge = breakLengthsForStart(rows, late);
+    expect(breakLengthMinutes(preferredBreakLength(morning, 60)!)).toBe(60);
+    expect(edge.some((slot) => breakLengthMinutes(slot) === 60)).toBe(false);
+    expect(breakLengthMinutes(preferredBreakLength(edge, 60)!)).toBe(30);
+    expect(preferredBreakLength([], 60)).toBeNull();
+    const chosen = preferredBreakLength(edge, 60)!;
+    const clock = (iso: string) => formatInTimeZone(new Date(iso), TIMEZONE, "HH:mm");
+    expect(breakSaveLine(chosen, clock)).toBe("15:30 a 16:00, 30 min");
+    expect(shiftAllowanceLine(
+      [{ startAt: eight, endAt: chicagoDateTime(wednesday, "4:00 pm").toISOString() }],
+      60,
+      clock,
+    )).toBe("Tu turno: 08:00 a 16:00. Te tocan 60 minutos.");
+  });
+
+  it("shows calendar quarters, with the partial first quarter Fuera", () => {
+    const start = chicagoDateTime(wednesday, "8:10 am");
+    const end = chicagoDateTime(wednesday, "4:10 pm");
+    const shifts = [{ id: "s", board: "cocina" as const, startAt: start, endAt: end }];
+    const taken = {
+      board: "cocina",
+      startAt: chicagoDateTime(wednesday, "9:00 am"),
+      endAt: chicagoDateTime(wednesday, "9:15 am"),
+    };
+    const rows = offeredBreakSlots({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken] });
+    const blocked = blockedBreakQuarters({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken] });
+    const faces = breakQuarterFaces({
+      shifts: [{ startAt: start.toISOString(), endAt: end.toISOString() }],
+      slots: rows,
+      blocked,
+    });
+    const at = (clock: string) => chicagoDateTime(wednesday, clock).toISOString();
+    expect(faces[0]).toEqual({ startAt: at("8:00 am"), disabled: true, reason: "Fuera" });
+    expect(faces.find((face) => face.startAt === at("8:15 am"))).toEqual({
+      startAt: at("8:15 am"),
+      disabled: false,
+      reason: null,
+    });
+    expect(faces.find((face) => face.startAt === at("9:00 am"))).toEqual({
+      startAt: at("9:00 am"),
+      disabled: true,
+      reason: "Ocupado",
+    });
+    expect(faces.find((face) => face.startAt === at("11:00 am"))).toEqual({
+      startAt: at("11:00 am"),
+      disabled: true,
+      reason: "Bloqueado",
+    });
+    expect(faces.at(-1)).toEqual({ startAt: at("4:00 pm"), disabled: true, reason: "Fuera" });
+    expect(faces.some((face) => face.startAt === start.toISOString())).toBe(false);
+    expect(staffBreakHref("cocina")).toBe("/descansos?board=cocina&kiosk=1&from=board");
+    expect(staffBreakHref("caja")).toBe("/descansos?board=caja&kiosk=1&from=board");
+    expect(boardKioskReturnHref("board", "cocina")).toBe("/?board=cocina&kiosk=1");
+    expect(boardKioskReturnHref("board", "caja")).toBe("/?board=caja&kiosk=1");
+    expect(boardKioskReturnHref(null, "cocina")).toBeNull();
+    expect(boardKioskReturnHref("spare", "cocina")).toBeNull();
+    expect(boardKioskReturnHref("board", null)).toBeNull();
+    for (const startAt of new Set(rows.map((row) => row.startAt))) {
+      expect(faces).toContainEqual({ startAt, disabled: false, reason: null });
+    }
   });
 
   it("offers only the slots assessBreak accepts", () => {

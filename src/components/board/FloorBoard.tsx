@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
@@ -72,7 +73,8 @@ import {
   panelResponse,
 } from "@/lib/board/refresh-state";
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
-import { KioskLock, kioskRequested } from "./KioskLock";
+import { KioskLock, kioskRequested, releaseKioskLock } from "./KioskLock";
+import { staffBreakHref } from "@/lib/breaks/picker-steps";
 import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
 import { paintDraftDates } from "@/lib/board/paint-drafts";
 
@@ -1172,6 +1174,17 @@ export function FloorBoard() {
         })
       : null;
 
+  const staffBreakLink = kiosk && !isManager ? (
+    <Link
+      href={staffBreakHref(board)}
+      className="touch-target inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-neutral-950 px-3 text-sm font-bold text-white"
+      data-testid="open-descansos"
+      onClick={() => releaseKioskLock()}
+    >
+      Descansos
+    </Link>
+  ) : null;
+
   const tareasPanel = (
     <TareasPanel
       templates={tareaTemplates}
@@ -1208,6 +1221,7 @@ export function FloorBoard() {
         {toolbarHidden ? (
           <div className="flex min-h-11 items-center justify-between gap-2 text-sm font-bold">
             <span>{boardName} · {date || t.noDates}</span>
+            {staffBreakLink}
             <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3" onClick={() => setToolbarHidden(false)} data-testid="toolbar-show">
               {t.toolbarShow}
             </button>
@@ -1250,6 +1264,7 @@ export function FloorBoard() {
               }} data-testid="compact-manager">
                 {isManager ? t.exitManager : t.managerView}
               </button>}
+              {staffBreakLink}
               <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} data-testid="toolbar-more">
                 {t.toolbarMore}
               </button>
