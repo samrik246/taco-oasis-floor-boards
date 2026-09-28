@@ -19,6 +19,10 @@ export type BoardChangeParts = {
   columnDefault?: "ok" | "forbidden";
   /** Saved bien rows rewritten to no. The summary is station counts and no names. */
   abilityOkReset?: readonly { stationId: string; count: number }[];
+  /** Chicago wall-clock HH:mm. With breakEnd, the summary is date, start and end. */
+  breakStart?: string;
+  /** Chicago wall-clock HH:mm. */
+  breakEnd?: string;
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -36,6 +40,7 @@ export const BOARD_CHANGE_ROUTES = {
   abilityColumnSeed: "script seed-ability-columns",
   mandatory: "PUT /api/admin/mandatory",
   agentPaint: "script agent-paint",
+  breakSave: "break.save",
 } as const;
 
 /** Day, hour, station, count. Request prose never reaches this line. */
@@ -62,6 +67,15 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   }
   if (parts.mark === "on" || parts.mark === "off") {
     bits.push(parts.mark);
+    return bits.join(" ");
+  }
+  if (
+    parts.breakStart &&
+    parts.breakEnd &&
+    /^\d{2}:\d{2}$/.test(parts.breakStart) &&
+    /^\d{2}:\d{2}$/.test(parts.breakEnd)
+  ) {
+    bits.push(`start=${parts.breakStart}`, `end=${parts.breakEnd}`);
     return bits.join(" ");
   }
   if (parts.columnHidden || parts.columnDefault) {

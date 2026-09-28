@@ -351,3 +351,34 @@ model AbilityColumnSetting {
   defaultLevel String
   updatedAt    DateTime @updatedAt
 }
+
+/// One salted scrypt passcode for a staff member. No API returns these fields.
+model StaffPasscode {
+  employeeId String   @id
+  hash       String
+  salt       String
+  updatedAt  DateTime @updatedAt
+}
+
+/// One break block for one person on one Chicago date. A second save replaces it.
+model StaffBreak {
+  id         String   @id @default(cuid())
+  employeeId String
+  shiftId    String
+  board      String
+  date       String
+  startAt    DateTime
+  endAt      DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  actor      String
+
+  @@unique([employeeId, date])
+  @@index([board, date])
+}
+
+/// One row. saveBreak writes it before reading other breaks, so two tablets cannot both win a slot.
+model StaffBreakLock {
+  id        Int      @id
+  updatedAt DateTime @updatedAt
+}
