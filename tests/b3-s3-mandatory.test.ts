@@ -236,16 +236,16 @@ describe("B3 S3 mandatory marks", () => {
 
     const spy = vi.spyOn(boardChangeLog, "writeBoardChange").mockRejectedValue(new Error("log failed"));
     try {
-      const failed = await put(ownerToken, { date: markDate, stationId: "pdf_br1a", on: true });
+      const failed = await put(ownerToken, { date: markDate, stationId: "pdf_br2a", on: true });
       expect(failed.status).toBe(500);
     } finally {
       spy.mockRestore();
     }
     expect(await prisma.mandatoryMark.findUnique({
-      where: { board_date_stationId: { board: "cocina", date: markDate, stationId: "pdf_br1a" } },
+      where: { board_date_stationId: { board: "cocina", date: markDate, stationId: "pdf_br2a" } },
     })).toBeNull();
     expect(await prisma.boardChangeLog.count({
-      where: { managerId: ownerId, summary: { contains: "pdf_br1a" } },
+      where: { managerId: ownerId, summary: { contains: "pdf_br2a" } },
     })).toBe(0);
   });
 

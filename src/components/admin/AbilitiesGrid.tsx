@@ -15,14 +15,6 @@ type Person = {
   cells: Record<string, CellLevel>;
 };
 
-const CELL_CLASS: Record<CellLevel, string> = {
-  forbidden: "bg-red-700 text-white",
-  training: "bg-amber-500 text-neutral-950",
-  ok: "bg-sky-700 text-white",
-  preferred: "bg-emerald-700 text-white",
-  mixed: "bg-neutral-300 text-neutral-950",
-};
-
 async function readError(res: Response): Promise<string> {
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   return data.error || "Could not save";
@@ -193,11 +185,12 @@ export function AbilitiesGrid({ token }: { token: string }) {
                   {visible.map((column) => {
                     const level = person.cells[column.key] ?? "ok";
                     const faded = settingFor(column.key).hidden ? "opacity-40" : "";
+                    const columnColor = stationColorClass(column.color);
                     return (
-                      <td key={column.key} className={`px-1 py-1 ${stripe} ${faded}`}>
+                      <td key={column.key} className={`px-1 py-1 ${columnColor} ${faded}`}>
                         <button
                           type="button"
-                          className={`min-h-11 min-w-11 rounded-md px-2 text-xs font-black ${CELL_CLASS[level]}`}
+                          className={`min-h-11 min-w-11 rounded-md border-2 px-2 text-xs font-black ${columnColor}`}
                           disabled={saving === `${person.id}:${column.key}`}
                           onClick={() => void tap(person, column)}
                           data-testid={`ability-cell-${person.externalId}-${column.key}`}

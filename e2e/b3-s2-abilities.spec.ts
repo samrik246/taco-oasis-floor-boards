@@ -72,7 +72,7 @@ test("owner taps Habilidades through the four words and a mixed family becomes b
   await expect(guia).toHaveText("no");
   await expect(family).toHaveText("mixto");
   await guia.click();
-  await expect(guia).toHaveText("entrenando");
+  await expect(guia).toHaveText("poco");
   await guia.click();
   await expect(guia).toHaveText("bien");
   await guia.click();

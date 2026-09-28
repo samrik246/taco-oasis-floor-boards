@@ -12,6 +12,7 @@ const people = [
 const covers = [
   { externalId: "b3s5-dee-park", firstName: "Dee", lastName: "Park", stationId: "pdf_tf1r" },
   { externalId: "b3s5-eli-nash", firstName: "Eli", lastName: "Nash", stationId: "pdf_pr1e" },
+  { externalId: "b3s5-fox-birria", firstName: "Fox", lastName: "Birria", stationId: "pdf_br1a" },
 ] as const;
 
 async function keepDesk(page: Page) {
@@ -133,12 +134,14 @@ test("E3 owner dots at 12 are full, dim and absent, and a pending Taquero 1 pain
   const cal = await rowId(page, "Cal Moss");
   const full = page.getByTestId(`eligibility-dot-${ada}-12-pdf_tq1r`);
   const dim = page.getByTestId(`eligibility-dot-${bea}-12-pdf_tq1r`);
-  await expect(full).toHaveAttribute("data-dim", "0");
-  await expect(full).toHaveClass(/pink/);
-  await expect(full).toHaveClass(/opacity-100/);
-  await expect(dim).toHaveAttribute("data-dim", "1");
-  await expect(dim).toHaveClass(/opacity-40/);
-  await expect(dim).toHaveClass(/ring-2/);
+  await expect(full).toHaveAttribute("data-level", "preferred");
+  await expect(full).toHaveAttribute("data-mark", "filled");
+  await expect(full.locator("span")).toHaveClass(/pink/);
+  await expect(full.locator("span")).toHaveClass(/ring-white/);
+  await expect(dim).toHaveAttribute("data-level", "training");
+  await expect(dim).toHaveAttribute("data-mark", "dashed");
+  await expect(dim.locator("span")).toHaveClass(/border-dashed/);
+  await expect(dim.locator("span")).toHaveClass(/ring-white/);
   await expect(page.getByTestId(`eligibility-dot-${cal}-12-pdf_tq1r`)).toHaveCount(0);
   await expect(page.locator("[data-testid$='-12-pdf_tq1r'][data-testid^='eligibility-dot-']")).toHaveCount(2);
 

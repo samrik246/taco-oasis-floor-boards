@@ -13,9 +13,11 @@ import { paletteStationIds } from "@/lib/assignments/palette-order";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
+import { markForStation, openCellOutlineClass, selectionMark } from "@/lib/selection-mark";
 import { comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
+import { SelectionMarkDot } from "./SelectionMarkDot";
 import { buildTimelineRows, personName } from "./timeline-rows";
 import type { BoardKindUi, DayBoardDto, ShiftDto, StationDto } from "./types";
 
@@ -70,9 +72,11 @@ function EligibilityDots({
   dots: readonly EligibilityDot[];
   stations: readonly StationDto[];
 }) {
-  return <span className="mt-0.5 flex items-center justify-center gap-1" data-testid={`eligibility-dots-${shiftId}-${hour}`} aria-hidden="true">{dots.map((dot) => {
+  return <span className="mt-0.5 flex flex-wrap items-center justify-center gap-x-px gap-y-0.5" data-testid={`eligibility-dots-${shiftId}-${hour}`} aria-hidden="true">{dots.map((dot) => {
     const station = stations.find((item) => item.id === dot.stationId);
-    return <span key={dot.stationId} className={cn("inline-block size-2.5 rounded-full border-2", station ? stationColorClass(station.color) : "border-neutral-700 bg-neutral-200", dot.dim ? "opacity-40 ring-2 ring-neutral-300" : "opacity-100")} data-testid={`eligibility-dot-${shiftId}-${hour}-${dot.stationId}`} data-dim={dot.dim ? "1" : "0"} />;
+    const mark = selectionMark(dot.level);
+    if (!station || mark === "none") return null;
+    return <SelectionMarkDot key={dot.stationId} color={station.color} mark={mark} level={dot.level} testId={`eligibility-dot-${shiftId}-${hour}-${dot.stationId}`} />;
   })}</span>;
 }
 
@@ -415,6 +419,9 @@ export function ManagerColorEditor({
   }
 
   const selectedChoice = choices.find((choice) => choice.id === selected);
+  const paletteStation = selected && selected !== "erase"
+    ? day?.stations.find((item) => item.id === selected) ?? null
+    : null;
 
   return (
     <section className="min-w-0 rounded-lg border-2 border-neutral-900 bg-white p-3" data-testid="manager-color-editor">
@@ -513,10 +520,19 @@ export function ManagerColorEditor({
                 const dotText = dots.map((dot) => {
                   const target = day?.stations.find((item) => item.id === dot.stationId);
                   const name = mandatoryGapLabel(target ?? { label: dot.stationId });
-                  return dot.dim ? `${name} entrenando` : name;
+                  return dot.level === "training" ? `${name} entrenando` : name;
                 }).join(", ");
+                const openCell = !station;
+                const frame = openCellOutlineClass({
+                  mode: openCell && paletteStation ? (showLevels ? "owner" : "manager") : "rest",
+                  mark: openCell && showLevels && paletteStation
+                    ? markForStation({ abilities: shift.employee.abilities, stationId: paletteStation.id })
+                    : "none",
+                  color: paletteStation?.color ?? null,
+                });
+                const visibleLabel = openCell && !edit?.family ? "" : label;
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
                 </td>;
               })}
             </tr>)}</tbody>

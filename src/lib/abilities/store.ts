@@ -6,6 +6,16 @@ import type { AbilityLevel } from "@/lib/rules/types";
 import { abilityColumn, cellLevel, cocinaAbilityColumns } from "@/lib/abilities/levels";
 import { defaultsByStation, loadAbilityColumnSettings } from "@/lib/abilities/column-settings";
 
+const CARNE_COLUMN = "pdf_crne";
+
+/** A stored Carne row wins. With none stored, the grid hides the column at bien. */
+function withUnstoredCarneDefault(
+  rows: readonly { key: string; hidden: boolean; defaultLevel: string }[],
+) {
+  if (rows.some((row) => row.key === CARNE_COLUMN)) return rows;
+  return [...rows, { key: CARNE_COLUMN, hidden: true, defaultLevel: "ok" }];
+}
+
 export async function loadCocinaAbilityGrid() {
   const columns = cocinaAbilityColumns();
   const settings = await loadAbilityColumnSettings();
@@ -48,7 +58,7 @@ export async function loadCocinaAbilityGrid() {
   return {
     board: "cocina" as const,
     columns: columns.map(({ key, label, kind, color }) => ({ key, label, kind, color })),
-    settings: settings.map((row) => ({
+    settings: withUnstoredCarneDefault(settings).map((row) => ({
       key: row.key,
       hidden: row.hidden,
       defaultLevel: row.defaultLevel,
