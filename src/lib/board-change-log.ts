@@ -17,6 +17,8 @@ export type BoardChangeParts = {
   columnHidden?: "hidden" | "shown";
   /** Habilidades column default. The summary then omits count. */
   columnDefault?: "ok" | "forbidden";
+  /** Saved bien rows rewritten to no. The summary is station counts and no names. */
+  abilityOkReset?: readonly { stationId: string; count: number }[];
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -49,6 +51,14 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   }
   if (parts.stationId && /^[A-Za-z0-9_,.-]{1,80}$/.test(parts.stationId)) {
     bits.push(`station=${parts.stationId}`);
+  }
+  if (parts.abilityOkReset) {
+    for (const row of parts.abilityOkReset) {
+      if (!/^[a-z0-9_]{1,32}$/.test(row.stationId)) continue;
+      const count = Number.isInteger(row.count) && row.count >= 0 ? row.count : 0;
+      bits.push(`${row.stationId}=${count}`);
+    }
+    return bits.join(" ");
   }
   if (parts.mark === "on" || parts.mark === "off") {
     bits.push(parts.mark);

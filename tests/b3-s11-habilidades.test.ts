@@ -11,17 +11,23 @@ import { PUT as saveColumn } from "@/app/api/admin/ability-columns/route";
 import { GET as abilityGrid } from "@/app/api/admin/abilities/route";
 import { GET as dayBoard } from "@/app/api/boards/[board]/days/[date]/route";
 import { AGENT_PAINT_TEXT, runAgentPaint } from "@/lib/agent-paint";
-import { ABILITY_COLUMN_INSTALL_SEED, seedAbilityColumnSettings } from "@/lib/abilities/column-settings";
+import { ABILITY_COLUMN_INSTALL_SEED, ABILITY_OK_RESET_STATIONS, seedAbilityColumnSettings } from "@/lib/abilities/column-settings";
 import { cellLevel } from "@/lib/abilities/levels";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { paintAssignments } from "@/lib/assignments/paint";
 import { copyDayAssignments, createAssignment } from "@/lib/assignments/service";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
+import { commitImport, previewImport } from "@/lib/import/persist-import";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
 import { eligibilityDots } from "@/lib/mandatory";
+import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
+import { seedDemoScheduleAssignments } from "@/lib/schedule/seed-demo-assignments";
+import { removeShift, restoreShift } from "@/lib/shifts/remove-restore";
+import { ALL_STATIONS } from "@/lib/stations";
 import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { chicagoDateTime } from "@/lib/time";
+import { syntheticCsv, type SyntheticRow } from "./helpers/synthetic-schedule";
 
 const prisma = new PrismaClient();
 const stamp = `b3s11-${Date.now()}`;
@@ -236,31 +242,284 @@ describe("B3 S11 column settings", () => {
     fs.rmSync(appDir, { recursive: true, force: true });
   });
 
-  it("L5 the install seed writes only column settings and leaves every ability row", async () => {
+  it("L3 restore replay refuses an unticked person and keeps a saved bien", async () => {
+    const replayDate = "2038-04-07";
+    const externalId = `${stamp}-rea`;
+    expect((await putColumn(ownerToken, { key: "pdf_pstl", defaultLevel: "forbidden" })).status).toBe(200);
+    const person = await prisma.employee.create({
+      data: { externalId, firstName: "Rea", lastName: "Moss" },
+    });
+    const startAt = chicagoDateTime(replayDate, "9:00 am");
+    const endAt = chicagoDateTime(replayDate, "5:00 pm");
+    const shift = await prisma.shift.create({
+      data: {
+        employeeId: person.id, date: replayDate, startAt, endAt,
+        sourcePosition: "Cocina", board: "cocina",
+      },
+    });
+    await prisma.assignment.create({
+      data: {
+        shiftId: shift.id, employeeId: person.id, stationId: "pdf_pstl",
+        hourStart: chicagoHourStart(replayDate, 12), hourEnd: chicagoHourEnd(replayDate, 12),
+      },
+    });
+    const manager = { id: ownerId, name: ownerName };
+    const expected = {
+      startAt: startAt.toISOString(), endAt: endAt.toISOString(),
+      employeeId: person.id, sourcePosition: "Cocina",
+    };
+    const now = chicagoDateTime(replayDate, "8:00 am");
+    const removed = await removeShift({
+      shiftId: shift.id, board: "cocina", date: replayDate, expected,
+      expectedRevision: 0, reason: "Replay check", manager, now,
+    });
+    await expect(restoreShift({
+      id: removed.id, expectedRevision: removed.revision, expected,
+      positions: "replay", reason: "Try replay", manager, now,
+    })).rejects.toMatchObject({
+      code: "POSITION_CONFLICT",
+      message: expect.stringContaining("FORBIDDEN_ABILITY"),
+    });
+    expect(await prisma.assignment.count({ where: { shiftId: shift.id } })).toBe(0);
+
+    await prisma.employeeStationAbility.create({
+      data: { employeeId: person.id, stationId: "pdf_pstl", level: "ok" },
+    });
+    const restored = await restoreShift({
+      id: removed.id, expectedRevision: removed.revision, expected,
+      positions: "replay", reason: "Saved bien", manager, now,
+    });
+    expect(restored.restoredCells).toBe(1);
+    expect(await prisma.assignment.count({
+      where: { shiftId: shift.id, stationId: "pdf_pstl" },
+    })).toBe(1);
+  });
+
+  it("L3 schedule takeover refuses an unticked person and keeps a saved bien", async () => {
+    const takeoverDate = "2038-04-08";
+    const outgoingId = `${stamp}-out`;
+    const incomingId = `${stamp}-in`;
+    expect((await putColumn(ownerToken, { key: "pdf_pstl", defaultLevel: "forbidden" })).status).toBe(200);
+    const now = chicagoDateTime(takeoverDate, "12:30 pm");
+    const row = (employeeId: string, firstName: string): SyntheticRow => ({
+      position: "Cocina", firstName, lastName: "Moss", employeeId,
+      date: takeoverDate, start: "8:00 am", end: "6:00 pm",
+    });
+    const parse = (rows: SyntheticRow[], filename: string) =>
+      parseScheduleWorkbook(syntheticCsv(rows), { filename });
+    const before = await parse([row(outgoingId, "Out")], `${stamp}-before.csv`);
+    await commitImport(before, `${stamp}-before.csv`, { now });
+    const outgoing = await prisma.shift.findFirstOrThrow({
+      where: { employee: { externalId: outgoingId }, date: takeoverDate, supersededAt: null },
+    });
+    await prisma.assignment.create({
+      data: {
+        shiftId: outgoing.id, employeeId: outgoing.employeeId, stationId: "pdf_pstl",
+        hourStart: chicagoHourStart(takeoverDate, 14), hourEnd: chicagoHourEnd(takeoverDate, 14),
+      },
+    });
+    expect(await prisma.employeeStationAbility.findUnique({
+      where: { employeeId_stationId: { employeeId: outgoing.employeeId, stationId: "pdf_pstl" } },
+    })).toMatchObject({ level: "forbidden" });
+
+    const after = await parse([row(incomingId, "In")], `${stamp}-after.csv`);
+    const preview = await previewImport(after, { now });
+    expect(preview.dates[0]!.assignmentsToTransfer).toEqual([
+      { board: "cocina", stationId: "pdf_pstl", hour: 14 },
+    ]);
+    await expect(commitImport(after, `${stamp}-after.csv`, {
+      now, expected: { fingerprint: preview.fingerprint, planDigest: preview.planDigest },
+    })).rejects.toMatchObject({
+      code: "REFUSED",
+      refusals: [{ code: "TAKEOVER_CONFLICT", message: expect.stringContaining("FORBIDDEN_ABILITY") }],
+    });
+    expect(await prisma.employee.findUnique({ where: { externalId: incomingId } })).toBeNull();
+    expect(await prisma.assignment.count({ where: { shiftId: outgoing.id, stationId: "pdf_pstl" } })).toBe(1);
+
+    const incoming = await prisma.employee.create({
+      data: { externalId: incomingId, firstName: "In", lastName: "Moss" },
+    });
+    await prisma.employeeStationAbility.create({
+      data: { employeeId: incoming.id, stationId: "pdf_pstl", level: "ok" },
+    });
+    const keptPreview = await previewImport(after, { now });
+    await commitImport(after, `${stamp}-after.csv`, {
+      now, expected: { fingerprint: keptPreview.fingerprint, planDigest: keptPreview.planDigest },
+    });
+    const seated = await prisma.assignment.findMany({
+      where: { employeeId: incoming.id, stationId: "pdf_pstl" },
+    });
+    expect(seated).toHaveLength(1);
+    expect(await prisma.employeeStationAbility.findUnique({
+      where: { employeeId_stationId: { employeeId: incoming.id, stationId: "pdf_pstl" } },
+    })).toMatchObject({ level: "ok" });
+  });
+
+  it("L3 the sample demo seeder skips an unticked person and keeps a saved bien", async () => {
+    const demoDate = "2038-04-06";
+    const externalId = `${stamp}-demo`;
+    expect(fs.readFileSync(path.join(root, "src/app/api/sample/route.ts"), "utf8"))
+      .toContain("seedDemoScheduleAssignments");
+    expect((await putColumn(ownerToken, { key: "pdf_pstl", defaultLevel: "forbidden" })).status).toBe(200);
+    const person = await prisma.employee.create({
+      data: { externalId, firstName: "Dee", lastName: "Moss" },
+    });
+    const cocina = ALL_STATIONS.filter((station) => station.board === "cocina")
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const pasteles = cocina.findIndex((station) => station.id === "pdf_pstl");
+    const hourStart = chicagoHourStart(demoDate, 12);
+    const hourEnd = chicagoHourEnd(demoDate, 12);
+    for (const station of cocina.slice(0, pasteles)) {
+      const filler = await prisma.employee.create({
+        data: { externalId: `${stamp}-fill-${station.id}`, firstName: "Fill", lastName: station.id },
+      });
+      const fillerShift = await prisma.shift.create({
+        data: {
+          employeeId: filler.id, board: "cocina", date: demoDate, sourcePosition: "Cocina",
+          startAt: chicagoDateTime(demoDate, "12:00 pm"),
+          endAt: chicagoDateTime(demoDate, "1:00 pm"),
+        },
+      });
+      await prisma.assignment.create({
+        data: {
+          shiftId: fillerShift.id, employeeId: filler.id, stationId: station.id,
+          hourStart, hourEnd,
+        },
+      });
+    }
+    await prisma.shift.create({
+      data: {
+        employeeId: person.id, board: "cocina", date: demoDate, sourcePosition: "Cocina",
+        startAt: chicagoDateTime(demoDate, "12:00 pm"),
+        endAt: chicagoDateTime(demoDate, "1:00 pm"),
+      },
+    });
+    const skipped = await seedDemoScheduleAssignments([demoDate]);
+    expect(skipped.created).toBe(0);
+    expect(await prisma.assignment.count({ where: { employeeId: person.id } })).toBe(0);
+
+    await prisma.employeeStationAbility.create({
+      data: { employeeId: person.id, stationId: "pdf_pstl", level: "ok" },
+    });
+    const kept = await seedDemoScheduleAssignments([demoDate]);
+    const second = await prisma.assignment.findMany({ where: { employeeId: person.id } });
+    expect(kept.created).toBe(1);
+    expect(second.map((row) => row.stationId)).toEqual(["pdf_pstl"]);
+  });
+
+  it("import stores Nuevos no on a missing cocina row and keeps a saved level", async () => {
+    const hireDate = "2038-04-09";
+    const savedId = `${stamp}-saved`;
+    const hireId = `${stamp}-hire`;
+    expect((await putColumn(ownerToken, { key: "pdf_pstl", defaultLevel: "forbidden" })).status).toBe(200);
+    expect((await putColumn(ownerToken, { key: "pdf_rngn", defaultLevel: "forbidden" })).status).toBe(200);
+    const saved = await prisma.employee.create({
+      data: { externalId: savedId, firstName: "Sav", lastName: "Moss" },
+    });
+    await prisma.employeeStationAbility.createMany({
+      data: [
+        { employeeId: saved.id, stationId: "pdf_pstl", level: "preferred" },
+        { employeeId: saved.id, stationId: "pdf_rngn", level: "training" },
+        { employeeId: saved.id, stationId: "pdf_tq1r", level: "ok" },
+      ],
+    });
+    const now = chicagoDateTime(hireDate, "8:00 am");
+    const row = (employeeId: string, firstName: string): SyntheticRow => ({
+      position: "Cocina", firstName, lastName: "Moss", employeeId,
+      date: hireDate, start: "8:00 am", end: "4:00 pm",
+    });
+    const parsed = await parseScheduleWorkbook(syntheticCsv([
+      row(savedId, "Sav"),
+      row(hireId, "Nue"),
+    ]), { filename: `${stamp}-hire.csv` });
+    await commitImport(parsed, `${stamp}-hire.csv`, { now });
+    const hire = await prisma.employee.findUniqueOrThrow({ where: { externalId: hireId } });
+    const levelAt = (employeeId: string, stationId: string) => prisma.employeeStationAbility.findUnique({
+      where: { employeeId_stationId: { employeeId, stationId } },
+    });
+    expect(await levelAt(hire.id, "pdf_pstl")).toMatchObject({ level: "forbidden" });
+    expect(await levelAt(hire.id, "pdf_rngn")).toMatchObject({ level: "forbidden" });
+    expect(await levelAt(hire.id, "pdf_tq1r")).toMatchObject({ level: "ok" });
+    expect(await levelAt(saved.id, "pdf_pstl")).toMatchObject({ level: "preferred" });
+    expect(await levelAt(saved.id, "pdf_rngn")).toMatchObject({ level: "training" });
+    expect(await levelAt(saved.id, "pdf_tq1r")).toMatchObject({ level: "ok" });
+  });
+
+  it("L5 the install seed rewrites bien to no on Pasteles and Relleno general only", async () => {
+    expect(ABILITY_OK_RESET_STATIONS).toEqual(["pdf_pstl", "pdf_rngn"]);
     await prisma.abilityColumnSetting.deleteMany({
       where: { key: { in: ABILITY_COLUMN_INSTALL_SEED.map((row) => row.key) } },
+    });
+    const keeper = await prisma.employee.create({
+      data: { externalId: `${stamp}-keep`, firstName: "Kay", lastName: "Moss" },
+    });
+    const held = await prisma.employee.create({
+      data: { externalId: `${stamp}-held`, firstName: "Hal", lastName: "Moss" },
+    });
+    await prisma.employeeStationAbility.createMany({
+      data: [
+        { employeeId: keeper.id, stationId: "pdf_pstl", level: "ok" },
+        { employeeId: keeper.id, stationId: "pdf_rngn", level: "ok" },
+        { employeeId: keeper.id, stationId: "pdf_tq1r", level: "ok" },
+        { employeeId: held.id, stationId: "pdf_pstl", level: "training" },
+        { employeeId: held.id, stationId: "pdf_rngn", level: "preferred" },
+        { employeeId: held.id, stationId: "green1", level: "ok" },
+      ],
     });
     const before = await prisma.employeeStationAbility.findMany({
       orderBy: [{ employeeId: "asc" }, { stationId: "asc" }],
     });
+    const expected = {
+      pdf_pstl: before.filter((row) => row.stationId === "pdf_pstl" && row.level === "ok").length,
+      pdf_rngn: before.filter((row) => row.stationId === "pdf_rngn" && row.level === "ok").length,
+    };
+    expect(expected.pdf_pstl).toBeGreaterThan(0);
+    expect(expected.pdf_rngn).toBeGreaterThan(0);
     const actor = { id: ownerId, name: ownerName, route: BOARD_CHANGE_ROUTES.abilityColumnSeed };
-    const first = await seedAbilityColumnSettings(actor);
-    expect(first).toEqual({ written: 5, unchanged: 0 });
-    const rows = await prisma.abilityColumnSetting.findMany({ orderBy: { key: "asc" } });
-    expect(rows.map((row) => ({ key: row.key, hidden: row.hidden, defaultLevel: row.defaultLevel }))).toEqual(
-      [...ABILITY_COLUMN_INSTALL_SEED].sort((a, b) => a.key.localeCompare(b.key)),
-    );
-    const after = await prisma.employeeStationAbility.findMany({
-      orderBy: [{ employeeId: "asc" }, { stationId: "asc" }],
-    });
-    expect(after).toEqual(before);
-    const logs = await prisma.boardChangeLog.count({
-      where: { managerId: ownerId, route: BOARD_CHANGE_ROUTES.abilityColumnSeed },
-    });
-    expect(logs).toBe(5);
-    const second = await seedAbilityColumnSettings(actor);
-    expect(second).toEqual({ written: 0, unchanged: 5 });
-    expect(await prisma.employeeStationAbility.count()).toBe(before.length);
+    try {
+      const first = await seedAbilityColumnSettings(actor);
+      expect(first).toEqual({ written: 5, unchanged: 0, okToForbidden: expected });
+      const rows = await prisma.abilityColumnSetting.findMany({ orderBy: { key: "asc" } });
+      expect(rows.map((row) => ({ key: row.key, hidden: row.hidden, defaultLevel: row.defaultLevel }))).toEqual(
+        [...ABILITY_COLUMN_INSTALL_SEED].sort((a, b) => a.key.localeCompare(b.key)),
+      );
+      const after = await prisma.employeeStationAbility.findMany({
+        orderBy: [{ employeeId: "asc" }, { stationId: "asc" }],
+      });
+      expect(after.map((row) => [row.employeeId, row.stationId, row.level])).toEqual(
+        before.map((row) => [
+          row.employeeId,
+          row.stationId,
+          (row.stationId === "pdf_pstl" || row.stationId === "pdf_rngn") && row.level === "ok"
+            ? "forbidden"
+            : row.level,
+        ]),
+      );
+      const resetSummary = `undated pdf_pstl=${expected.pdf_pstl} pdf_rngn=${expected.pdf_rngn}`;
+      const logs = await prisma.boardChangeLog.findMany({
+        where: { managerId: ownerId, route: BOARD_CHANGE_ROUTES.abilityColumnSeed },
+      });
+      expect(logs.filter((row) => row.summary.includes("hidden"))).toHaveLength(5);
+      expect(logs.filter((row) => row.summary === resetSummary).map((row) => row.summary)).toEqual([resetSummary]);
+      expect(resetSummary).not.toMatch(/Moss|Kay|Hal/);
+      const second = await seedAbilityColumnSettings(actor);
+      expect(second).toEqual({
+        written: 0,
+        unchanged: 5,
+        okToForbidden: { pdf_pstl: 0, pdf_rngn: 0 },
+      });
+      const logsAfter = await prisma.boardChangeLog.count({
+        where: { managerId: ownerId, route: BOARD_CHANGE_ROUTES.abilityColumnSeed, summary: resetSummary },
+      });
+      expect(logsAfter).toBe(1);
+    } finally {
+      for (const row of before) {
+        await prisma.employeeStationAbility.update({
+          where: { employeeId_stationId: { employeeId: row.employeeId, stationId: row.stationId } },
+          data: { level: row.level },
+        });
+      }
+    }
   });
 
   it("db push adds the column table and leaves an ability row", async () => {

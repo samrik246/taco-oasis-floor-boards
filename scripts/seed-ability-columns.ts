@@ -1,6 +1,7 @@
 /**
- * Host install step. Writes the five Habilidades column settings only.
- * Prints counts. Never prints a name, and never writes an ability row.
+ * Host install step. The installer takes the backup first; this script does not.
+ * Writes the five Habilidades column settings, then turns saved bien into no
+ * on Pasteles and Relleno general only. Prints counts. Never prints a name.
  *
  * Usage: tsx scripts/seed-ability-columns.ts --manager-id <id>
  */

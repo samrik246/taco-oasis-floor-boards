@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { validateAssignment } from "@/lib/rules/assign";
-import type { AbilityLevel } from "@/lib/rules/types";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 
@@ -118,6 +119,7 @@ export async function restoreShift(input: {
     const saved = cellsFromJson(override.cellsJson);
     const future = input.positions === "replay"
       ? saved.filter((cell) => new Date(cell.hourStart).getTime() > now.getTime()) : [];
+    const columnDefaults = await loadColumnDefaults(tx);
     for (const cell of future) {
       const hourStart = new Date(cell.hourStart);
       const hourEnd = new Date(cell.hourEnd);
@@ -132,7 +134,7 @@ export async function restoreShift(input: {
         shiftStart: shift.startAt, shiftEnd: shift.endAt, stationId: station!.id,
         stationBoard: station!.board, shiftBoard: shift.board,
         maxConcurrent: station!.maxConcurrent, existingOccupancy: occupancy,
-        abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+        abilityLevel: levelWhenUnset(ability?.level, columnDefaults.get(cell.stationId)),
         personAlreadyAssignedAtHour: personBusy > 0, chicagoHour: chicagoHourOf(hourStart) });
       if (violations.length) conflict("POSITION_CONFLICT",
         `A saved position no longer fits (${violations.map((v) => v.code).join(", ")}). Restore without positions or repaint.`);

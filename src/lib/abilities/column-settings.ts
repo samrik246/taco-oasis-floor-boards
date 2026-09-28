@@ -29,6 +29,9 @@ export const ABILITY_COLUMN_INSTALL_SEED = [
   { key: "pdf_pstl", hidden: true, defaultLevel: "forbidden" },
 ] as const satisfies readonly { key: string; hidden: boolean; defaultLevel: ColumnDefaultLevel }[];
 
+/** Install rewrite. Saved bien becomes no on these two stations only. */
+export const ABILITY_OK_RESET_STATIONS = ["pdf_pstl", "pdf_rngn"] as const;
+
 export function defaultsByStation(
   rows: readonly { key: string; defaultLevel: string }[],
 ): Map<string, ColumnDefaultLevel> {
@@ -106,20 +109,64 @@ export async function setAbilityColumnSetting(input: {
 }
 
 /**
- * Writes the five install rows and a log line for each change.
- * Does not read or write EmployeeStationAbility.
+ * One transaction, after the caller's backup: the five column settings,
+ * then saved bien becomes no on Pasteles and Relleno general only.
+ * Training, preferred, forbidden, and every other station stay.
+ * A rewrite writes one count line and no names. Zero rows is a no-op log.
  */
 export async function seedAbilityColumnSettings(actor: BoardChangeActor): Promise<{
   written: number;
   unchanged: number;
+  okToForbidden: { pdf_pstl: number; pdf_rngn: number };
 }> {
-  let written = 0;
-  let unchanged = 0;
-  for (const row of ABILITY_COLUMN_INSTALL_SEED) {
-    const result = await setAbilityColumnSetting({ ...row, actor });
-    if (!result.ok) throw new Error(result.error);
-    if (result.changed) written += 1;
-    else unchanged += 1;
-  }
-  return { written, unchanged };
+  return prisma.$transaction(async (tx) => {
+    let written = 0;
+    let unchanged = 0;
+    for (const row of ABILITY_COLUMN_INSTALL_SEED) {
+      const existing = await tx.abilityColumnSetting.findUnique({ where: { key: row.key } });
+      if (existing && existing.hidden === row.hidden && existing.defaultLevel === row.defaultLevel) {
+        unchanged += 1;
+        continue;
+      }
+      await tx.abilityColumnSetting.upsert({
+        where: { key: row.key },
+        create: { key: row.key, hidden: row.hidden, defaultLevel: row.defaultLevel },
+        update: { hidden: row.hidden, defaultLevel: row.defaultLevel },
+      });
+      const columnHidden = !existing || existing.hidden !== row.hidden
+        ? (row.hidden ? "hidden" as const : "shown" as const)
+        : undefined;
+      const columnDefault = !existing || existing.defaultLevel !== row.defaultLevel
+        ? row.defaultLevel
+        : undefined;
+      await writeBoardChange(tx, actor, {
+        date: "undated",
+        stationId: row.key,
+        count: 1,
+        columnHidden,
+        columnDefault,
+      });
+      written += 1;
+    }
+
+    const okToForbidden = { pdf_pstl: 0, pdf_rngn: 0 };
+    for (const stationId of ABILITY_OK_RESET_STATIONS) {
+      const result = await tx.employeeStationAbility.updateMany({
+        where: { stationId, level: "ok" },
+        data: { level: "forbidden" },
+      });
+      okToForbidden[stationId] = result.count;
+    }
+    if (okToForbidden.pdf_pstl + okToForbidden.pdf_rngn > 0) {
+      await writeBoardChange(tx, actor, {
+        date: "undated",
+        count: okToForbidden.pdf_pstl + okToForbidden.pdf_rngn,
+        abilityOkReset: ABILITY_OK_RESET_STATIONS.map((stationId) => ({
+          stationId,
+          count: okToForbidden[stationId],
+        })),
+      });
+    }
+    return { written, unchanged, okToForbidden };
+  });
 }

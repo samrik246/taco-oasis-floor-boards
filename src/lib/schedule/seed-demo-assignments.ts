@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { ALL_STATIONS } from "@/lib/stations";
 import { hourGridHours, chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
@@ -26,6 +28,7 @@ export async function seedDemoScheduleAssignments(
   dates: string[];
 }> {
   const selected = [...dates];
+  const columnDefaults = await loadColumnDefaults();
   const toCreate: Array<{
     shiftId: string;
     employeeId: string;
@@ -54,11 +57,18 @@ export async function seedDemoScheduleAssignments(
           stationId: { in: stations.map((s) => s.id) },
         },
       });
-      const forbidden = new Set(
-        abilities
-          .filter((a) => a.level === "forbidden")
-          .map((a) => `${a.employeeId}:${a.stationId}`),
+      const storedLevel = new Map(
+        abilities.map((a) => [`${a.employeeId}:${a.stationId}`, a.level]),
       );
+      const forbidden = new Set<string>();
+      for (const sh of shifts) {
+        for (const station of stations) {
+          const key = `${sh.employeeId}:${station.id}`;
+          if (levelWhenUnset(storedLevel.get(key), columnDefaults.get(station.id)) === "forbidden") {
+            forbidden.add(key);
+          }
+        }
+      }
 
       // Track occupancy / person-hour in memory (plus existing DB rows)
       const stationHourOcc = new Map<string, number>();
