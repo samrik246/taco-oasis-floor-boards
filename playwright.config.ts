@@ -69,6 +69,7 @@ export default defineConfig({
       NODE_OPTIONS: `--require=${join(process.cwd(), "scripts/test-db-guard.cjs")}`,
       DEMO_MANAGER_CODES: "1",
       MANAGER_SESSION_SECRET: "playwright-manager-session-secret-000000",
+      STAFF_PASSCODE_PEPPER: "playwright-staff-passcode-pepper-0000",
       // Short idle so manager→staff timeout e2e stays fast
       MANAGER_IDLE_MS: "1500",
     },

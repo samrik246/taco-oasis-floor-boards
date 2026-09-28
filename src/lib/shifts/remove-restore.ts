@@ -4,6 +4,7 @@ import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { validateAssignment } from "@/lib/rules/assign";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { seatNumberForWrite } from "@/lib/assignments/seat-number";
+import { dropBreakForShift } from "@/lib/breaks/import-drop";
 
 type Manager = { id: string; name: string };
 type Source = { startAt: string; endAt: string; employeeId: string; sourcePosition: string };
@@ -76,6 +77,7 @@ export async function removeShift(input: {
     const hidden = await tx.shift.updateMany({ where: { id: shift.id, boardRemoved: false,
       supersededAt: null, startAt: shift.startAt, endAt: shift.endAt }, data: { boardRemoved: true } });
     if (hidden.count !== 1) conflict("SHIFT_CHANGED", "The shift changed. Refresh before removing.");
+    await dropBreakForShift(tx, shift.id);
     const data = { shiftId: shift.id, externalId: shift.employee.externalId,
       date: shift.date, board: shift.board, sourcePosition: shift.sourcePosition,
       startAt: shift.startAt, endAt: shift.endAt, state: "removed", cellsJson: JSON.stringify(cells) };

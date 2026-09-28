@@ -1776,7 +1776,7 @@ export function FloorBoard() {
                     <button
                       type="button"
                       onClick={() => onPersonTap(sh)}
-                      data-testid={`available-${sh.employee.externalId}`}
+                      data-testid={`available-${sh.employee.id}`}
                       className={cn(
                         "flex min-h-14 flex-1 flex-col items-start rounded-md border-2 px-3 py-2 text-left active:opacity-90",
                         selected
@@ -1816,7 +1816,7 @@ export function FloorBoard() {
                         }
                         aria-label={t.favoriteToggleLabel}
                         title={t.favoriteToggleLabel}
-                        data-testid={`favorite-${sh.employee.externalId}`}
+                        data-testid={`favorite-${sh.employee.id}`}
                       >
                         {level === "preferred" ? "★" : "☆"}
                       </button>

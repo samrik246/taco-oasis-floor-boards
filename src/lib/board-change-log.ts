@@ -23,6 +23,8 @@ export type BoardChangeParts = {
   breakStart?: string;
   /** Chicago wall-clock HH:mm. */
   breakEnd?: string;
+  /** caja or cocina. The summary then includes board= and still includes count. */
+  board?: "caja" | "cocina";
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -41,6 +43,9 @@ export const BOARD_CHANGE_ROUTES = {
   mandatory: "PUT /api/admin/mandatory",
   agentPaint: "script agent-paint",
   breakSave: "break.save",
+  breakClear: "break.clear",
+  breakCodeCollision: "break.code-collision",
+  breakImportDrop: "break.import-drop",
 } as const;
 
 /** Day, hour, station, count. Request prose never reaches this line. */
@@ -82,6 +87,9 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
     if (parts.columnHidden) bits.push(parts.columnHidden);
     if (parts.columnDefault) bits.push(`default=${parts.columnDefault}`);
     return bits.join(" ");
+  }
+  if (parts.board === "caja" || parts.board === "cocina") {
+    bits.push(`board=${parts.board}`);
   }
   const count = Number.isInteger(parts.count) && parts.count >= 0 ? parts.count : 0;
   bits.push(`count=${count}`);

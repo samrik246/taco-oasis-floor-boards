@@ -16,6 +16,7 @@ import {
 } from "@/lib/import/reconcile";
 import { planRemovalIdentity, type RemovalDecision } from "@/lib/import/removal-identity";
 import { seatNumberForWrite } from "@/lib/assignments/seat-number";
+import { dropImportedBreaks } from "@/lib/breaks/import-drop";
 
 /**
  * Persist a parse result. Never writes pay columns or staff email (they are
@@ -284,6 +285,9 @@ export async function commitImport(
       });
 
     const toCreate = new Set<(typeof parsed.shifts)[number]>();
+    const supersededShiftIds: string[] = [];
+    const changedShiftIds: string[] = [];
+    const boardRemovedShiftIds: string[] = [];
     for (const a of plan.actions) {
       switch (a.kind) {
         case "unchanged":
@@ -293,19 +297,23 @@ export async function commitImport(
             where: { id: a.old.id },
             data: { startAt: a.next.startAt, endAt: a.next.endAt },
           });
+          changedShiftIds.push(a.old.id);
           break;
         case "replaced":
           await supersede(a.old.id);
+          supersededShiftIds.push(a.old.id);
           toCreate.add(a.next);
           break;
         case "removed":
           await supersede(a.old.id);
+          supersededShiftIds.push(a.old.id);
           break;
         case "added":
           toCreate.add(a.next);
           break;
         case "takeover":
           await supersede(a.old.id);
+          supersededShiftIds.push(a.old.id);
           toCreate.add(a.next);
           break;
       }
@@ -325,7 +333,10 @@ export async function commitImport(
       if (decision.action !== "source-missing" && !shiftId) {
         throw new ImportRefusedError("The removed shift changed during import.", "BOARD_CHANGED");
       }
-      if (shiftId) await tx.shift.update({ where: { id: shiftId }, data: { boardRemoved: true } });
+      if (shiftId) {
+        await tx.shift.update({ where: { id: shiftId }, data: { boardRemoved: true } });
+        boardRemovedShiftIds.push(shiftId);
+      }
       const updated = await tx.shiftRemoval.update({
         where: { id: decision.overrideId },
         data: {
@@ -397,6 +408,8 @@ export async function commitImport(
         }
       }
     }
+
+    await dropImportedBreaks(tx, { supersededShiftIds, changedShiftIds, boardRemovedShiftIds });
 
     return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
   });

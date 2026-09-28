@@ -54,20 +54,25 @@ export function newPasscodeSalt(): Buffer {
   return randomBytes(SALT_BYTES);
 }
 
-/**
- * Timing-safe check. A missing row still runs scrypt, then returns false.
- * Throws when the pepper is missing or shorter than 32 bytes.
- */
-export async function verifyStaffPasscode(employeeId: string, code: string): Promise<boolean> {
-  const pepper = staffPasscodePepper();
-  const row = await prisma.staffPasscode.findUnique({
-    where: { employeeId },
-    select: { hash: true, salt: true },
-  });
+/** One scrypt, including a dummy salt when the row is missing. A missing row is never a match. */
+export async function passcodeMatches(
+  row: { hash: string; salt: string } | null,
+  code: string,
+  pepper: string,
+): Promise<boolean> {
   const salt = row ? Buffer.from(row.salt, "hex") : DUMMY_SALT;
   const digest = await hashStaffPasscode(code, salt, pepper);
   const stored = row ? Buffer.from(row.hash, "hex") : DUMMY_HASH;
   if (digest.length !== stored.length) return false;
   const match = timingSafeEqual(digest, stored);
   return row ? match : false;
+}
+
+export async function verifyStaffPasscode(employeeId: string, code: string): Promise<boolean> {
+  const pepper = staffPasscodePepper();
+  const row = await prisma.staffPasscode.findUnique({
+    where: { employeeId },
+    select: { hash: true, salt: true },
+  });
+  return passcodeMatches(row, code, pepper);
 }

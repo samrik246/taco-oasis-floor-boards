@@ -136,8 +136,33 @@ function isBusy(error: unknown): boolean {
   return code === "P2034" || /SQLITE_BUSY|database is locked/i.test(message);
 }
 
+async function liveBreaks(
+  tx: Prisma.TransactionClient,
+  rows: readonly { id?: string; shiftId: string; board: string; startAt: Date; endAt: Date }[],
+): Promise<{ board: string; startAt: Date; endAt: Date }[]> {
+  if (rows.length === 0) return [];
+  const live = await tx.shift.findMany({
+    where: {
+      id: { in: rows.map((row) => row.shiftId) },
+      supersededAt: null,
+      boardRemoved: false,
+    },
+    select: { id: true },
+  });
+  const liveIds = new Set(live.map((shift) => shift.id));
+  return rows
+    .filter((row) => liveIds.has(row.shiftId))
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+}
+
 async function writeBreak(
-  input: { employeeId: string; date: string; startAt: Date; endAt: Date },
+  input: {
+    employeeId: string;
+    date: string;
+    startAt: Date;
+    endAt: Date;
+    expectedBoard?: "caja" | "cocina";
+  },
 ): Promise<{ id: string; replaced: boolean }> {
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.staffBreakLock.upsert({
@@ -153,20 +178,26 @@ async function writeBreak(
     const shifts = await tx.shift.findMany({ where: { employeeId: input.employeeId, date: input.date } });
     const others = await tx.staffBreak.findMany({
       where: { date: input.date, employeeId: { not: input.employeeId } },
-      select: { board: true, startAt: true, endAt: true },
+      select: { shiftId: true, board: true, startAt: true, endAt: true },
     });
     const decision = assessBreak({
       date: input.date,
       startAt: input.startAt,
       endAt: input.endAt,
       shifts,
-      otherBreaks: others,
+      otherBreaks: await liveBreaks(tx, others),
     });
     if ("code" in decision) throw new BreakRefused(decision.code);
+    if (input.expectedBoard && decision.board !== input.expectedBoard) {
+      throw new BreakRefused("BOARD_MISMATCH");
+    }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-      select: { id: true },
+      select: { id: true, board: true },
     });
+    if (input.expectedBoard && existing && existing.board !== input.expectedBoard) {
+      throw new BreakRefused("BOARD_MISMATCH");
+    }
     const saved = existing
       ? await tx.staffBreak.update({
         where: { id: existing.id },
@@ -209,6 +240,8 @@ export async function saveBreak(input: {
   date: string;
   startAt: Date;
   endAt: Date;
+  /** When set, a shift or an existing row on the other board is refused and left in place. */
+  expectedBoard?: "caja" | "cocina";
 }): Promise<{ id: string; replaced: boolean }> {
   for (let attempt = 1; attempt <= BREAK_LOCK_ATTEMPTS; attempt += 1) {
     try {
@@ -221,4 +254,34 @@ export async function saveBreak(input: {
     }
   }
   throw new BreakRefused("LOCK_CONFLICT");
+}
+
+/** Deletes this board's break only. A row on the other board stays and is refused. */
+export async function clearBreak(input: {
+  employeeId: string;
+  date: string;
+  board: "caja" | "cocina";
+}): Promise<{ cleared: boolean }> {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const existing = await tx.staffBreak.findUnique({
+      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
+    });
+    if (!existing) return { cleared: false };
+    if (existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
+    await tx.staffBreak.delete({ where: { id: existing.id } });
+    const employee = await tx.employee.findUnique({
+      where: { id: input.employeeId },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    await writeBoardChange(tx, {
+      id: employee?.id ?? input.employeeId,
+      name: employee ? `${employee.firstName} ${employee.lastName}`.trim() : "Descansos",
+      route: BOARD_CHANGE_ROUTES.breakClear,
+    }, {
+      date: input.date,
+      count: 1,
+      board: input.board,
+    });
+    return { cleared: true };
+  });
 }

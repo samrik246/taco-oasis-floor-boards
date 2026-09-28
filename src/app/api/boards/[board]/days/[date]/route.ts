@@ -8,6 +8,7 @@ import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { loadMandatoryDay } from "@/lib/mandatory-store";
 import { fillMissingSeatNumbers } from "@/lib/assignments/seat-number";
 import { loadStationUse } from "@/lib/assignments/station-use";
+import { boardBreakStripes } from "@/lib/breaks/stripe";
 
 export const runtime = "nodejs";
 
@@ -86,7 +87,6 @@ export async function GET(request: Request, context: RouteContext) {
         supersededAt: sh.supersededAt ? sh.supersededAt.toISOString() : null,
         employee: {
           id: sh.employee.id,
-          externalId: sh.employee.externalId,
           firstName: sh.employee.firstName,
           lastName: sh.employee.lastName,
           email: sh.employee.email,
@@ -120,6 +120,7 @@ export async function GET(request: Request, context: RouteContext) {
         })),
       })),
       stationUse: await loadStationUse(board, date, stations.map((s) => s.id)),
+      breaks: await boardBreakStripes(board, date),
       ...(manager ? { mandatory: await loadMandatoryDay(board, date, owner) } : {}),
     };
 

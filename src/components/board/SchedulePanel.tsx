@@ -252,7 +252,6 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                     <tr
                       key={row.shiftId}
                       data-testid={`schedule-row-${row.shiftId}`}
-                      data-employee={row.externalId}
                       data-start={row.startLabel}
                     >
                       <th

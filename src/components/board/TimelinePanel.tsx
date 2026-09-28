@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { hourGridHours, formatHourLabel } from "@/lib/hour-grid";
+import { hourGridHours, formatHourLabel, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
+import { breakStripeLabel } from "@/lib/breaks/stripe-label";
+import { BreakStripe } from "@/components/breaks/BreakStripe";
 import { displayStationLabel, stationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { formatStartLabel } from "@/lib/schedule/build-schedule";
@@ -99,7 +101,6 @@ export function TimelinePanel({
                 <tr
                   key={shift.id}
                   data-testid={`timeline-row-${shift.id}`}
-                  data-employee={shift.employee.externalId}
                 >
                   <th className="sticky left-0 z-10 border-b border-neutral-300 bg-white px-2 py-2 text-sm font-bold">
                     <span className="flex items-center gap-2">
@@ -122,12 +123,23 @@ export function TimelinePanel({
                       )}
                     </span>
                   </th>
-                  {cells.map((cell, i) => (
+                  {cells.map((cell, i) => {
+                    const hour = hours[i]!;
+                    const stripe = cell.kind === "open" || cell.kind === "seated"
+                      ? breakStripeLabel(
+                        day?.breaks,
+                        shift.employee.id,
+                        shift.id,
+                        chicagoHourStart(date, hour),
+                        chicagoHourEnd(date, hour),
+                      )
+                      : null;
+                    return (
                     <td
-                      key={hours[i]}
+                      key={hour}
                       className={cn(
-                        "border-b border-neutral-300 px-1 py-1 text-center font-semibold",
-                        selectedHour === hours[i] && "bg-neutral-100",
+                        "relative border-b border-neutral-300 px-1 py-1 text-center font-semibold",
+                        selectedHour === hour && "bg-neutral-100",
                         cell.kind === "off" && "text-neutral-400",
                         cell.kind === "open" && "bg-amber-50 text-amber-950",
                         cell.kind === "seated" && "bg-emerald-50 text-emerald-950",
@@ -146,8 +158,10 @@ export function TimelinePanel({
                       <span className="block min-h-10 content-center leading-tight">
                         {cell.label}
                       </span>
+                      <BreakStripe label={stripe} />
                     </td>
-                  ))}
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
