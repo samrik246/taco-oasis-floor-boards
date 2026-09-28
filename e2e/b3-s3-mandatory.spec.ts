@@ -124,6 +124,33 @@ test("C7 an owner mark lights for that date only, and a manager and a staff tabl
   const pill = await page.getByTestId("mandatory-toggle-pdf_pstl").boundingBox();
   const card = await page.getByTestId("paint-palette-pdf_pstl").boundingBox();
   expect(pill && card && pill.width < card.width).toBeTruthy();
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "pointer", value: "coarse" }],
+  });
+  const hit = await page.getByTestId("mandatory-toggle-pdf_pstl").evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    const face = button.querySelector("[data-mandatory-face]")!.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + 6, rect.top + 4);
+    return {
+      coarse: window.matchMedia("(pointer: coarse)").matches,
+      hitHeight: rect.height,
+      hitWidth: rect.width,
+      faceHeight: face.height,
+      cardWidth: button.parentElement?.getBoundingClientRect().width ?? 0,
+      topIsButton: top === button,
+    };
+  });
+  expect(hit.coarse).toBe(true);
+  expect(hit.hitHeight).toBeGreaterThanOrEqual(48);
+  expect(hit.hitWidth).toBeGreaterThanOrEqual(48);
+  expect(hit.hitWidth).toBeLessThan(hit.cardWidth);
+  expect(hit.faceHeight).toBeLessThan(hit.hitHeight);
+  expect(hit.topIsButton).toBe(true);
+  await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+  await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+  await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
   const extra = page.getByTestId("mandatory-gap-pdf_pstl-12");
   await expect(extra).toHaveText("PSTL");
