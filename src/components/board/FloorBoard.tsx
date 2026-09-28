@@ -1655,6 +1655,7 @@ export function FloorBoard() {
             managerToken={manager.token}
             managerId={manager.id}
             readonly={editsLocked}
+            showLevels={showLevels}
             onDraftChange={refreshDraftDates}
             onSaved={async () => { await refreshBoard(); bumpLedger(); }}
           /></> : <TimelinePanel
