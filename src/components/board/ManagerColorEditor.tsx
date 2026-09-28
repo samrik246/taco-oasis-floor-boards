@@ -257,6 +257,7 @@ export function ManagerColorEditor({
     if (board !== "cocina" || !day?.mandatory) return [];
     return uncoveredMandatory({
       stationIds: day.mandatory.stationIds,
+      boardOrder: day.stations.map((station) => station.id),
       hours,
       date,
       shifts: day.shifts,

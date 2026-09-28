@@ -53,12 +53,28 @@ function hourIsOnMatrix(shift: MandatoryGapShift, date: string, hour: number): b
 }
 
 /**
+ * Rank mandatory stations by `day.stations` (palette order).
+ * A station missing from that list keeps its place after the known ones.
+ */
+function stationsInBoardOrder(stationIds: readonly string[], boardOrder: readonly string[]): string[] {
+  const rank = new Map(boardOrder.map((id, index) => [id, index]));
+  return [...stationIds].sort((a, b) => {
+    const ar = rank.get(a) ?? boardOrder.length;
+    const br = rank.get(b) ?? boardOrder.length;
+    return ar - br;
+  });
+}
+
+/**
  * Uncovered mandatory stations. Hours before 11 are never gaps.
  * A pending draft replaces the saved station on a cell the matrix shows.
  * A person at Taquero 2 does not cover Taquero 1.
+ * When `boardOrder` is set, gaps follow that order for every caller.
  */
 export function uncoveredMandatory(input: {
   stationIds: readonly string[];
+  /** `day.stations` ids, top to bottom. Omit to keep `stationIds` order. */
+  boardOrder?: readonly string[];
   hours: readonly number[];
   date: string;
   shifts: readonly MandatoryGapShift[];
@@ -77,8 +93,11 @@ export function uncoveredMandatory(input: {
       if (stationId) occupied.add(`${stationId}|${hour}`);
     }
   }
+  const stationIds = input.boardOrder
+    ? stationsInBoardOrder(input.stationIds, input.boardOrder)
+    : input.stationIds;
   const gaps: MandatoryGap[] = [];
-  for (const stationId of input.stationIds) {
+  for (const stationId of stationIds) {
     for (const hour of gapHours) {
       if (!occupied.has(`${stationId}|${hour}`)) gaps.push({ stationId, hour });
     }

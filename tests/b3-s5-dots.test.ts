@@ -80,6 +80,42 @@ describe("B3 S5 eligibility dots", () => {
     ]);
   });
 
+  it("E1 two gaps follow day.stations order when the mandatory list is reversed", () => {
+    const boardOrder = ["pdf_tf1r", "pdf_guia", "pdf_pr1e", "pdf_tq1r"];
+    const reversed = [...MANDATORY_STATIONS].reverse();
+    const filler = {
+      ...person([]),
+      id: "filler",
+      assignments: [{ stationId: "pdf_tq1r", hourStart: chicagoHourStart(date, 12).toISOString() }],
+    };
+    const gaps = uncoveredMandatory({
+      stationIds: reversed,
+      boardOrder,
+      hours,
+      date,
+      shifts: [filler],
+    });
+    expect(gaps.filter((gap) => gap.hour === 12).map((gap) => gap.stationId)).toEqual([
+      "pdf_tf1r",
+      "pdf_pr1e",
+    ]);
+
+    const ordered = eligibilityDots({
+      gaps,
+      shift: person([
+        { stationId: "pdf_pr1e", level: "preferred" },
+        { stationId: "pdf_tf1r", level: "training" },
+        { stationId: "pdf_tq1r", level: "preferred" },
+      ]),
+      hour: 12,
+      kind: "open",
+    });
+    expect(ordered).toEqual([
+      { stationId: "pdf_tf1r", dim: true },
+      { stationId: "pdf_pr1e", dim: false },
+    ]);
+  });
+
   it("E2 seated and off cells and an absent abilities array return nothing", () => {
     const gaps = gapsFor(person([]));
     const present = person([{ stationId: "pdf_tq1r", level: "preferred" }]);
