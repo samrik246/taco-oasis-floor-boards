@@ -155,6 +155,54 @@ describe("B4 D1 break rules", () => {
     expect(breakAllowanceMinutes(minutes)).toBe(30);
   });
 
+  it("K1 an other-board shift does not raise the caja or cocina allowance", async () => {
+    const date = wednesday;
+    const cocina = {
+      id: "cocina", board: "cocina",
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "11:00 am"),
+    };
+    const other = {
+      id: "other", board: "other",
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "5:00 pm"),
+    };
+    const minutes = scheduledMinutes([cocina, other]);
+    expect(minutes).toBe(180);
+    expect(breakAllowanceMinutes(minutes)).toBe(15);
+    const shifts = [cocina, other];
+    expect(assessBreak({
+      date,
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "8:30 am"),
+      shifts,
+      otherBreaks: [],
+    })).toEqual({ code: "ALLOWANCE" });
+    expect(assessBreak({
+      date,
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "8:15 am"),
+      shifts,
+      otherBreaks: [],
+    })).toMatchObject({ board: "cocina", shiftId: "cocina" });
+
+    const nia = await person("nia", "Nia");
+    await shiftFor(nia.id, date, "cocina", "8:00 am", "11:00 am");
+    await shiftFor(nia.id, date, "other", "8:00 am", "5:00 pm");
+    await expect(saveBreak({
+      employeeId: nia.id,
+      date,
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "8:30 am"),
+    })).rejects.toMatchObject({ code: "ALLOWANCE" });
+    await saveBreak({
+      employeeId: nia.id,
+      date,
+      startAt: chicagoDateTime(date, "8:00 am"),
+      endAt: chicagoDateTime(date, "8:15 am"),
+    });
+  });
+
   it("K2 blackouts are half-open, weekdays only at lunch, and come from breakBlackouts", () => {
     const source = fs.readFileSync(path.join(root, "src/lib/breaks/rules.ts"), "utf8");
     const assess = source.slice(source.indexOf("export function assessBreak"), source.indexOf("function isBusy"));

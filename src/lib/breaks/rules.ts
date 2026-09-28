@@ -58,11 +58,12 @@ export function breakBlackouts(date: string, _board: string): BreakWindow[] {
   return windows;
 }
 
-/** Whole scheduled minutes. Superseded and board-removed shifts do not count. */
+/** Whole scheduled minutes on caja and cocina. Superseded, board-removed, and other boards do not count. */
 export function scheduledMinutes(shifts: readonly BreakShift[]): number {
   let ms = 0;
   for (const shift of shifts) {
     if (shift.supersededAt || shift.boardRemoved) continue;
+    if (shift.board !== "caja" && shift.board !== "cocina") continue;
     ms += shift.endAt.getTime() - shift.startAt.getTime();
   }
   return Math.floor(ms / MINUTE_MS);
