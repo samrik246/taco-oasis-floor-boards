@@ -72,7 +72,7 @@ function EligibilityDots({
   dots: readonly EligibilityDot[];
   stations: readonly StationDto[];
 }) {
-  return <span className="mt-0.5 flex flex-nowrap items-center justify-center gap-px" data-testid={`eligibility-dots-${shiftId}-${hour}`} aria-hidden="true">{dots.map((dot) => {
+  return <span className="mt-0.5 flex flex-wrap items-center justify-center gap-x-px gap-y-0.5" data-testid={`eligibility-dots-${shiftId}-${hour}`} aria-hidden="true">{dots.map((dot) => {
     const station = stations.find((item) => item.id === dot.stationId);
     const mark = selectionMark(dot.level);
     if (!station || mark === "none") return null;
