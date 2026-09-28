@@ -108,7 +108,7 @@ export async function GET(request: Request, context: RouteContext) {
         })),
       })),
       stationUse: await loadStationUse(board, date, stations.map((s) => s.id)),
-      ...(board === "cocina" && manager ? { mandatory: await loadMandatoryDay(date, owner) } : {}),
+      ...(manager ? { mandatory: await loadMandatoryDay(board, date, owner) } : {}),
     };
 
     return NextResponse.json(body, { headers: NO_STORE });

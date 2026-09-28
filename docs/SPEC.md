@@ -119,7 +119,7 @@ At a given `(board, date, hour, stationId)`:
 ### 4.4 Caja stations (beta dictionary)
 | id | label | color | maxConcurrent | priority |
 |----|-------|-------|---------------|----------|
-| mana | MANA (Manager) | pink | 1 | — |
+| mana | Manager | pink | 1 | — |
 | green1 | Green 1 | green | 1 | 1 |
 | yellow | Yellow / Outside | yellow | 1 | 2 |
 | purple1 | Purple 1 | purple | 1 | 3 |

@@ -1,14 +1,28 @@
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
 
-/** Cocina stations that are mandatory every day. They cannot be unmarked. Caja has none. */
-export const MANDATORY_STATIONS = ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e"] as const;
+/**
+ * Stations that are mandatory every day. They cannot be unmarked.
+ * List order is the board-day `stationIds` order. Palette order is separate.
+ */
+export const MANDATORY_STATIONS_BY_BOARD = {
+  cocina: ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e"],
+  caja: ["green1", "purple1", "yellow", "nieves"],
+} as const;
+
+/** Cocina standing stations, in the historical board-day order. */
+export const MANDATORY_STATIONS = MANDATORY_STATIONS_BY_BOARD.cocina;
+
+const DEFAULT_MANDATORY_IDS = new Set<string>([
+  ...MANDATORY_STATIONS_BY_BOARD.cocina,
+  ...MANDATORY_STATIONS_BY_BOARD.caja,
+]);
 
 /** A gap counts from 11:00 through the last grid hour. Earlier hours are never gaps. */
 export const MANDATORY_GAP_START = 11;
 
 export function isDefaultMandatory(stationId: string): boolean {
-  return (MANDATORY_STATIONS as readonly string[]).includes(stationId);
+  return DEFAULT_MANDATORY_IDS.has(stationId);
 }
 
 export function mandatoryGapLabel(station: { shortCode?: string | null; label: string }): string {

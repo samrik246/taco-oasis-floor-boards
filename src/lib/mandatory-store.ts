@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
-import { isDefaultMandatory, MANDATORY_STATIONS } from "@/lib/mandatory";
+import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -13,9 +13,14 @@ function isRealDate(ymd: string): boolean {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-export async function loadMandatoryDay(date: string, canMark: boolean) {
+export async function loadMandatoryDay(
+  board: "caja" | "cocina",
+  date: string,
+  canMark: boolean,
+) {
+  const standing = MANDATORY_STATIONS_BY_BOARD[board];
   const marks = await prisma.mandatoryMark.findMany({
-    where: { board: "cocina", date },
+    where: { board, date },
     select: { stationId: true },
     orderBy: { stationId: "asc" },
   });
@@ -23,7 +28,7 @@ export async function loadMandatoryDay(date: string, canMark: boolean) {
     .map((mark) => mark.stationId)
     .filter((stationId) => !isDefaultMandatory(stationId));
   return {
-    stationIds: [...MANDATORY_STATIONS, ...extraStationIds],
+    stationIds: [...standing, ...extraStationIds],
     extraStationIds,
     canMark,
   };
@@ -43,12 +48,13 @@ export async function setMandatoryMark(input: {
     where: { id: input.stationId },
     select: { id: true, board: true },
   });
-  if (!station || station.board !== "cocina") {
+  if (!station || (station.board !== "caja" && station.board !== "cocina")) {
     return { ok: false, status: 400, error: "Invalid station" };
   }
+  const board = station.board;
 
   const where = {
-    board_date_stationId: { board: "cocina" as const, date: input.date, stationId: input.stationId },
+    board_date_stationId: { board, date: input.date, stationId: input.stationId },
   };
   const existing = await prisma.mandatoryMark.findUnique({ where, select: { id: true } });
   if (input.on === Boolean(existing)) return { ok: true, changed: false };
@@ -57,7 +63,7 @@ export async function setMandatoryMark(input: {
     if (input.on) {
       await tx.mandatoryMark.create({
         data: {
-          board: "cocina",
+          board,
           date: input.date,
           stationId: input.stationId,
           managerId: input.actor.id,

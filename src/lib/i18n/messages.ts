@@ -777,7 +777,7 @@ export const STATION_LABELS: Record<Locale, Record<string, string>> = {
     prepa: "Prepa",
   },
   es: {
-    mana: "MANA (Gerente)",
+    mana: "Manager",
     green1: "Verde 1",
     yellow: "Amarillo / Afuera",
     purple1: "Morado 1",
