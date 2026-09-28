@@ -1,8 +1,22 @@
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import { prisma } from "@/lib/db";
 
-const scryptAsync = promisify(scrypt);
+function scryptAsync(
+  password: Buffer,
+  salt: Buffer,
+  keylen: number,
+  options: ScryptOptions,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCallback(password, salt, keylen, options, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey);
+    });
+  });
+}
 
 export const SCRYPT_N = 16_384;
 export const SCRYPT_R = 8;
@@ -29,12 +43,11 @@ export function staffPasscodePepper(env: NodeJS.ProcessEnv = process.env): strin
 
 /** scrypt(pepper + code, salt). The salt is the per-row random value, not part of the password. */
 export async function hashStaffPasscode(code: string, salt: Buffer, pepper: string): Promise<Buffer> {
-  const key = await scryptAsync(Buffer.from(`${pepper}${code}`, "utf8"), salt, SCRYPT_KEYLEN, {
+  return scryptAsync(Buffer.from(`${pepper}${code}`, "utf8"), salt, SCRYPT_KEYLEN, {
     N: SCRYPT_N,
     r: SCRYPT_R,
     p: SCRYPT_P,
   });
-  return Buffer.isBuffer(key) ? key : Buffer.from(key);
 }
 
 export function newPasscodeSalt(): Buffer {
