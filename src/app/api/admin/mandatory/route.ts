@@ -12,7 +12,7 @@ const putSchema = z.object({
   on: z.boolean(),
 });
 
-/** Owner-only one-day mandatory mark. The three standing stations are not accepted. */
+/** Owner-only one-day mandatory mark. Standing stations are not accepted. */
 export async function PUT(req: Request) {
   const auth = await requireOwnerSession(req);
   if (!auth.ok) return auth.response;

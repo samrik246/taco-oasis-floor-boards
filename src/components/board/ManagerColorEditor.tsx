@@ -254,7 +254,7 @@ export function ManagerColorEditor({
   }, [day, date, hours, locale, t, draft, selectedHour, rowSort]);
   const choices = useMemo(() => paletteChoices(day), [day]);
   const gaps = useMemo(() => {
-    if (board !== "cocina" || !day?.mandatory) return [];
+    if (!day?.mandatory) return [];
     return uncoveredMandatory({
       stationIds: day.mandatory.stationIds,
       boardOrder: day.stations.map((station) => station.id),
@@ -267,7 +267,7 @@ export function ManagerColorEditor({
         stationId: edit.stationId,
       })),
     });
-  }, [board, day, hours, date, draft]);
+  }, [day, hours, date, draft]);
 
   function commitDraft(next: Draft, nextUndo: Draft[]) {
     const retained = writePaintDraft(managerId, board, date, Object.values(next));

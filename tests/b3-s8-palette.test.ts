@@ -68,7 +68,7 @@ describe("B3 S8 palette order", () => {
     expect(order.filter((id) => id === "pdf_tf1r")).toEqual(["pdf_tf1r"]);
   });
 
-  it("breaks a use tie by board order, and caja has no mandatory set", () => {
+  it("breaks a use tie by board order, with caja mandatory first then extra marks", () => {
     const stationUse = [
       { stationId: "green1", count: 4 },
       { stationId: "yellow", count: 4 },
@@ -76,10 +76,31 @@ describe("B3 S8 palette order", () => {
       { stationId: "mana", count: 0 },
     ];
     const order = paletteStationIds({ stations: CAJA_STATIONS, stationUse });
-    expect(order.slice(0, 4)).toEqual(["green1", "yellow", "yellow2", "mana"]);
-    expect(order[0]).not.toBe("mana");
-    expect(order.filter((id) => isDefaultMandatory(id))).toEqual([]);
+    expect(order.slice(0, 4)).toEqual(["green1", "yellow", "purple1", "nieves"]);
+    expect(order.filter((id) => isDefaultMandatory(id))).toEqual([
+      "green1",
+      "yellow",
+      "purple1",
+      "nieves",
+    ]);
+    expect(order[4]).toBe("yellow2");
+    expect(order[5]).toBe("mana");
     expect(order.filter((id) => id === "yellow")).toEqual(["yellow"]);
+
+    const withExtras = paletteStationIds({
+      stations: CAJA_STATIONS,
+      stationUse: [...stationUse, { stationId: "blue", count: 99 }],
+      extraStationIds: ["blue", "green2"],
+    });
+    expect(withExtras.slice(0, 6)).toEqual([
+      "green1",
+      "yellow",
+      "purple1",
+      "nieves",
+      "green2",
+      "blue",
+    ]);
+    expect(withExtras[6]).toBe("yellow2");
   });
 
   it("keeps the same order when a draft is not part of the saved counts", () => {

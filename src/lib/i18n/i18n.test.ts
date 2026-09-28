@@ -35,6 +35,8 @@ describe("i18n board locale", () => {
 
   it("keeps caja UI English", () => {
     expect(stationLabel("en", "green1")).toBe("Green 1");
+    expect(stationLabel("en", "mana")).toBe("Manager");
+    expect(stationLabel("es", "mana")).toBe("Manager");
     expect(messagesFor("en").cashiers).toBe("Cashiers");
     expect(messagesFor("en").ownerUnlocked("S1 Owner")).toBe("Owner - 5 min: S1 Owner");
     expect(messagesFor("es").ownerUnlocked("S1 Owner")).toBe("Dueño - 5 min: S1 Owner");

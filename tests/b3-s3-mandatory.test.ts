@@ -97,6 +97,45 @@ describe("B3 S3 mandatory gap helper", () => {
     expect(mandatoryGapLabel({ shortCode: "TQ1R", label: "Taquero 1 + Relleno" })).toBe("TQ1R");
     expect(mandatoryGapLabel({ shortCode: "  ", label: "Taquero 1 + Relleno" })).toBe("Taquero 1 + Relleno");
   });
+
+  it("an empty caja hour from 11 is a gap, an earlier hour is not, and the second seat does not cover the first", () => {
+    const cajaIds = ["green1", "purple1", "yellow", "nieves"] as const;
+    const open = uncoveredMandatory({
+      stationIds: cajaIds,
+      hours,
+      date: markDate,
+      shifts: [shift],
+    });
+    expect(open.some((gap) => gap.hour < 11)).toBe(false);
+    expect(open.some((gap) => gap.stationId === "yellow" && gap.hour === 10)).toBe(false);
+    expect(open.filter((gap) => gap.hour === 11).map((gap) => gap.stationId)).toEqual([...cajaIds]);
+
+    const coveredBySeconds = uncoveredMandatory({
+      stationIds: cajaIds,
+      hours,
+      date: markDate,
+      shifts: [
+        {
+          ...shift,
+          id: "yellow-two",
+          assignments: [{ stationId: "yellow2", hourStart: chicagoHourStart(markDate, 11).toISOString() }],
+        },
+        {
+          ...shift,
+          id: "purple-two",
+          assignments: [{ stationId: "purple2", hourStart: chicagoHourStart(markDate, 11).toISOString() }],
+        },
+        {
+          ...shift,
+          id: "nieves-two",
+          assignments: [{ stationId: "nieves2", hourStart: chicagoHourStart(markDate, 11).toISOString() }],
+        },
+      ],
+    });
+    for (const stationId of ["yellow", "purple1", "nieves", "green1"]) {
+      expect(coveredBySeconds.some((gap) => gap.stationId === stationId && gap.hour === 11)).toBe(true);
+    }
+  });
 });
 
 describe("B3 S3 mandatory marks", () => {
@@ -221,11 +260,15 @@ describe("B3 S3 mandatory marks", () => {
     expect(next.body.mandatory.stationIds).not.toContain("pdf_pstl");
   });
 
-  it("C4 staff have no mandatory key, a manager cannot mark, and caja has none", async () => {
+  it("C4 staff have no mandatory key, and a manager sees the standing set on both boards", async () => {
     const today = chicagoToday();
     const staff = await day(null, "cocina", today);
     expect(staff.status).toBe(200);
     expect(staff.body).not.toHaveProperty("mandatory");
+
+    const cajaStaff = await day(null, "caja", today);
+    expect(cajaStaff.status).toBe(200);
+    expect(cajaStaff.body).not.toHaveProperty("mandatory");
 
     const manager = await day(managerToken, "cocina", today);
     expect(manager.body.mandatory).toMatchObject({
@@ -238,9 +281,45 @@ describe("B3 S3 mandatory marks", () => {
     expect(owner.body.mandatory.canMark).toBe(true);
     expect(owner.body.mandatory.stationIds).toEqual([...MANDATORY_STATIONS]);
 
-    const caja = await day(ownerToken, "caja", today);
+    const caja = await day(managerToken, "caja", today);
     expect(caja.status).toBe(200);
-    expect(caja.body).not.toHaveProperty("mandatory");
+    expect(caja.body.mandatory).toEqual({
+      stationIds: ["green1", "purple1", "yellow", "nieves"],
+      extraStationIds: [],
+      canMark: false,
+    });
+  });
+
+  it("an owner marks an extra caja station for one day and cannot clear a default", async () => {
+    for (const stationId of ["green1", "purple1", "yellow", "nieves"]) {
+      expect((await put(ownerToken, { date: markDate, stationId, on: false })).status).toBe(400);
+    }
+
+    const cocinaBefore = await day(ownerToken, "cocina", markDate);
+    expect(cocinaBefore.body.mandatory.stationIds).toEqual([...MANDATORY_STATIONS, "pdf_pstl"]);
+
+    const on = await put(ownerToken, { date: markDate, stationId: "green2", on: true });
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ changed: true });
+    const marked = await day(ownerToken, "caja", markDate);
+    expect(marked.body.mandatory.stationIds).toEqual([
+      "green1", "purple1", "yellow", "nieves", "green2",
+    ]);
+    expect(marked.body.mandatory.extraStationIds).toEqual(["green2"]);
+    expect(marked.body.mandatory.canMark).toBe(true);
+
+    const next = await day(ownerToken, "caja", nextDate);
+    expect(next.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves"]);
+    expect(next.body.mandatory.extraStationIds).toEqual([]);
+
+    const off = await put(ownerToken, { date: markDate, stationId: "green2", on: false });
+    expect(off.status).toBe(200);
+    const cleared = await day(ownerToken, "caja", markDate);
+    expect(cleared.body.mandatory.extraStationIds).toEqual([]);
+    expect(cleared.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves"]);
+
+    const cocinaAfter = await day(ownerToken, "cocina", markDate);
+    expect(cocinaAfter.body.mandatory).toEqual(cocinaBefore.body.mandatory);
   });
 });
 
