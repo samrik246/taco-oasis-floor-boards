@@ -5,21 +5,25 @@ import {
   updateEmployee,
 } from "@/lib/employees/service";
 import { validatePersonWrite, rejectManagerSecrets } from "@/lib/admin/validate";
-import { requireManagerSession } from "@/lib/managers/require-session";
+import { presentEmployee } from "@/lib/employees/present";
+import { requireManagerSession, requestIsOwner } from "@/lib/managers/require-session";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, context: RouteContext) {
+export async function GET(req: Request, context: RouteContext) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
     const { id } = await context.params;
     const employee = await getEmployee(id);
     if (!employee) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    return NextResponse.json({ employee });
+    const owner = await requestIsOwner(req);
+    return NextResponse.json({ employee: presentEmployee(employee, owner) });
   } catch (e) {
     console.error(e);
     return NextResponse.json(
@@ -47,6 +51,10 @@ export async function PATCH(req: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
     const json = await req.json();
+    const owner = await requestIsOwner(req);
+    if (json && typeof json === "object" && "abilities" in json && !owner) {
+      return NextResponse.json({ error: "Owner code required" }, { status: 403 });
+    }
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = patchSchema.parse(json);
@@ -67,7 +75,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ employee: result.employee });
+    return NextResponse.json({ employee: presentEmployee(result.employee, owner) });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.message }, { status: 422 });

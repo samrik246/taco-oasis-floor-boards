@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+import { requestIsOwner } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,7 @@ export async function GET(request: Request, context: RouteContext) {
     const { board, date } = paramsSchema.parse(raw);
     const access = await requireDayAccess(request, date);
     if (!access.ok) return access.response;
+    const owner = await requestIsOwner(request);
 
     const [stations, shifts] = await Promise.all([
       prisma.station.findMany({
@@ -74,16 +76,23 @@ export async function GET(request: Request, context: RouteContext) {
           firstName: sh.employee.firstName,
           lastName: sh.employee.lastName,
           email: sh.employee.email,
-          abilities: sh.employee.abilities.map((a) => ({
-            stationId: a.stationId,
-            level: a.level,
-          })),
+          ...(owner
+            ? {
+                abilities: sh.employee.abilities.map((a) => ({
+                  stationId: a.stationId,
+                  level: a.level,
+                })),
+              }
+            : {}),
         },
         assignments: sh.assignments.map((a) => ({
           id: a.id,
           stationId: a.stationId,
           hourStart: a.hourStart.toISOString(),
           hourEnd: a.hourEnd.toISOString(),
+          abilityBlocked: sh.employee.abilities.some(
+            (ability) => ability.stationId === a.stationId && ability.level === "forbidden",
+          ),
         })),
       })),
     };

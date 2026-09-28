@@ -1,4 +1,6 @@
+import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
 
 /** Planned days are manager-only on the API too; sign in the test's own request context. */
 async function managerHeaders(page: Page) {
@@ -13,10 +15,28 @@ type Day = {
   shifts: {
     id: string;
     startAt: string;
-    employee: { abilities: { stationId: string; level: string }[] };
+    employee: { id: string };
     assignments: { id: string; stationId: string; hourStart: string }[];
   }[];
 };
+
+/** The manager day payload no longer carries levels. The fixture may. */
+async function forbiddenStationIds(employeeId: string): Promise<Set<string>> {
+  const root = process.env.FLOOR_BOARDS_TEST_ROOT;
+  if (!root) throw new Error("FLOOR_BOARDS_TEST_ROOT is missing");
+  const prisma = new PrismaClient({
+    datasources: { db: { url: `file:${path.join(root, "e2e.db")}` } },
+  });
+  try {
+    const rows = await prisma.employeeStationAbility.findMany({
+      where: { employeeId, level: "forbidden" },
+      select: { stationId: true },
+    });
+    return new Set(rows.map((row) => row.stationId));
+  } finally {
+    await prisma.$disconnect();
+  }
+}
 
 async function unlock(page: Page) {
   await page.getByTestId("compact-manager").click();
@@ -57,9 +77,10 @@ async function stageOpenHour(page: Page) {
   const day = await response.json() as Day;
   const shift = day.shifts.find((s) => s.id === shiftId);
   expect(shift).toBeDefined();
+  const forbidden = await forbiddenStationIds(shift!.employee.id);
   const station = day.stations.find((candidate) =>
     candidate.maxConcurrent > 0 &&
-    !shift!.employee.abilities.some((a) => a.stationId === candidate.id && a.level === "forbidden") &&
+    !forbidden.has(candidate.id) &&
     day.shifts.flatMap((s) => s.assignments).filter((a) =>
       a.stationId === candidate.id && chicagoHour(a.hourStart) === hour,
     ).length < candidate.maxConcurrent,

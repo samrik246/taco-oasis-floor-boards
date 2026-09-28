@@ -82,3 +82,14 @@ export async function requireOwnerSession(
   }
   return auth;
 }
+
+/** True only when this request's active row role is the exact string owner. */
+export async function requestIsOwner(req: Request): Promise<boolean> {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return false;
+  const row = await prisma.manager.findFirst({
+    where: { id: auth.manager.id, active: true },
+    select: { role: true },
+  });
+  return isOwnerRole(row?.role);
+}

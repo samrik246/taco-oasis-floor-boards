@@ -5,15 +5,21 @@ import {
   listEmployees,
 } from "@/lib/employees/service";
 import { validatePersonWrite, rejectManagerSecrets } from "@/lib/admin/validate";
-import { requireManagerSession } from "@/lib/managers/require-session";
+import { presentEmployee } from "@/lib/employees/present";
+import { requireManagerSession, requestIsOwner } from "@/lib/managers/require-session";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireManagerSession(req);
+  if (!auth.ok) return auth.response;
   try {
+    const owner = await requestIsOwner(req);
     const employees = await listEmployees();
-    return NextResponse.json({ employees });
+    return NextResponse.json({
+      employees: employees.map((employee) => presentEmployee(employee, owner)),
+    });
   } catch (e) {
     console.error(e);
     return NextResponse.json(
@@ -41,6 +47,10 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
   try {
     const json = await req.json();
+    const owner = await requestIsOwner(req);
+    if (json && typeof json === "object" && "abilities" in json && !owner) {
+      return NextResponse.json({ error: "Owner code required" }, { status: 403 });
+    }
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = postSchema.parse(json);
@@ -62,7 +72,7 @@ export async function POST(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ employee: result.employee });
+    return NextResponse.json({ employee: presentEmployee(result.employee, owner) });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.message }, { status: 422 });

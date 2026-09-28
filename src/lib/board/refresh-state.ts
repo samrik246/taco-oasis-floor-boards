@@ -28,6 +28,18 @@ export function isCurrentBoardRequest(
 }
 
 /**
+ * Reject a late day response once the desk token has changed.
+ * Lock clears the token, so an owner fetch that finishes after lock must not
+ * repaint the same board and date.
+ */
+export function isCurrentRequestToken(
+  active: string | null,
+  requested: string | null,
+): boolean {
+  return active === requested;
+}
+
+/**
  * What a side panel (return prompts, tareas) does with a response. A late
  * response for another board or date is dropped; a 401 (the day needs a
  * manager) clears the panel, so a planned day's names never stay on a staff
