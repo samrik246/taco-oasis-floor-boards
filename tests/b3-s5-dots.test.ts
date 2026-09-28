@@ -42,6 +42,7 @@ describe("B3 S5 eligibility dots", () => {
       "pdf_tq1r",
       "pdf_tf1r",
       "pdf_pr1e",
+      "pdf_br1a",
     ]);
 
     const at = (level: string | null) => eligibilityDots({
@@ -51,10 +52,10 @@ describe("B3 S5 eligibility dots", () => {
       kind: "open",
     }).find((dot) => dot.stationId === "pdf_tq1r");
 
-    expect(at("ok")).toEqual({ stationId: "pdf_tq1r", dim: false });
-    expect(at("preferred")).toEqual({ stationId: "pdf_tq1r", dim: false });
-    expect(at(null)).toEqual({ stationId: "pdf_tq1r", dim: false });
-    expect(at("training")).toEqual({ stationId: "pdf_tq1r", dim: true });
+    expect(at("ok")).toEqual({ stationId: "pdf_tq1r", level: "ok" });
+    expect(at("preferred")).toEqual({ stationId: "pdf_tq1r", level: "preferred" });
+    expect(at(null)).toEqual({ stationId: "pdf_tq1r", level: "ok" });
+    expect(at("training")).toEqual({ stationId: "pdf_tq1r", level: "training" });
     expect(at("forbidden")).toBeUndefined();
 
     expect(eligibilityDots({
@@ -75,8 +76,9 @@ describe("B3 S5 eligibility dots", () => {
       kind: "open",
     });
     expect(ordered).toEqual([
-      { stationId: "pdf_tq1r", dim: false },
-      { stationId: "pdf_tf1r", dim: true },
+      { stationId: "pdf_tq1r", level: "preferred" },
+      { stationId: "pdf_tf1r", level: "training" },
+      { stationId: "pdf_br1a", level: "ok" },
     ]);
   });
 
@@ -98,6 +100,7 @@ describe("B3 S5 eligibility dots", () => {
     expect(gaps.filter((gap) => gap.hour === 12).map((gap) => gap.stationId)).toEqual([
       "pdf_tf1r",
       "pdf_pr1e",
+      "pdf_br1a",
     ]);
 
     const ordered = eligibilityDots({
@@ -111,8 +114,9 @@ describe("B3 S5 eligibility dots", () => {
       kind: "open",
     });
     expect(ordered).toEqual([
-      { stationId: "pdf_tf1r", dim: true },
-      { stationId: "pdf_pr1e", dim: false },
+      { stationId: "pdf_tf1r", level: "training" },
+      { stationId: "pdf_pr1e", level: "preferred" },
+      { stationId: "pdf_br1a", level: "ok" },
     ]);
   });
 

@@ -8,10 +8,10 @@ import { levelWhenUnset } from "@/lib/abilities/column-default";
 import type { AbilityLevel } from "@/lib/rules/types";
 import { COCINA_STATIONS } from "@/lib/stations";
 
-/** Stored value → the word on the grid and on both board catalogs. */
+/** Stored value → the word on the Habilidades grid. The Employees panel keeps its own word. */
 export const ABILITY_WORD: Record<AbilityLevel, string> = {
   forbidden: "no",
-  training: "entrenando",
+  training: "poco",
   ok: "bien",
   preferred: "fuerte",
 };
@@ -93,7 +93,7 @@ export function cellLevel(
   return levels.every((level) => level === first) ? (first as AbilityLevel) : "mixed";
 }
 
-/** no → entrenando → bien → fuerte → no. A mixed family opens on bien. */
+/** no → poco → bien → fuerte → no. A mixed family opens on bien. */
 export function nextStoredLevel(current: CellLevel): AbilityLevel {
   if (current === "mixed") return "ok";
   const index = CYCLE.indexOf(current);

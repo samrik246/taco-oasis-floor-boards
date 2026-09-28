@@ -134,7 +134,8 @@ test("H4 erase sits left of undo, selects, and clears a saved cell", async ({ pa
   await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
   const cleared = page.getByTestId(`paint-cell-${shiftId}-${hour}`);
   await expect(cleared.locator("xpath=..")).toHaveAttribute("data-pending", "1");
-  await expect(cleared).toContainText(/Libre|Open/);
+  await expect(cleared).not.toContainText(/Libre|Open/);
+  await expect(cleared).toHaveAttribute("aria-label", /Libre|Open/);
   await page.getByTestId("paint-save").click();
   await expect(page.getByTestId("paint-feedback")).toContainText(/Guardado|Saved/i);
 

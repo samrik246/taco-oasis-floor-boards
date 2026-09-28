@@ -1,4 +1,4 @@
-import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { markForStation } from "@/lib/selection-mark";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
 
@@ -7,7 +7,7 @@ import { isHourInShift } from "@/lib/rules/shift-window";
  * List order is the board-day `stationIds` order. Palette order is separate.
  */
 export const MANDATORY_STATIONS_BY_BOARD = {
-  cocina: ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e"],
+  cocina: ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e", "pdf_br1a"],
   caja: ["green1", "purple1", "yellow", "nieves"],
 } as const;
 
@@ -120,7 +120,7 @@ export function uncoveredMandatory(input: {
   return gaps;
 }
 
-export type EligibilityDot = { stationId: string; dim: boolean };
+export type EligibilityDot = { stationId: string; level: "training" | "ok" | "preferred" };
 
 export type EligibilityCellKind = "off" | "open" | "seated";
 
@@ -145,11 +145,11 @@ export function eligibilityCellKind(
 }
 
 /**
- * One dot per missing station this person may work, in gap order.
- * No abilities array means levels are absent: no dots, including for a missing row.
- * A missing row inside a present array is a full dot, unless that column's
- * default is forbidden. Forbidden is no dot.
- * Training is dim. Ok and preferred are full.
+ * One dot per default-mandatory gap this person may work, in gap order.
+ * One-day marks stay in `gaps` for Falta and the footer; they are not dots.
+ * No abilities array means levels are absent: no dots.
+ * A missing row is bien, unless that column's default is forbidden.
+ * Forbidden is no dot. Training, ok, and preferred keep their own marks.
  */
 export function eligibilityDots(input: {
   gaps: readonly MandatoryGap[];
@@ -163,20 +163,16 @@ export function eligibilityDots(input: {
   if (!Array.isArray(abilities)) return [];
   const dots: EligibilityDot[] = [];
   for (const gap of input.gaps) {
-    if (gap.hour !== input.hour) continue;
+    if (gap.hour !== input.hour || !isDefaultMandatory(gap.stationId)) continue;
+    const mark = markForStation({
+      abilities,
+      stationId: gap.stationId,
+      columnDefault: input.columnDefaults?.get(gap.stationId),
+    });
+    if (mark === "none") continue;
     const row = abilities.find((ability) => ability.stationId === gap.stationId);
-    if (!row) {
-      if (levelWhenUnset(undefined, input.columnDefaults?.get(gap.stationId)) === "forbidden") continue;
-      dots.push({ stationId: gap.stationId, dim: false });
-      continue;
-    }
-    if (row.level === "training") {
-      dots.push({ stationId: gap.stationId, dim: true });
-      continue;
-    }
-    if (row.level === "ok" || row.level === "preferred") {
-      dots.push({ stationId: gap.stationId, dim: false });
-    }
+    const level = row?.level === "training" || row?.level === "preferred" ? row.level : "ok";
+    dots.push({ stationId: gap.stationId, level });
   }
   return dots;
 }

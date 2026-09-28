@@ -75,10 +75,8 @@ describe("B3 S11 column default helper", () => {
       hour: 12,
       kind: "open",
       columnDefaults: new Map([["pdf_pstl", "forbidden"]]),
-    })).toEqual([{ stationId: "pdf_pstl", dim: false }]);
-    expect(eligibilityDots({ gaps, shift, hour: 12, kind: "open" })).toEqual([
-      { stationId: "pdf_pstl", dim: false },
-    ]);
+    })).toEqual([]);
+    expect(eligibilityDots({ gaps, shift, hour: 12, kind: "open" })).toEqual([]);
   });
 });
 

@@ -59,8 +59,8 @@ describe("B3 S8 palette order", () => {
       "pdf_tf1r",
       "pdf_pr1e",
       "pdf_tq1r",
-      "pdf_pstl",
       "pdf_br1a",
+      "pdf_pstl",
       "pdf_br2a",
       "pdf_crne",
       "pdf_tq2r",
@@ -105,7 +105,7 @@ describe("B3 S8 palette order", () => {
 
   it("keeps the same order when a draft is not part of the saved counts", () => {
     const stations = COCINA_STATIONS;
-    const stationUse = [{ stationId: "pdf_br1a", count: 3 }];
+    const stationUse = [{ stationId: "pdf_br2a", count: 3 }];
     const before = paletteStationIds({
       stations,
       stationUse,
@@ -123,8 +123,8 @@ describe("B3 S8 palette order", () => {
       stationUse: [...stationUse, { stationId: "pdf_tq2r", count: 999 }],
       extraStationIds: ["pdf_pstl"],
     });
-    expect(saved.indexOf("pdf_tq2r")).toBeLessThan(saved.indexOf("pdf_br1a"));
-    expect(before.indexOf("pdf_br1a")).toBeLessThan(before.indexOf("pdf_tq2r"));
+    expect(saved.indexOf("pdf_tq2r")).toBeLessThan(saved.indexOf("pdf_br2a"));
+    expect(before.indexOf("pdf_br2a")).toBeLessThan(before.indexOf("pdf_tq2r"));
   });
 
   it("covers the 28 calendar days before the day shown and not that day", () => {
