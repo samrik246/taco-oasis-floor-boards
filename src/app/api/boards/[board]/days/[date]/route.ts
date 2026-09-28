@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { NO_STORE, optionalManager, requireDayAccess } from "@/lib/managers/day-access";
 import { requestIsOwner } from "@/lib/managers/require-session";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { loadMandatoryDay } from "@/lib/mandatory-store";
 import { fillMissingSeatNumbers } from "@/lib/assignments/seat-number";
 import { loadStationUse } from "@/lib/assignments/station-use";
@@ -26,7 +28,7 @@ export async function GET(request: Request, context: RouteContext) {
     const manager = await optionalManager(request);
     const owner = manager ? await requestIsOwner(request) : false;
 
-    const [stations, shifts] = await Promise.all([
+    const [stations, shifts, columnDefaults] = await Promise.all([
       prisma.station.findMany({
         where: { board },
         orderBy: { sortOrder: "asc" },
@@ -52,6 +54,7 @@ export async function GET(request: Request, context: RouteContext) {
         },
         orderBy: [{ startAt: "asc" }, { sourcePosition: "asc" }],
       }),
+      loadColumnDefaults(prisma),
     ]);
 
     const seatNumbers = fillMissingSeatNumbers(shifts.flatMap((sh) => sh.assignments.map((a) => ({
@@ -89,10 +92,18 @@ export async function GET(request: Request, context: RouteContext) {
           email: sh.employee.email,
           ...(owner
             ? {
-                abilities: sh.employee.abilities.map((a) => ({
-                  stationId: a.stationId,
-                  level: a.level,
-                })),
+                abilities: [
+                  ...sh.employee.abilities.map((a) => ({
+                    stationId: a.stationId,
+                    level: a.level,
+                  })),
+                  ...[...columnDefaults.entries()]
+                    .filter(([stationId, level]) =>
+                      level === "forbidden" &&
+                      !sh.employee.abilities.some((a) => a.stationId === stationId),
+                    )
+                    .map(([stationId]) => ({ stationId, level: "forbidden" as const })),
+                ],
               }
             : {}),
         },
@@ -101,9 +112,10 @@ export async function GET(request: Request, context: RouteContext) {
           stationId: a.stationId,
           hourStart: a.hourStart.toISOString(),
           hourEnd: a.hourEnd.toISOString(),
-          abilityBlocked: sh.employee.abilities.some(
-            (ability) => ability.stationId === a.stationId && ability.level === "forbidden",
-          ),
+          abilityBlocked: levelWhenUnset(
+            sh.employee.abilities.find((ability) => ability.stationId === a.stationId)?.level,
+            columnDefaults.get(a.stationId),
+          ) === "forbidden",
           seatNumber: seatNumbers.get(a.id) ?? null,
         })),
       })),

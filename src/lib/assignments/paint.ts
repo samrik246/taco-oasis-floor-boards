@@ -8,6 +8,8 @@ import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
 import { PAINT_FAMILIES, type PaintFamily } from "@/lib/assignments/paint-families";
 import { planPaintSeatNumbers } from "@/lib/assignments/seat-number";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 
 export type PaintEdit = {
   shiftId: string;
@@ -113,6 +115,9 @@ export async function paintAssignments(
       const abilityByKey = new Map(
         abilities.map((a) => [`${a.employeeId}|${a.stationId}`, a.level as AbilityLevel]),
       );
+      const columnDefaults = await loadColumnDefaults(tx);
+      const abilityAt = (employeeId: string, stationId: string) =>
+        levelWhenUnset(abilityByKey.get(`${employeeId}|${stationId}`), columnDefaults.get(stationId));
       const currentByPersonHour = new Map(
         allAtHours
           .filter((a) => a.employeeId != null)
@@ -168,7 +173,7 @@ export async function paintAssignments(
             return conflict("This position family changed. Refresh the board and review the painted hours.");
           }
           if (current && (familyStations as readonly string[]).includes(current.stationId)) {
-            if (abilityByKey.get(`${shift.employeeId}|${current.stationId}`) !== "forbidden") {
+            if (abilityAt(shift.employeeId, current.stationId) !== "forbidden") {
               familyAnchors.push({ shiftId: shift.id, hour: edit.hour, family: edit.family, stationId: current.stationId });
               continue;
             }
@@ -211,7 +216,7 @@ export async function paintAssignments(
           shiftBoard: shift.board,
           maxConcurrent: station.maxConcurrent,
           existingOccupancy: occupancyAt(station.id, hourStart),
-          abilityLevel: abilityByKey.get(`${shift.employeeId}|${station.id}`) ?? null,
+          abilityLevel: abilityAt(shift.employeeId, station.id),
           personAlreadyAssignedAtHour: alreadyAssigned,
           chicagoHour: chicagoHourOf(hourStart),
         });
@@ -257,7 +262,7 @@ export async function paintAssignments(
           const chosen = continuous ?? ids.find((id) => available(change, id));
           if (!chosen) {
             const forbidden = ids.every((id) =>
-              abilityByKey.get(`${change.shift.employeeId}|${id}`) === "forbidden",
+              abilityAt(change.shift.employeeId, id) === "forbidden",
             );
             return invalid(forbidden ? "FORBIDDEN_ABILITY" : "STATION_FULL",
               forbidden ? "This person cannot work in this position family." :

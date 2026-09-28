@@ -4,6 +4,7 @@ import {
   familyForStation,
   type PaintFamily,
 } from "@/lib/assignments/paint-families";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
 import type { AbilityLevel } from "@/lib/rules/types";
 import { COCINA_STATIONS } from "@/lib/stations";
 
@@ -33,6 +34,7 @@ export type AbilityColumn = {
   label: string;
   kind: "family" | "station";
   stationIds: readonly string[];
+  color: string;
 };
 
 export type CellLevel = AbilityLevel | "mixed";
@@ -53,11 +55,14 @@ export function cocinaAbilityColumns(): AbilityColumn[] {
     if (family && cocinaFamilies.has(family)) {
       if (seenFamilies.has(family)) continue;
       seenFamilies.add(family);
+      const firstId = PAINT_FAMILIES[family][0];
+      const first = COCINA_STATIONS.find((item) => item.id === firstId);
       columns.push({
         key: family,
         label: PAINT_FAMILY_LABELS[family],
         kind: "family",
         stationIds: PAINT_FAMILIES[family],
+        color: first?.color ?? station.color,
       });
       continue;
     }
@@ -66,6 +71,7 @@ export function cocinaAbilityColumns(): AbilityColumn[] {
       label: station.label,
       kind: "station",
       stationIds: [station.id],
+      color: station.color,
     });
   }
   return columns;
@@ -75,13 +81,14 @@ export function abilityColumn(key: string): AbilityColumn | null {
   return cocinaAbilityColumns().find((column) => column.key === key) ?? null;
 }
 
-/** A missing row reads as ok (bien). Disagreement inside a family is mixed. */
+/** A missing row reads as the column default, or ok when the column has none. */
 export function cellLevel(
   stationIds: readonly string[],
   rows: readonly { stationId: string; level: string }[],
+  defaults?: ReadonlyMap<string, string>,
 ): CellLevel {
   const byStation = new Map(rows.map((row) => [row.stationId, row.level]));
-  const levels = stationIds.map((id) => byStation.get(id) ?? "ok");
+  const levels = stationIds.map((id) => levelWhenUnset(byStation.get(id), defaults?.get(id)) ?? "ok");
   const first = levels[0] ?? "ok";
   return levels.every((level) => level === first) ? (first as AbilityLevel) : "mixed";
 }

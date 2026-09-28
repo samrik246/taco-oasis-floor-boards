@@ -1,3 +1,4 @@
+import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
 
@@ -146,7 +147,8 @@ export function eligibilityCellKind(
 /**
  * One dot per missing station this person may work, in gap order.
  * No abilities array means levels are absent: no dots, including for a missing row.
- * A missing row inside a present array is a full dot. Forbidden is no dot.
+ * A missing row inside a present array is a full dot, unless that column's
+ * default is forbidden. Forbidden is no dot.
  * Training is dim. Ok and preferred are full.
  */
 export function eligibilityDots(input: {
@@ -154,6 +156,7 @@ export function eligibilityDots(input: {
   shift: EligibilityShift;
   hour: number;
   kind: EligibilityCellKind;
+  columnDefaults?: ReadonlyMap<string, string>;
 }): EligibilityDot[] {
   if (input.kind !== "open") return [];
   const abilities = input.shift.employee.abilities;
@@ -163,6 +166,7 @@ export function eligibilityDots(input: {
     if (gap.hour !== input.hour) continue;
     const row = abilities.find((ability) => ability.stationId === gap.stationId);
     if (!row) {
+      if (levelWhenUnset(undefined, input.columnDefaults?.get(gap.stationId)) === "forbidden") continue;
       dots.push({ stationId: gap.stationId, dim: false });
       continue;
     }

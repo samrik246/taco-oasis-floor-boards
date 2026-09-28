@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { validateAssignment } from "@/lib/rules/assign";
-import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
+import type { RuleViolation } from "@/lib/rules/types";
 import { chicagoHourOf, chicagoHourStart, chicagoHourEnd, hourGridHours } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 import { isFutureHour } from "@/lib/rules/live-hour";
@@ -10,6 +10,8 @@ import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { familyForStation } from "@/lib/assignments/paint-families";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { carriedSeatNumber, numberedFamilySeats, seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 /** Caller-owned transaction. A helper that receives one must not open another. */
@@ -121,16 +123,17 @@ export async function createAssignment(
       }
       const station = await tx.station.findUnique({ where: { id: params.stationId } });
       if (!station) return { ok: false, status: 404, violations: [{ code: "STATION_NOT_FOUND", message: "Station not found" }] } as const;
-      const [occupancy, personAssignments, ability] = await Promise.all([
+      const [occupancy, personAssignments, ability, columnDefaults] = await Promise.all([
         tx.assignment.count({ where: { stationId: params.stationId, hourStart } }),
         tx.assignment.count({ where: { hourStart, employeeId: shift.employeeId } }),
         tx.employeeStationAbility.findUnique({ where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } } }),
+        loadColumnDefaults(tx),
       ]);
       const violations = validateAssignment({
         hourStart, hourEnd, shiftStart: shift.startAt, shiftEnd: shift.endAt,
         stationId: station.id, stationBoard: station.board, shiftBoard: shift.board,
         maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
-        abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+        abilityLevel: levelWhenUnset(ability?.level, columnDefaults.get(params.stationId)),
         personAlreadyAssignedAtHour: personAssignments > 0,
         chicagoHour: chicagoHourOf(hourStart),
       });
@@ -219,10 +222,13 @@ export async function createShiftAssignment(
       return { ok: false, status: 422, violations: [{ code: "STATION_BOARD_MISMATCH", message: "That station belongs to the other board" }] };
     }
 
-    const ability = await tx.employeeStationAbility.findUnique({
-      where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } },
-    });
-    if ((ability?.level as AbilityLevel | undefined) === "forbidden") {
+    const [ability, columnDefaults] = await Promise.all([
+      tx.employeeStationAbility.findUnique({
+        where: { employeeId_stationId: { employeeId: shift.employeeId, stationId: params.stationId } },
+      }),
+      loadColumnDefaults(tx),
+    ]);
+    if (levelWhenUnset(ability?.level, columnDefaults.get(params.stationId)) === "forbidden") {
       return { ok: false, status: 422, violations: [{ code: "FORBIDDEN_ABILITY", message: "This person can't work that station" }] };
     }
 
@@ -590,14 +596,17 @@ export async function swapAssignments(
         if (refusesFutureHour(p.shift, p.hourStart, now)) {
           return { ok: false, status: 422, violations: [supersededViolation] } as const;
         }
-        const ability = await tx.employeeStationAbility.findUnique({
-      where: {
-        employeeId_stationId: {
-          employeeId: p.shift.employeeId,
-          stationId: p.station.id,
-        },
-      },
-    });
+        const [ability, columnDefaults] = await Promise.all([
+          tx.employeeStationAbility.findUnique({
+            where: {
+              employeeId_stationId: {
+                employeeId: p.shift.employeeId,
+                stationId: p.station.id,
+              },
+            },
+          }),
+          loadColumnDefaults(tx),
+        ]);
 
     // Occupancy: exclude both swap partners at this station+hour
         const occupancy = await tx.assignment.count({
@@ -628,7 +637,7 @@ export async function swapAssignments(
       maxConcurrent: p.station.maxConcurrent,
       existingOccupancy: occupancy,
       updatingExistingOnStation: false,
-      abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+      abilityLevel: levelWhenUnset(ability?.level, columnDefaults.get(p.station.id)),
       personAlreadyAssignedAtHour: otherPerson > 0,
       chicagoHour: chicagoHourOf(p.hourStart),
     });
