@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { AbilitiesGrid } from "@/components/admin/AbilitiesGrid";
 import { STATION_COLORS } from "@/lib/admin/validate";
 import { hourGridHours } from "@/lib/hour-grid";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
@@ -29,7 +30,6 @@ type Person = {
   firstName: string;
   lastName: string;
   email: string | null;
-  abilities: { stationId: string; level: string }[];
 };
 
 type TareaRow = {
@@ -43,7 +43,7 @@ type TareaRow = {
 
 type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean; role: string };
 
-type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "managers" | "cambios" | "positions";
+type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "habilidades" | "managers" | "cambios" | "positions";
 
 type ChangeRow = {
   id: string;
@@ -226,7 +226,9 @@ export function BackOffice() {
             ["tareas", "Tareas"],
             ["seats", "Seat plan"],
             ["sales", "Sales %"],
-            ...(deskRole === "owner" ? ([["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][]) : []),
+            ...(deskRole === "owner"
+              ? ([["habilidades", "Habilidades"], ["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][])
+              : []),
             ["positions", "Positions"],
           ] as [Tab, string][]).map(([id, label]) => (
           <button
@@ -273,11 +275,12 @@ export function BackOffice() {
       {tab === "sales" && (
         <SalesTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
-      {(tab === "managers" || tab === "cambios") && deskRole !== "owner" && (
+      {(tab === "habilidades" || tab === "managers" || tab === "cambios") && deskRole !== "owner" && (
         <p className="text-sm font-semibold text-red-900" data-testid="owner-code-required">
           Owner code required
         </p>
       )}
+      {tab === "habilidades" && deskRole === "owner" && token && <AbilitiesGrid token={token} />}
       {tab === "managers" && deskRole === "owner" && <ManagersTab auth={auth} onError={setError} />}
       {tab === "cambios" && deskRole === "owner" && <CambiosTab auth={auth} onError={setError} />}
       {tab === "positions" && (
@@ -443,31 +446,17 @@ function PeopleTab({
   onSaved: (msg: string) => void;
 }) {
   const [people, setPeople] = useState<Person[]>([]);
-  const [stations, setStations] = useState<StationRow[]>([]);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [editId, setEditId] = useState("");
-  const [stationId, setStationId] = useState("");
-  const [level, setLevel] = useState("ok");
 
   const load = useCallback(async () => {
-    const [peopleRes, stationRes] = await Promise.all([
-      fetch("/api/employees"),
-      fetch("/api/admin/stations", { headers: auth }),
-    ]);
+    const peopleRes = await fetch("/api/employees", { headers: auth });
     if (!peopleRes.ok) {
       onError(await readError(peopleRes));
       return;
     }
-    if (!stationRes.ok) {
-      onError(await readError(stationRes));
-      return;
-    }
     const peopleData = (await peopleRes.json()) as { employees: Person[] };
-    const stationData = (await stationRes.json()) as { stations: StationRow[] };
     setPeople(peopleData.employees);
-    setStations(stationData.stations);
-    setStationId((prev) => prev || stationData.stations[0]?.id || "");
   }, [auth, onError]);
 
   useEffect(() => {
@@ -490,27 +479,6 @@ function PeopleTab({
     await load();
   }
 
-  async function saveAbility() {
-    const person = people.find((row) => row.id === editId);
-    if (!person || !stationId) {
-      onError("Pick a person and a station.");
-      return;
-    }
-    const abilities = person.abilities.filter((a) => a.stationId !== stationId);
-    abilities.push({ stationId, level });
-    const res = await fetch(`/api/employees/${person.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...auth },
-      body: JSON.stringify({ abilities }),
-    });
-    if (!res.ok) {
-      onError(await readError(res));
-      return;
-    }
-    onSaved("Ability saved");
-    await load();
-  }
-
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
@@ -518,30 +486,6 @@ function PeopleTab({
         <input className="min-h-11 rounded border-2 px-2" placeholder="Last" value={lastName} data-testid="back-office-last" onChange={(e) => setLastName(e.target.value)} />
         <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" onClick={() => void create()} data-testid="back-office-add-person">
           Add person
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <select className="min-h-11 rounded border-2 px-2" value={editId} data-testid="back-office-person" onChange={(e) => setEditId(e.target.value)}>
-          <option value="">Person</option>
-          {people.map((person) => (
-            <option key={person.id} value={person.id}>
-              {person.firstName} {person.lastName}
-            </option>
-          ))}
-        </select>
-        <select className="min-h-11 rounded border-2 px-2" value={stationId} onChange={(e) => setStationId(e.target.value)}>
-          {stations.map((station) => (
-            <option key={station.id} value={station.id}>{station.label}</option>
-          ))}
-        </select>
-        <select className="min-h-11 rounded border-2 px-2" value={level} onChange={(e) => setLevel(e.target.value)}>
-          <option value="forbidden">forbidden</option>
-          <option value="training">training</option>
-          <option value="ok">ok</option>
-          <option value="preferred">preferred</option>
-        </select>
-        <button type="button" className="min-h-11 rounded border-2 border-neutral-900 px-4 font-bold" onClick={() => void saveAbility()}>
-          Save ability
         </button>
       </div>
       <ul className="text-sm">

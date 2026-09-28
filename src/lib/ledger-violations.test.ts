@@ -120,4 +120,62 @@ describe("findBoardViolations", () => {
 
     expect(findBoardViolations(day)).toEqual([]);
   });
+
+  it("flags a forbidden placement from levels, or from abilityBlocked when levels are absent", () => {
+    const base = (): DayBoardDto => ({
+      board: "cocina",
+      date: "2026-09-20",
+      stations: [
+        {
+          id: "pdf_guia",
+          label: "Guía",
+          color: "orange",
+          maxConcurrent: 1,
+          sortOrder: 1,
+          priority: null,
+        },
+      ],
+      shifts: [
+        {
+          id: "sh1",
+          date: "2026-09-20",
+          startAt: chicagoDateTime("2026-09-20", "8:00 am").toISOString(),
+          endAt: chicagoDateTime("2026-09-20", "5:00 pm").toISOString(),
+          sourcePosition: "Cocina",
+          board: "cocina",
+          employee: {
+            id: "e1",
+            externalId: "1",
+            firstName: "Nia",
+            lastName: "Sol",
+            email: null,
+          },
+          assignments: [
+            {
+              id: "a1",
+              stationId: "pdf_guia",
+              hourStart: chicagoDateTime("2026-09-20", "10:00 am").toISOString(),
+              hourEnd: chicagoDateTime("2026-09-20", "11:00 am").toISOString(),
+              abilityBlocked: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    const owner = base();
+    owner.shifts[0]!.employee.abilities = [{ stationId: "pdf_guia", level: "forbidden" }];
+    const hidden = base();
+    const allowed = base();
+    allowed.shifts[0]!.assignments[0]!.abilityBlocked = false;
+    const levelsWin = base();
+    levelsWin.shifts[0]!.employee.abilities = [{ stationId: "pdf_guia", level: "ok" }];
+
+    const ownerHit = findBoardViolations(owner).find((row) => row.code === "FORBIDDEN_ABILITY");
+    const hiddenHit = findBoardViolations(hidden).find((row) => row.code === "FORBIDDEN_ABILITY");
+    expect(ownerHit?.message).toBe("Employee is forbidden from station pdf_guia");
+    expect(hiddenHit?.message).toBe(ownerHit?.message);
+    expect(findBoardViolations(allowed).some((row) => row.code === "FORBIDDEN_ABILITY")).toBe(false);
+    expect(findBoardViolations(levelsWin).some((row) => row.code === "FORBIDDEN_ABILITY")).toBe(false);
+  });
 });

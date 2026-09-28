@@ -15,9 +15,13 @@ export type BoardViolation = {
 function abilityLevel(
   shift: ShiftDto,
   stationId: string,
+  abilityBlocked: boolean | undefined,
 ): AbilityLevel | null {
-  const a = shift.employee.abilities.find((x) => x.stationId === stationId);
-  return (a?.level as AbilityLevel | undefined) ?? null;
+  if (shift.employee.abilities) {
+    const a = shift.employee.abilities.find((x) => x.stationId === stationId);
+    return (a?.level as AbilityLevel | undefined) ?? null;
+  }
+  return abilityBlocked ? "forbidden" : null;
 }
 
 function chicagoHourLabel(iso: string): string {
@@ -41,6 +45,7 @@ export function findBoardViolations(day: DayBoardDto): BoardViolation[] {
     stationId: string;
     hourStartMs: number;
     hourStartIso: string;
+    abilityBlocked: boolean | undefined;
     shift: ShiftDto;
   };
 
@@ -52,6 +57,7 @@ export function findBoardViolations(day: DayBoardDto): BoardViolation[] {
         stationId: a.stationId,
         hourStartMs: new Date(a.hourStart).getTime(),
         hourStartIso: a.hourStart,
+        abilityBlocked: a.abilityBlocked,
         shift: sh,
       });
     }
@@ -96,7 +102,7 @@ export function findBoardViolations(day: DayBoardDto): BoardViolation[] {
       maxConcurrent: station.maxConcurrent,
       existingOccupancy,
       updatingExistingOnStation: true,
-      abilityLevel: abilityLevel(row.shift, station.id),
+      abilityLevel: abilityLevel(row.shift, station.id, row.abilityBlocked),
       personAlreadyAssignedAtHour: personElsewhere,
       chicagoHour: chicagoHourOf(new Date(row.hourStartIso)),
     });

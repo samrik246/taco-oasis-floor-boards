@@ -23,7 +23,7 @@ export type EmployeeDto = {
   firstName: string;
   lastName: string;
   email: string | null;
-  abilities: AbilityDto[];
+  abilities?: AbilityDto[];
 };
 
 export type AssignmentDto = {
@@ -31,6 +31,8 @@ export type AssignmentDto = {
   stationId: string;
   hourStart: string;
   hourEnd: string;
+  /** True only when this person is forbidden at this station. No other level. */
+  abilityBlocked?: boolean;
 };
 
 export type ShiftDto = {

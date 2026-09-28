@@ -23,6 +23,7 @@ export const BOARD_CHANGE_ROUTES = {
   copyDay: "POST /api/assignments/copy-day",
   clear: "DELETE /api/assignments/[id]",
   positionMove: "POST /api/position-moves",
+  abilities: "PUT /api/admin/abilities",
 } as const;
 
 /** Day, hour, station, count. Request prose never reaches this line. */

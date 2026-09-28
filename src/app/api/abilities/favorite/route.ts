@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toggleFavorite } from "@/lib/abilities/favorite";
-import { requireManagerSession } from "@/lib/managers/require-session";
+import { requireOwnerSession } from "@/lib/managers/require-session";
 
 export const runtime = "nodejs";
 
@@ -11,11 +11,10 @@ const bodySchema = z.object({
 });
 
 /**
- * POST /api/abilities/favorite — Planner H. Manager session required, same
- * as copy-day and Colocar fijos.
+ * POST /api/abilities/favorite — owner only. A manager receives 403 and no level.
  */
 export async function POST(request: Request) {
-  const auth = await requireManagerSession(request);
+  const auth = await requireOwnerSession(request);
   if (!auth.ok) return auth.response;
   try {
     const json = await request.json();

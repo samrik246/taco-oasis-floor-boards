@@ -528,6 +528,10 @@ export function FloorBoard() {
     return () => window.clearInterval(id);
   }, [refreshDates, refreshPhase1]);
 
+  const showLevels = Boolean(
+    day?.shifts.some((shift) => Array.isArray(shift.employee.abilities)),
+  );
+
   const available = useMemo(() => {
     if (!day || !date) return [];
     // Turno completo lists the whole open day, one row per shift id — a
@@ -539,7 +543,7 @@ export function FloorBoard() {
       assignMode === "shift"
         ? shiftsForWholeDay(day.shifts)
         : availableShiftsForHour(day.shifts, date, hour);
-    if (selectedStationId) {
+    if (selectedStationId && showLevels) {
       list = sortShiftsByAbilityForStation(list, selectedStationId);
       list = filterByAbilityLevel(list, selectedStationId, abilityFilter);
       if (abilityFilter !== "forbidden") {
@@ -549,7 +553,7 @@ export function FloorBoard() {
       }
     }
     return list;
-  }, [day, date, hour, selectedStationId, abilityFilter, assignMode]);
+  }, [day, date, hour, selectedStationId, abilityFilter, assignMode, showLevels]);
 
   const violations = useMemo(
     () => (day ? findBoardViolations(day) : []),
@@ -1711,6 +1715,7 @@ export function FloorBoard() {
               </span>
             </div>
 
+            {showLevels && (
             <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-neutral-700">
               {t.abilityFilter}
               <select
@@ -1720,6 +1725,7 @@ export function FloorBoard() {
                   setAbilityFilter(e.target.value as AbilityLevel | "all")
                 }
                 disabled={!selectedStationId}
+                data-testid="ability-filter"
               >
                 <option value="all">{t.abilityAll}</option>
                 <option value="preferred">{t.abilityPreferred}</option>
@@ -1728,6 +1734,7 @@ export function FloorBoard() {
                 <option value="forbidden">{t.abilityForbidden}</option>
               </select>
             </label>
+            )}
 
             {!selectedStationId && canMutateStaff && (
               <p className="text-sm font-medium text-neutral-700">{t.tapHint}</p>
@@ -1776,18 +1783,19 @@ export function FloorBoard() {
                       >
                         {sh.sourcePosition}
                       </span>
-                      {level && (
+                      {showLevels && level && (
                         <span
                           className={cn(
                             "mt-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase",
                             abilityBadgeClass(level),
                           )}
+                          data-testid="ability-badge"
                         >
                           {abilityLevelLabel(locale, level)}
                         </span>
                       )}
                     </button>
-                    {selectedStationId && isManager && level !== "forbidden" && (
+                    {showLevels && selectedStationId && isManager && level !== "forbidden" && (
                       <button
                         type="button"
                         className="min-h-11 min-w-11 rounded-md border-2 border-neutral-500 bg-white text-lg active:bg-neutral-200"
@@ -2024,7 +2032,6 @@ export function FloorBoard() {
                 />
                 <EmployeesPanel
                   readonly={editsLocked}
-                  board={board}
                   authHeaders={managerAuthHeaders(manager?.token)}
                 />
                 <ManagerNotesPanel

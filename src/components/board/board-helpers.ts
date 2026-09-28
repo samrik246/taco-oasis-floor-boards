@@ -12,7 +12,7 @@ export function abilityFor(
   shift: ShiftDto,
   stationId: string,
 ): AbilityLevel | null {
-  const a = shift.employee.abilities.find((x) => x.stationId === stationId);
+  const a = shift.employee.abilities?.find((x) => x.stationId === stationId);
   return (a?.level as AbilityLevel | undefined) ?? null;
 }
 

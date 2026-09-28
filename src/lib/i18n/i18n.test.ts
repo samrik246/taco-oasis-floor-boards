@@ -55,8 +55,10 @@ describe("i18n board locale", () => {
       expect(abilityLevelLabel("en", level)).not.toBe(level);
       expect(abilityLevelLabel("es", level)).not.toBe(level);
     }
-    expect(abilityLevelLabel("es", "forbidden")).toBe("Prohibida");
-    expect(abilityLevelLabel("en", "forbidden")).toBe("Forbidden");
+    expect(abilityLevelLabel("es", "forbidden")).toBe("no");
+    expect(abilityLevelLabel("en", "forbidden")).toBe("no");
+    expect(abilityLevelLabel("es", "preferred")).toBe("fuerte");
+    expect(abilityLevelLabel("en", "training")).toBe("entrenando");
   });
 
   it("joins the whole-shift card parts in order, dropping zero counts", () => {
