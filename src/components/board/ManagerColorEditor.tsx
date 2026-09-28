@@ -11,12 +11,12 @@ import type { PaintEdit } from "@/lib/assignments/paint";
 import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
-import { isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory } from "@/lib/mandatory";
+import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
 import { comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
 import { buildTimelineRows, personName } from "./timeline-rows";
-import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
+import type { BoardKindUi, DayBoardDto, ShiftDto, StationDto } from "./types";
 
 type Props = {
   day: DayBoardDto | null;
@@ -29,6 +29,7 @@ type Props = {
   managerToken: string;
   managerId: string;
   readonly: boolean;
+  showLevels: boolean;
   onSaved: () => Promise<void>;
   onDraftChange: () => void;
 };
@@ -56,6 +57,23 @@ function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
       label: PAINT_FAMILY_LABELS[family], color: null,
       detail: members.map((member) => `${member.label} (${member.color})`).join(" · ") }, exact];
   });
+}
+
+function EligibilityDots({
+  shiftId,
+  hour,
+  dots,
+  stations,
+}: {
+  shiftId: string;
+  hour: number;
+  dots: readonly EligibilityDot[];
+  stations: readonly StationDto[];
+}) {
+  return <span className="mt-0.5 flex items-center justify-center gap-1" data-testid={`eligibility-dots-${shiftId}-${hour}`} aria-hidden="true">{dots.map((dot) => {
+    const station = stations.find((item) => item.id === dot.stationId);
+    return <span key={dot.stationId} className={cn("inline-block size-2.5 rounded-full border-2", station ? stationColorClass(station.color) : "border-neutral-700 bg-neutral-200", dot.dim ? "opacity-40 ring-2 ring-neutral-300" : "opacity-100")} data-testid={`eligibility-dot-${shiftId}-${hour}-${dot.stationId}`} data-dim={dot.dim ? "1" : "0"} />;
+  })}</span>;
 }
 
 function draftKey(shiftId: string, hour: number): string {
@@ -98,7 +116,7 @@ function editStillMatches(day: DayBoardDto, date: string, edit: PaintEdit): bool
 /** Manager's combined position palette, current-hour board and timeline. */
 export function ManagerColorEditor({
   day, board, date, locale, t, selectedHour, onSelectHour,
-  managerToken, managerId, readonly, onSaved, onDraftChange,
+  managerToken, managerId, readonly, showLevels, onSaved, onDraftChange,
 }: Props) {
   const hours = useMemo(() => hourGridHours(), []);
   const [selected, setSelected] = useState<string | "erase" | null>(null);
@@ -239,6 +257,7 @@ export function ManagerColorEditor({
     if (board !== "cocina" || !day?.mandatory) return [];
     return uncoveredMandatory({
       stationIds: day.mandatory.stationIds,
+      boardOrder: day.stations.map((station) => station.id),
       hours,
       date,
       shifts: day.shifts,
@@ -486,8 +505,21 @@ export function ManagerColorEditor({
                 const savedNumber = !edit && cell.kind === "seated"
                   ? shift.assignments.find((item) => item.stationId === cell.stationId && new Date(item.hourStart).getTime() === chicagoHourStart(date, hour).getTime())?.seatNumber
                   : null;
+                const dots = showLevels
+                  ? eligibilityDots({
+                    gaps,
+                    shift,
+                    hour,
+                    kind: ended ? "off" : eligibilityCellKind(cell.kind, edit),
+                  })
+                  : [];
+                const dotText = dots.map((dot) => {
+                  const target = day?.stations.find((item) => item.id === dot.stationId);
+                  const name = mandatoryGapLabel(target ?? { label: dot.stationId });
+                  return dot.dim ? `${name} entrenando` : name;
+                }).join(", ");
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{savedNumber != null && <span className="ml-1 tabular-nums" data-testid={`paint-seat-${shift.id}-${hour}`}> {savedNumber}</span>}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{savedNumber != null && <span className="ml-1 tabular-nums" data-testid={`paint-seat-${shift.id}-${hour}`}> {savedNumber}</span>}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
                 </td>;
               })}
             </tr>)}</tbody>

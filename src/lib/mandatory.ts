@@ -53,12 +53,28 @@ function hourIsOnMatrix(shift: MandatoryGapShift, date: string, hour: number): b
 }
 
 /**
+ * Rank mandatory stations by `day.stations` (palette order).
+ * A station missing from that list keeps its place after the known ones.
+ */
+function stationsInBoardOrder(stationIds: readonly string[], boardOrder: readonly string[]): string[] {
+  const rank = new Map(boardOrder.map((id, index) => [id, index]));
+  return [...stationIds].sort((a, b) => {
+    const ar = rank.get(a) ?? boardOrder.length;
+    const br = rank.get(b) ?? boardOrder.length;
+    return ar - br;
+  });
+}
+
+/**
  * Uncovered mandatory stations. Hours before 11 are never gaps.
  * A pending draft replaces the saved station on a cell the matrix shows.
  * A person at Taquero 2 does not cover Taquero 1.
+ * When `boardOrder` is set, gaps follow that order for every caller.
  */
 export function uncoveredMandatory(input: {
   stationIds: readonly string[];
+  /** `day.stations` ids, top to bottom. Omit to keep `stationIds` order. */
+  boardOrder?: readonly string[];
   hours: readonly number[];
   date: string;
   shifts: readonly MandatoryGapShift[];
@@ -77,11 +93,72 @@ export function uncoveredMandatory(input: {
       if (stationId) occupied.add(`${stationId}|${hour}`);
     }
   }
+  const stationIds = input.boardOrder
+    ? stationsInBoardOrder(input.stationIds, input.boardOrder)
+    : input.stationIds;
   const gaps: MandatoryGap[] = [];
-  for (const stationId of input.stationIds) {
+  for (const stationId of stationIds) {
     for (const hour of gapHours) {
       if (!occupied.has(`${stationId}|${hour}`)) gaps.push({ stationId, hour });
     }
   }
   return gaps;
+}
+
+export type EligibilityDot = { stationId: string; dim: boolean };
+
+export type EligibilityCellKind = "off" | "open" | "seated";
+
+type EligibilityShift = {
+  employee: {
+    abilities?: readonly { stationId: string; level: string }[] | null;
+  };
+};
+
+/**
+ * A pending paint keeps the saved cell kind. A station or family fill is seated.
+ * An erase pending is open. Off stays off.
+ */
+export function eligibilityCellKind(
+  saved: EligibilityCellKind,
+  pending: { stationId: string | null; family?: string } | undefined,
+): EligibilityCellKind {
+  if (saved === "off") return "off";
+  if (!pending) return saved;
+  if (pending.stationId != null || pending.family) return "seated";
+  return "open";
+}
+
+/**
+ * One dot per missing station this person may work, in gap order.
+ * No abilities array means levels are absent: no dots, including for a missing row.
+ * A missing row inside a present array is a full dot. Forbidden is no dot.
+ * Training is dim. Ok and preferred are full.
+ */
+export function eligibilityDots(input: {
+  gaps: readonly MandatoryGap[];
+  shift: EligibilityShift;
+  hour: number;
+  kind: EligibilityCellKind;
+}): EligibilityDot[] {
+  if (input.kind !== "open") return [];
+  const abilities = input.shift.employee.abilities;
+  if (!Array.isArray(abilities)) return [];
+  const dots: EligibilityDot[] = [];
+  for (const gap of input.gaps) {
+    if (gap.hour !== input.hour) continue;
+    const row = abilities.find((ability) => ability.stationId === gap.stationId);
+    if (!row) {
+      dots.push({ stationId: gap.stationId, dim: false });
+      continue;
+    }
+    if (row.level === "training") {
+      dots.push({ stationId: gap.stationId, dim: true });
+      continue;
+    }
+    if (row.level === "ok" || row.level === "preferred") {
+      dots.push({ stationId: gap.stationId, dim: false });
+    }
+  }
+  return dots;
 }
