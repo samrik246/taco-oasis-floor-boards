@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { useSearchParams } from "next/navigation";
+import { KioskLock, kioskRequested } from "@/components/board/KioskLock";
 import { STAFF_SESSION_HEADER } from "@/lib/breaks/header";
+import { breakLengthMinutes, breakLengthsForStart, breakStartChoices } from "@/lib/breaks/picker-steps";
 import { TIMEZONE } from "@/lib/constants";
 
 export const BREAK_SAVED_MS = 10_000;
@@ -32,6 +34,7 @@ function range(slot: Slot): string {
 
 export function DescansosScreen() {
   const params = useSearchParams();
+  const kiosk = kioskRequested(params);
   const boardParam = params.get("board");
   const board = boardParam === "caja" || boardParam === "cocina" ? boardParam : null;
   const [phase, setPhase] = useState<Phase>("home");
@@ -41,11 +44,13 @@ export function DescansosScreen() {
   const [message, setMessage] = useState("");
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [chosenStart, setChosenStart] = useState<string | null>(null);
 
   const goHome = useCallback((next: Phase = "home") => {
     setToken(null);
     setMine(null);
     setDigits("");
+    setChosenStart(null);
     setPaused(false);
     setPhase(next);
   }, []);
@@ -111,6 +116,7 @@ export function DescansosScreen() {
         return;
       }
       setToken(body.token);
+      setChosenStart(null);
       setPhase("picker");
       await loadMine(body.token);
     } finally {
@@ -182,8 +188,13 @@ export function DescansosScreen() {
     }
   }
 
+  const starts = mine ? breakStartChoices(mine.slots) : [];
+  const lengths = mine && chosenStart ? breakLengthsForStart(mine.slots, chosenStart) : [];
+  const showingLengths = lengths.length > 0;
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col gap-6 bg-white p-6 text-neutral-950" data-testid="break-home" data-phase={phase}>
+      <KioskLock active={kiosk} />
       <h1 className="text-3xl font-bold">Descansos</h1>
       {!board && <p className="text-lg font-semibold" role="alert">Esa área no tiene descansos.</p>}
       {board && phase === "home" && (
@@ -231,22 +242,53 @@ export function DescansosScreen() {
           <p className="text-2xl font-bold" data-testid="break-name">{mine.name}</p>
           <p className="text-sm font-semibold">{mine.allowanceMinutes} minutos</p>
           {mine.saved && <p className="text-lg font-bold" data-testid="break-current">Tu descanso: {range(mine.saved)}</p>}
-          <div className="grid grid-cols-2 gap-2">
-            {mine.slots.map((slot) => (
+          {mine.slots.length === 0 && <p className="text-lg font-semibold">No hay horarios hoy.</p>}
+          {mine.slots.length > 0 && !showingLengths && (
+            <div className="grid grid-cols-2 gap-2" data-testid="break-starts">
+              {starts.map((startAt) => (
+                <button
+                  key={startAt}
+                  type="button"
+                  className="min-h-14 rounded-lg border-2 border-neutral-950 px-2 text-xl font-bold"
+                  data-testid="break-start"
+                  data-start={startAt}
+                  disabled={busy}
+                  onClick={() => setChosenStart(startAt)}
+                >
+                  {clock(startAt)}
+                </button>
+              ))}
+            </div>
+          )}
+          {showingLengths && (
+            <div className="flex flex-col gap-2">
               <button
-                key={`${slot.startAt}-${slot.endAt}`}
                 type="button"
-                className="min-h-14 rounded-lg border-2 border-neutral-950 px-2 text-base font-bold"
-                data-testid="break-slot"
-                data-start={slot.startAt}
-                data-end={slot.endAt}
+                className="min-h-12 rounded-lg border-2 border-neutral-950 text-lg font-bold"
+                data-testid="break-start-back"
                 disabled={busy}
-                onClick={() => void pick(slot)}
+                onClick={() => setChosenStart(null)}
               >
-                {range(slot)}
+                Otro inicio
               </button>
-            ))}
-          </div>
+              <div className="grid grid-cols-2 gap-2" data-testid="break-lengths">
+                {lengths.map((slot) => (
+                  <button
+                    key={`${slot.startAt}-${slot.endAt}`}
+                    type="button"
+                    className="min-h-14 rounded-lg border-2 border-neutral-950 px-2 text-xl font-bold"
+                    data-testid="break-slot"
+                    data-start={slot.startAt}
+                    data-end={slot.endAt}
+                    disabled={busy}
+                    onClick={() => void pick(slot)}
+                  >
+                    {breakLengthMinutes(slot)} min
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {mine.saved && (
             <button type="button" className="min-h-14 rounded-lg border-2 border-neutral-950 text-lg font-bold" data-testid="break-clear" disabled={busy} onClick={() => void clearBreak()}>
               Quitar descanso

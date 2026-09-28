@@ -66,6 +66,7 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   const start = chicagoDateTime(date, "9:00 am").toISOString();
+  await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   await page.locator(`[data-testid="break-slot"][data-start="${start}"]`).first().click();
   await expect(page.getByTestId("break-saved")).toBeVisible();
   await page.clock.fastForward(10_000);
@@ -91,4 +92,25 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
   await expect(page.getByTestId("break-stripe").first()).toBeVisible();
+});
+
+test("kiosk=1 traps the back button on descansos", async ({ page }) => {
+  await page.goto("/descansos?board=cocina&kiosk=1");
+  await expect(page.getByTestId("break-home")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => history.state)).toEqual({ kiosk: true });
+  const trapped = await page.evaluate(() => {
+    return new Promise<{ href: string; kiosk: boolean }>((resolve) => {
+      window.addEventListener("popstate", () => {
+        window.setTimeout(() => {
+          const state = history.state as { kiosk?: boolean } | null;
+          resolve({ href: window.location.href, kiosk: state?.kiosk === true });
+        }, 0);
+      }, { once: true });
+      history.back();
+    });
+  });
+  expect(trapped.kiosk).toBe(true);
+  expect(trapped.href).toContain("/descansos?");
+  expect(trapped.href).toContain("kiosk=1");
+  await expect(page.getByTestId("break-personal")).toBeVisible();
 });

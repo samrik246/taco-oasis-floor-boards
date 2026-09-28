@@ -53,7 +53,9 @@ export async function dropBreakForShift(tx: Prisma.TransactionClient, shiftId: s
 
 /**
  * Superseded and board-removed shifts lose their break.
- * A changed shift keeps its break only when assessBreak still accepts it.
+ * Then every remaining break for an affected person and date is rechecked,
+ * including a break on a shift the import left unchanged. Allowance counts
+ * every live caja and cocina shift that day.
  */
 export async function dropImportedBreaks(
   tx: Prisma.TransactionClient,
@@ -72,31 +74,43 @@ export async function dropImportedBreaks(
       dropped += 1;
     }
   }
-  for (const shiftId of input.changedShiftIds) {
-    if (dead.has(shiftId)) continue;
-    const row = await tx.staffBreak.findFirst({ where: { shiftId } });
-    if (!row) continue;
-    const shifts = await tx.shift.findMany({
-      where: { employeeId: row.employeeId, date: row.date },
-    }) as BreakShift[];
-    const holder = shifts.find((shift) => shift.id === row.shiftId);
-    const inside = Boolean(
-      holder
-      && !holder.supersededAt
-      && !holder.boardRemoved
-      && row.startAt.getTime() >= holder.startAt.getTime()
-      && row.endAt.getTime() <= holder.endAt.getTime(),
-    );
-    const decision = assessBreak({
-      date: row.date,
-      startAt: row.startAt,
-      endAt: row.endAt,
-      shifts,
-      otherBreaks: await liveOtherBreaks(tx, row.date, row.employeeId),
-    });
-    if (!inside || "code" in decision) {
-      await deleteBreakCountsOnly(tx, row);
-      dropped += 1;
+
+  const affectedIds = [...new Set([...dead, ...input.changedShiftIds])];
+  if (affectedIds.length === 0) return dropped;
+  const touched = await tx.shift.findMany({
+    where: { id: { in: affectedIds } },
+    select: { employeeId: true, date: true },
+  });
+  const pairs = new Map<string, { employeeId: string; date: string }>();
+  for (const shift of touched) {
+    pairs.set(`${shift.employeeId}\0${shift.date}`, shift);
+  }
+
+  for (const { employeeId, date } of pairs.values()) {
+    const breaks = await tx.staffBreak.findMany({ where: { employeeId, date } });
+    if (breaks.length === 0) continue;
+    const shifts = await tx.shift.findMany({ where: { employeeId, date } }) as BreakShift[];
+    const others = await liveOtherBreaks(tx, date, employeeId);
+    for (const row of breaks) {
+      const holder = shifts.find((shift) => shift.id === row.shiftId);
+      const inside = Boolean(
+        holder
+        && !holder.supersededAt
+        && !holder.boardRemoved
+        && row.startAt.getTime() >= holder.startAt.getTime()
+        && row.endAt.getTime() <= holder.endAt.getTime(),
+      );
+      const decision = assessBreak({
+        date: row.date,
+        startAt: row.startAt,
+        endAt: row.endAt,
+        shifts,
+        otherBreaks: others,
+      });
+      if (!inside || "code" in decision) {
+        await deleteBreakCountsOnly(tx, row);
+        dropped += 1;
+      }
     }
   }
   return dropped;

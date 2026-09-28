@@ -21,6 +21,7 @@ import type { DayBoardDto } from "@/components/board/types";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { reservePasscodeAttempt } from "@/lib/breaks/attempts";
 import { dropBreakForShift, dropImportedBreaks } from "@/lib/breaks/import-drop";
+import { breakLengthMinutes, breakLengthsForStart, breakStartChoices } from "@/lib/breaks/picker-steps";
 import { offeredBreakSlots } from "@/lib/breaks/mine";
 import { hashStaffPasscode, newPasscodeSalt, passcodeMatches } from "@/lib/breaks/passcode";
 import { BREAK_REFUSAL_TEXT } from "@/lib/breaks/messages";
@@ -265,6 +266,19 @@ describe("B4 D2 staff breaks", () => {
     expect(ids).toHaveLength(20);
   }, 120_000);
 
+  it("shows each start once, then the lengths for that start", () => {
+    const rows = slots(wednesday, "8:00 am", "4:00 pm");
+    const starts = breakStartChoices(rows);
+    const eight = chicagoDateTime(wednesday, "8:00 am").toISOString();
+    expect(starts.filter((start) => start === eight)).toHaveLength(1);
+    expect(new Set(starts).size).toBe(starts.length);
+    const lengths = breakLengthsForStart(rows, eight);
+    expect(lengths.length).toBeGreaterThan(1);
+    expect(lengths.every((slot) => slot.startAt === eight)).toBe(true);
+    expect(breakLengthMinutes(lengths[0]!)).toBe(15);
+    expect(rows.filter((slot) => slot.startAt === eight).length).toBe(lengths.length);
+  });
+
   it("offers only the slots assessBreak accepts", () => {
     const weekday = slots(wednesday, "8:00 am", "4:00 pm");
     expect(hasSlot(weekday, wednesday, "9:00 am", "9:15 am")).toBe(true);
@@ -481,6 +495,69 @@ describe("B4 D2 staff breaks", () => {
     });
     expect(await prisma.staffBreak.count({ where: { shiftId: removed.id } })).toBe(0);
     expect(dropBreakForShift).toBeTypeOf("function");
+  });
+
+  it("drops a break on the unchanged shift when the other shift cuts the allowance", async () => {
+    const ada = await person("split", "Split");
+    const date = chicagoDateOffset(wednesday, 42);
+    const morning = await shiftFor(ada.id, date, "cocina", "8:00 am", "2:00 pm");
+    const afternoon = await shiftFor(ada.id, date, "cocina", "2:00 pm", "6:00 pm");
+    const tx = prisma as unknown as Parameters<typeof dropImportedBreaks>[0];
+    const saveMorning = async (end: string) => {
+      await prisma.staffBreak.create({
+        data: {
+          employeeId: ada.id, shiftId: morning.id, board: "cocina", date,
+          startAt: chicagoDateTime(date, "8:00 am"), endAt: chicagoDateTime(date, end), actor: ada.id,
+        },
+      });
+    };
+
+    await saveMorning("9:00 am");
+    await dropImportedBreaks(tx, {
+      supersededShiftIds: [],
+      changedShiftIds: [afternoon.id],
+      boardRemovedShiftIds: [],
+    });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date } })).toBe(1);
+
+    await prisma.shift.update({
+      where: { id: afternoon.id },
+      data: { endAt: chicagoDateTime(date, "3:00 pm") },
+    });
+    await dropImportedBreaks(tx, {
+      supersededShiftIds: [],
+      changedShiftIds: [afternoon.id],
+      boardRemovedShiftIds: [],
+    });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date } })).toBe(0);
+    const shortened = await prisma.boardChangeLog.findFirst({
+      where: { route: BOARD_CHANGE_ROUTES.breakImportDrop, date },
+    });
+    expect(shortened?.managerName).toBe("Descansos");
+    expect(shortened?.summary).not.toContain("Split");
+
+    await saveMorning("8:15 am");
+    await dropImportedBreaks(tx, {
+      supersededShiftIds: [],
+      changedShiftIds: [afternoon.id],
+      boardRemovedShiftIds: [],
+    });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date } })).toBe(1);
+    await prisma.staffBreak.deleteMany({ where: { employeeId: ada.id, date } });
+
+    await prisma.shift.update({
+      where: { id: afternoon.id },
+      data: { endAt: chicagoDateTime(date, "6:00 pm"), supersededAt: null },
+    });
+    await saveMorning("9:00 am");
+    await prisma.shift.update({ where: { id: afternoon.id }, data: { supersededAt: new Date() } });
+    await dropImportedBreaks(tx, {
+      supersededShiftIds: [afternoon.id],
+      changedShiftIds: [],
+      boardRemovedShiftIds: [],
+    });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date } })).toBe(0);
+    await prisma.boardChangeLog.deleteMany({ where: { date, route: BOARD_CHANGE_ROUTES.breakImportDrop } });
   });
 
   it("stripes only the overlapping hour and leaves paint untouched", async () => {
