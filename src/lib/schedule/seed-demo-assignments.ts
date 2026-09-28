@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { ALL_STATIONS } from "@/lib/stations";
 import { hourGridHours, chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 const DEMO_DATES = ["2026-09-20", "2026-09-21"] as const;
 
@@ -107,7 +108,16 @@ export async function seedDemoScheduleAssignments(): Promise<{
   }
 
   if (toCreate.length > 0) {
-    await prisma.assignment.createMany({ data: toCreate });
+    await prisma.$transaction(async (tx) => {
+      for (const row of toCreate) {
+        const seatNumber = await seatNumberForWrite(tx, {
+          stationId: row.stationId,
+          hourStart: row.hourStart,
+          employeeId: row.employeeId,
+        });
+        await tx.assignment.create({ data: { ...row, seatNumber } });
+      }
+    });
   }
 
   return { created: toCreate.length, dates };

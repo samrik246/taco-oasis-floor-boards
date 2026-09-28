@@ -14,6 +14,7 @@ import {
   type Refusal,
 } from "@/lib/import/reconcile";
 import { planRemovalIdentity, type RemovalDecision } from "@/lib/import/removal-identity";
+import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 /**
  * Persist a parse result. Never writes pay columns or staff email (they are
@@ -371,10 +372,16 @@ export async function commitImport(
             violations.map((v) => v.code).join(", "));
         }
         try {
+          const seatNumber = await seatNumberForWrite(tx, {
+            stationId: cell.stationId,
+            hourStart: cell.hourStart,
+            employeeId: incoming.employeeId,
+          });
           await tx.assignment.create({
             data: {
               shiftId: incoming.id, employeeId: incoming.employeeId,
               stationId: cell.stationId, hourStart: cell.hourStart, hourEnd: cell.hourEnd,
+              seatNumber,
             },
           });
         } catch (error) {

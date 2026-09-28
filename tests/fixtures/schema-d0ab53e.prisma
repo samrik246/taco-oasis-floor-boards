@@ -131,8 +131,6 @@ model Assignment {
   station   Station  @relation(fields: [stationId], references: [id])
   hourStart DateTime
   hourEnd   DateTime
-  /// Paint order in a numbered family at this hour. Empty on a legacy row until the next write.
-  seatNumber Int?
 
   @@unique([stationId, hourStart])
   @@unique([employeeId, hourStart])

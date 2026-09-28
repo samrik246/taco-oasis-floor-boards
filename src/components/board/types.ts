@@ -33,6 +33,8 @@ export type AssignmentDto = {
   hourEnd: string;
   /** True only when this person is forbidden at this station. No other level. */
   abilityBlocked?: boolean;
+  /** Paint order in a numbered family. Null on a one-seat station. */
+  seatNumber?: number | null;
 };
 
 export type ShiftDto = {

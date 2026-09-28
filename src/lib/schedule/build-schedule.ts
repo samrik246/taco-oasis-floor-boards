@@ -25,6 +25,7 @@ export type ScheduleShiftLike = {
     stationId: string;
     hourStart: string;
     hourEnd: string;
+    seatNumber?: number | null;
   }>;
 };
 
@@ -58,6 +59,8 @@ export type ScheduleBlock = {
   color: string;
   startHour: number;
   span: number;
+  /** Paint-order number beside the short name. Null outside a numbered family. */
+  seatNumber: number | null;
 };
 
 /** One row per shift: a person with two shifts on a day has two rows. */
@@ -132,7 +135,7 @@ function startMs(row: { startAt: string }): number {
 }
 
 /** Name sort: person, then start. Time sort: start, then person. Shift id breaks ties. */
-function compareScheduleRows(a: RowOrderKey, b: RowOrderKey, sort: ScheduleSort): number {
+export function compareScheduleRows(a: RowOrderKey, b: RowOrderKey, sort: ScheduleSort): number {
   if (sort === "time") {
     const delta = startMs(a) - startMs(b);
     if (delta !== 0) return delta;
@@ -172,6 +175,19 @@ function stationAtHour(
     return undefined;
   }
   return hit?.stationId ?? null;
+}
+
+function seatNumberAtHour(
+  sh: ScheduleShiftLike,
+  date: string,
+  hour: number,
+): number | null {
+  const hourStart = chicagoHourStart(date, hour);
+  const hit = sh.assignments.find(
+    (a) => new Date(a.hourStart).getTime() === hourStart.getTime(),
+  );
+  const n = hit?.seatNumber;
+  return typeof n === "number" && n >= 1 ? n : null;
 }
 
 function primaryStationId(
@@ -228,8 +244,10 @@ export function buildBlocksForHours(
     textKind: "position",
     personText: "",
   },
+  hourSeatNumbers?: Map<number, number | null>,
 ): ScheduleBlock[] {
   const blocks: ScheduleBlock[] = [];
+  const seatAt = (hour: number) => hourSeatNumbers?.get(hour) ?? null;
   let i = 0;
   while (i < hours.length) {
     const hour = hours[i]!;
@@ -238,10 +256,12 @@ export function buildBlocksForHours(
       i += 1;
       continue;
     }
+    const seat = seatAt(hour);
     let span = 1;
     while (
       i + span < hours.length &&
-      hourStations.get(hours[i + span]!) === sid
+      hourStations.get(hours[i + span]!) === sid &&
+      seatAt(hours[i + span]!) === seat
     ) {
       span += 1;
     }
@@ -255,10 +275,44 @@ export function buildBlocksForHours(
       color: st?.color ?? "gray",
       startHour: hour,
       span,
+      seatNumber: seat,
     });
     i += span;
   }
   return blocks;
+}
+
+/** Station at one hour, or the pending paint target when the draft names one. */
+export function stationAtSelectedHour(
+  assignments: readonly { stationId: string; hourStart: string }[],
+  date: string,
+  hour: number,
+  pending: { stationId: string | null } | null,
+): string | null {
+  if (pending) return pending.stationId;
+  const start = chicagoHourStart(date, hour).getTime();
+  return assignments.find((assignment) => new Date(assignment.hourStart).getTime() === start)?.stationId ?? null;
+}
+
+/**
+ * Pintar row order. Entrada and Nombre reuse the schedule comparator.
+ * Puesto uses the selected hour's station, then the name comparator.
+ * Unassigned sorts last. This is not the schedule grid's most-hours station.
+ */
+export function comparePintarRows(
+  a: RowOrderKey & { stationId: string | null },
+  b: RowOrderKey & { stationId: string | null },
+  sort: ScheduleSort,
+  stationOrder: ReadonlyMap<string, number>,
+): number {
+  if (sort === "position") {
+    const rank = (id: string | null) =>
+      id == null ? Number.MAX_SAFE_INTEGER : (stationOrder.get(id) ?? Number.MAX_SAFE_INTEGER - 1);
+    const delta = rank(a.stationId) - rank(b.stationId);
+    if (delta !== 0) return delta;
+    return compareScheduleRows(a, b, "name");
+  }
+  return compareScheduleRows(a, b, sort);
 }
 
 /** People grid never uses full-width station banner rows. */
@@ -354,8 +408,10 @@ export function buildScheduleGrid(opts: {
   const sort: ScheduleSort = opts.sort ?? "name";
   const drafts = dayShifts.map((sh) => {
     const hourStations = new Map<number, string | null | undefined>();
+    const hourSeatNumbers = new Map<number, number | null>();
     for (const hour of allHours) {
       hourStations.set(hour, stationAtHour(sh, opts.date, hour));
+      hourSeatNumbers.set(hour, seatNumberAtHour(sh, opts.date, hour));
     }
     return {
       shiftId: sh.id,
@@ -369,19 +425,23 @@ export function buildScheduleGrid(opts: {
       shiftLabel: formatShiftWindowLabel(sh.startAt, sh.endAt),
       primaryStationId: primaryStationId(sh, opts.date, allHours),
       hourStations,
+      hourSeatNumbers,
     };
   });
   const labels = personLabelsByName([...new Set(drafts.map((d) => d.name))]);
   const textKind = sort === "position" ? "person" : "position";
 
   const people: SchedulePersonRow[] = drafts
-    .map((d) => ({
-      ...d,
-      blocks: buildBlocksForHours(d.hourStations, hours, stationsById, {
-        textKind,
-        personText: labels.get(d.name) ?? d.name,
-      }),
-    }))
+    .map((d) => {
+      const { hourSeatNumbers, ...row } = d;
+      return {
+        ...row,
+        blocks: buildBlocksForHours(row.hourStations, hours, stationsById, {
+          textKind,
+          personText: labels.get(row.name) ?? row.name,
+        }, hourSeatNumbers),
+      };
+    })
     .sort((a, b) => compareScheduleRows(a, b, sort));
 
   const headcount = hours.map((hour) => {

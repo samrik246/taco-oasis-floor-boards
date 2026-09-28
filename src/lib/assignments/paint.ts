@@ -6,6 +6,7 @@ import { isFutureHour } from "@/lib/rules/live-hour";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import type { AbilityLevel, RuleViolation } from "@/lib/rules/types";
 import { PAINT_FAMILIES, type PaintFamily } from "@/lib/assignments/paint-families";
+import { planPaintSeatNumbers } from "@/lib/assignments/seat-number";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 
 export type PaintEdit = {
@@ -254,13 +255,41 @@ export async function paintAssignments(
         }
       }
 
+      // Reserve numbers people already show in a family before any newcomer
+      // in this save is numbered. Request order must not steal a retained number.
+      const planned = planPaintSeatNumbers(
+        changes.map((change, index) => ({
+          key: String(index),
+          employeeId: change.shift.employeeId,
+          hourStartMs: change.hourStart.getTime(),
+          stationId: change.stationId,
+          previous: change.current
+            ? {
+                id: change.current.id,
+                stationId: change.current.stationId,
+                seatNumber: change.current.seatNumber,
+              }
+            : null,
+        })),
+        remaining.flatMap((row) => row.employeeId ? [{
+          id: row.id,
+          employeeId: row.employeeId,
+          stationId: row.stationId,
+          hourStartMs: row.hourStart.getTime(),
+          seatNumber: row.seatNumber,
+        }] : []),
+      );
+      for (const row of planned.persist) {
+        await tx.assignment.update({ where: { id: row.id }, data: { seatNumber: row.seatNumber } });
+      }
+
       // Delete first, then recreate with the same ids. This also allows two
       // occupied positions to trade places without an intermediate unique hit.
       const deleteIds = changes.map((change) => change.current?.id).filter((id): id is string => id != null);
       if (deleteIds.length > 0) {
         await tx.assignment.deleteMany({ where: { id: { in: deleteIds } } });
       }
-      for (const { edit, shift, hourStart, current, stationId } of changes) {
+      for (const [index, { edit, shift, hourStart, current, stationId }] of changes.entries()) {
         if (current && !isFutureHour(hourStart, now)) {
           await tx.positionMoveLog.create({
             data: {
@@ -276,6 +305,7 @@ export async function paintAssignments(
           });
         }
         if (stationId) {
+          const seatNumber = planned.numbers.get(String(index)) ?? null;
           await tx.assignment.create({
             data: {
               ...(current ? { id: current.id } : {}),
@@ -284,6 +314,7 @@ export async function paintAssignments(
               stationId,
               hourStart,
               hourEnd: chicagoHourEnd(request.date, edit.hour),
+              seatNumber,
             },
           });
         }

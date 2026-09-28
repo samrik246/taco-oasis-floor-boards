@@ -9,6 +9,8 @@ import { isHourInShift } from "@/lib/rules/shift-window";
 import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
+import { familyForStation } from "@/lib/assignments/paint-families";
+import { carriedSeatNumber, numberedFamilySeats, seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 /** Caller-owned transaction. A helper that receives one must not open another. */
 export type AssignmentTx = Prisma.TransactionClient;
@@ -38,6 +40,7 @@ export type AssignmentDto = {
   stationId: string;
   hourStart: string;
   hourEnd: string;
+  seatNumber: number | null;
 };
 
 const supersededViolation: RuleViolation = {
@@ -79,6 +82,7 @@ function toDto(a: {
   stationId: string;
   hourStart: Date;
   hourEnd: Date;
+  seatNumber?: number | null;
 }): AssignmentDto {
   return {
     id: a.id,
@@ -86,6 +90,7 @@ function toDto(a: {
     stationId: a.stationId,
     hourStart: a.hourStart.toISOString(),
     hourEnd: a.hourEnd.toISOString(),
+    seatNumber: a.seatNumber ?? null,
   };
 }
 
@@ -130,8 +135,13 @@ export async function createAssignment(
         chicagoHour: chicagoHourOf(hourStart),
       });
       if (violations.length > 0) return { ok: false, status: 422, violations } as const;
+      const seatNumber = await seatNumberForWrite(tx, {
+        stationId: params.stationId,
+        hourStart,
+        employeeId: shift.employeeId,
+      });
       const assignment = await tx.assignment.create({
-        data: { shiftId: params.shiftId, employeeId: shift.employeeId, stationId: params.stationId, hourStart, hourEnd },
+        data: { shiftId: params.shiftId, employeeId: shift.employeeId, stationId: params.stationId, hourStart, hourEnd, seatNumber },
       });
       if (params.actor) {
         await writeBoardChange(tx, params.actor, {
@@ -627,10 +637,59 @@ export async function swapAssignments(
     // so we need room for +1. validateAssignment with existingOccupancy already handles it.
         if (violations.length > 0) return { ok: false, status: 422, violations } as const;
       }
+      const seatsA = numberedFamilySeats(currentA.stationId);
+      const seatsB = numberedFamilySeats(currentB.stationId);
+      const peerWhere = [
+        seatsA ? { hourStart: currentA.hourStart, stationId: { in: [...seatsA] } } : null,
+        seatsB ? { hourStart: currentB.hourStart, stationId: { in: [...seatsB] } } : null,
+      ].filter((clause): clause is NonNullable<typeof clause> => clause != null);
+      const peerRows = peerWhere.length > 0
+        ? await tx.assignment.findMany({
+            where: { OR: peerWhere },
+            select: { id: true, stationId: true, hourStart: true, seatNumber: true },
+          })
+        : [];
+      const peersAt = (hourStart: Date) => peerRows
+        .filter((row) => row.hourStart.getTime() === hourStart.getTime())
+        .map((row) => ({ id: row.id, stationId: row.stationId, seatNumber: row.seatNumber }));
+      const sameFamilyHour = currentA.hourStart.getTime() === currentB.hourStart.getTime()
+        && familyForStation(currentA.stationId) != null
+        && familyForStation(currentA.stationId) === familyForStation(currentB.stationId);
+      const priorOnA = carriedSeatNumber({
+        fromStationId: currentB.stationId,
+        toStationId: currentA.stationId,
+        row: currentB,
+        peers: peersAt(currentB.hourStart),
+        hourStartMs: currentB.hourStart.getTime(),
+      });
+      const priorOnB = carriedSeatNumber({
+        fromStationId: currentA.stationId,
+        toStationId: currentB.stationId,
+        row: currentA,
+        peers: peersAt(currentA.hourStart),
+        hourStartMs: currentA.hourStart.getTime(),
+      });
+      const ignoreIds = [currentA.id, currentB.id];
+      const numberOnA = await seatNumberForWrite(tx, {
+        stationId: currentA.stationId,
+        hourStart: currentA.hourStart,
+        employeeId: currentB.shift.employeeId,
+        prior: priorOnA,
+        ignoreIds,
+        reserved: sameFamilyHour && priorOnB != null ? [priorOnB] : [],
+      });
+      const numberOnB = await seatNumberForWrite(tx, {
+        stationId: currentB.stationId,
+        hourStart: currentB.hourStart,
+        employeeId: currentA.shift.employeeId,
+        prior: priorOnB,
+        ignoreIds,
+        reserved: sameFamilyHour && priorOnA != null ? [priorOnA] : [],
+      });
       // Clear unique person claims before exchanging rows, then restore them atomically.
       await tx.assignment.updateMany({ where: { id: { in: [currentA.id, currentB.id] } }, data: { employeeId: null } });
-      const u1 = await tx.assignment.update({ where: { id: currentA.id }, data: { shiftId: currentB.shiftId, employeeId: currentB.shift.employeeId } });
-      const u2 = await tx.assignment.update({ where: { id: currentB.id }, data: { shiftId: currentA.shiftId, employeeId: currentA.shift.employeeId } });
+      const u1 = await tx.assignment.update({ where: { id: currentA.id }, data: { shiftId: currentB.shiftId, employeeId: currentB.shift.employeeId, seatNumber: numberOnA } });
+      const u2 = await tx.assignment.update({ where: { id: currentB.id }, data: { shiftId: currentA.shiftId, employeeId: currentA.shift.employeeId, seatNumber: numberOnB } });
       if (actor) {
         await writeBoardChange(tx, actor, {
           date: chicagoYmd(currentA.hourStart),

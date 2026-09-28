@@ -241,6 +241,7 @@ describe("buildScheduleGrid", () => {
         color: "orange",
         startHour: 8,
         span: 2,
+        seatNumber: null,
       },
       {
         stationId: "tortilla",
@@ -250,7 +251,22 @@ describe("buildScheduleGrid", () => {
         color: "yellow",
         startHour: 10,
         span: 1,
+        seatNumber: null,
       },
+    ]);
+  });
+
+  it("splits a block when the paint-order number changes on the same station", () => {
+    const map = new Map<number, string | null | undefined>([
+      [8, "fryer"],
+      [9, "fryer"],
+    ]);
+    const seats = new Map<number, number | null>([[8, 1], [9, 2]]);
+    const stationsById = new Map(stations.map((s) => [s.id, s] as const));
+    const blocks = buildBlocksForHours(map, [8, 9], stationsById, undefined, seats);
+    expect(blocks.map((block) => [block.startHour, block.span, block.seatNumber])).toEqual([
+      [8, 1, 1],
+      [9, 1, 2],
     ]);
   });
 

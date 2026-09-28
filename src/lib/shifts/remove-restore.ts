@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { validateAssignment } from "@/lib/rules/assign";
 import type { AbilityLevel } from "@/lib/rules/types";
 import { chicagoHourOf } from "@/lib/hour-grid";
+import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 
 type Manager = { id: string; name: string };
 type Source = { startAt: string; endAt: string; employeeId: string; sourcePosition: string };
@@ -137,8 +138,14 @@ export async function restoreShift(input: {
         `A saved position no longer fits (${violations.map((v) => v.code).join(", ")}). Restore without positions or repaint.`);
     }
     for (const cell of future) {
+      const hourStart = new Date(cell.hourStart);
+      const seatNumber = await seatNumberForWrite(tx, {
+        stationId: cell.stationId,
+        hourStart,
+        employeeId: shift.employeeId,
+      });
       await tx.assignment.create({ data: { shiftId: shift.id, employeeId: shift.employeeId,
-        stationId: cell.stationId, hourStart: new Date(cell.hourStart), hourEnd: new Date(cell.hourEnd) } });
+        stationId: cell.stationId, hourStart, hourEnd: new Date(cell.hourEnd), seatNumber } });
     }
     const changed = await tx.shift.updateMany({ where: { id: shift.id, boardRemoved: true,
       supersededAt: null, startAt: shift.startAt, endAt: shift.endAt }, data: { boardRemoved: false } });
