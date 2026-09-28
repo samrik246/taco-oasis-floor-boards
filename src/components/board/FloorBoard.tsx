@@ -63,7 +63,7 @@ import {
 import { violationMessage } from "@/lib/violation-messages";
 import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
-import { readLastBoardFor, saveLastBoard, stripEmployeeAbilities } from "@/lib/offline-board";
+import { readLastBoardFor, saveLastBoard, stripSharedTabletDay } from "@/lib/offline-board";
 import {
   isCurrentBoardRequest,
   isCurrentRequestToken,
@@ -293,7 +293,7 @@ export function FloorBoard() {
 
   function lockDesk() {
     managerTokenRef.current = null;
-    setDay((current) => (current ? stripEmployeeAbilities(current) : current));
+    setDay((current) => (current ? stripSharedTabletDay(current) : current));
     lock();
   }
 

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+import { NO_STORE, optionalManager, requireDayAccess } from "@/lib/managers/day-access";
 import { requestIsOwner } from "@/lib/managers/require-session";
+import { loadMandatoryDay } from "@/lib/mandatory-store";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,8 @@ export async function GET(request: Request, context: RouteContext) {
     const { board, date } = paramsSchema.parse(raw);
     const access = await requireDayAccess(request, date);
     if (!access.ok) return access.response;
-    const owner = await requestIsOwner(request);
+    const manager = await optionalManager(request);
+    const owner = manager ? await requestIsOwner(request) : false;
 
     const [stations, shifts] = await Promise.all([
       prisma.station.findMany({
@@ -95,6 +97,7 @@ export async function GET(request: Request, context: RouteContext) {
           ),
         })),
       })),
+      ...(board === "cocina" && manager ? { mandatory: await loadMandatoryDay(date, owner) } : {}),
     };
 
     return NextResponse.json(body, { headers: NO_STORE });
