@@ -114,7 +114,8 @@ test("D7 Pintar sorts, refuses a taken seat, and shows paint-order numbers", asy
   await page.getByTestId(`paint-cell-${niaShift}-12`).click();
   await page.getByTestId("paint-save").click();
   await expect(page.getByTestId("paint-pending")).toContainText(/0/);
-  await expect(page.getByTestId(`paint-seat-${niaShift}-12`)).toHaveText("1");
+  await expect(page.getByTestId(`paint-cell-${niaShift}-12`)).toContainText("Taquero 2");
+  await expect(page.getByTestId(`paint-seat-${niaShift}-12`)).toHaveCount(0);
 
   await page.getByTestId("paint-palette-pdf_tq2r").click();
   await page.getByTestId(`paint-cell-${adaShift}-12`).click();
@@ -124,13 +125,16 @@ test("D7 Pintar sorts, refuses a taken seat, and shows paint-order numbers", asy
   await page.getByTestId("paint-palette-pdf_tq1r").click();
   await page.getByTestId(`paint-cell-${adaShift}-12`).click();
   await page.getByTestId("paint-save").click();
-  await expect(page.getByTestId(`paint-seat-${adaShift}-12`)).toHaveText("2");
-  await expect(page.getByTestId(`paint-seat-${niaShift}-12`)).toHaveText("1");
+  await expect(page.getByTestId(`paint-cell-${adaShift}-12`)).toContainText("Taquero 1");
+  await expect(page.getByTestId(`paint-seat-${adaShift}-12`)).toHaveCount(0);
+  await expect(page.getByTestId(`paint-seat-${niaShift}-12`)).toHaveCount(0);
 
   await page.getByTestId("compact-view").selectOption("schedule");
-  await expect(page.getByTestId("schedule-seat-pdf_tq2r-12")).toHaveText("1");
-  await expect(page.getByTestId("schedule-seat-pdf_tq1r-12")).toHaveText("2");
+  await expect(page.getByTestId("schedule-block-pdf_tq2r-12")).toContainText("Taquero 2");
+  await expect(page.getByTestId("schedule-block-pdf_tq1r-12")).toContainText("Taquero 1");
+  await expect(page.getByTestId("schedule-seat-pdf_tq2r-12")).toHaveCount(0);
+  await expect(page.getByTestId("schedule-seat-pdf_tq1r-12")).toHaveCount(0);
   await page.getByTestId("schedule-sort-position").click();
-  await expect(page.getByTestId("schedule-seat-pdf_tq2r-12")).toHaveText("1");
-  await expect(page.getByTestId("schedule-seat-pdf_tq1r-12")).toHaveText("2");
+  await expect(page.getByTestId("schedule-seat-pdf_tq2r-12")).toHaveCount(0);
+  await expect(page.getByTestId("schedule-seat-pdf_tq1r-12")).toHaveCount(0);
 });

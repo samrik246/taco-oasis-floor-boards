@@ -8,7 +8,7 @@ import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, t
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
-import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
+import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, isPaintFamily, paletteSlots, type PaintFamily } from "@/lib/assignments/paint-families";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
@@ -45,17 +45,20 @@ function familyChoice(id: string): PaintFamily | null {
 
 function paletteChoices(day: DayBoardDto | null): PaletteChoice[] {
   if (!day) return [];
-  const complete = (Object.keys(PAINT_FAMILIES) as PaintFamily[]).filter((family) =>
-    PAINT_FAMILIES[family].every((id) => day.stations.some((station) => station.id === id)),
-  );
-  return day.stations.flatMap((station): PaletteChoice[] => {
-    const family = familyForStation(station.id);
-    const exact = { id: station.id, stationIds: [station.id], label: station.label, color: station.color };
-    if (!family || !complete.includes(family) || station.id !== PAINT_FAMILIES[family][0]) return [exact];
-    const members = PAINT_FAMILIES[family].map((id) => day.stations.find((candidate) => candidate.id === id)!);
-    return [{ id: `family:${family}`, stationIds: PAINT_FAMILIES[family],
-      label: PAINT_FAMILY_LABELS[family], color: null,
-      detail: members.map((member) => `${member.label} (${member.color})`).join(" · ") }, exact];
+  const byId = new Map(day.stations.map((station) => [station.id, station]));
+  return paletteSlots(day.stations).flatMap((slot): PaletteChoice[] => {
+    if (slot.kind === "family") {
+      const members = PAINT_FAMILIES[slot.family].map((id) => byId.get(id)!);
+      return [{
+        id: `family:${slot.family}`,
+        stationIds: PAINT_FAMILIES[slot.family],
+        label: PAINT_FAMILY_LABELS[slot.family],
+        color: null,
+        detail: members.map((member) => `${member.label} (${member.color})`).join(" · "),
+      }];
+    }
+    const station = byId.get(slot.id)!;
+    return [{ id: station.id, stationIds: [station.id], label: station.label, color: station.color }];
   });
 }
 
@@ -459,14 +462,14 @@ export function ManagerColorEditor({
               const missing = stationId != null && gaps.some((gap) => gap.stationId === stationId && gap.hour === selectedHour);
               const marked = stationId != null && (day?.mandatory?.extraStationIds.includes(stationId) ?? false);
               const canToggle = day?.mandatory?.canMark === true && stationId != null && !isDefaultMandatory(stationId);
-              return <div key={choice.id} className="w-48 shrink-0 md:w-full">
-                <button type="button" className={cn("touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"}>
+              return <div key={choice.id} className="relative w-48 shrink-0 md:w-full">
+                <button type="button" className={cn("touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", canToggle && "pb-7", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"}>
                   <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
                   {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
                   <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
                   {missing && <span className="block text-xs font-bold uppercase">Falta</span>}
                 </button>
-                {canToggle && stationId && <button type="button" className={cn("touch-target mt-1 min-h-11 w-full rounded-md border-2 border-neutral-900 px-2 text-left text-xs font-bold", marked ? "bg-neutral-900 text-white" : "bg-white")} aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}>Obligatorio hoy</button>}
+                {canToggle && stationId && <button type="button" className="touch-target absolute bottom-1 left-1 z-10 flex items-end justify-start border-0 bg-transparent p-0" aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}><span data-mandatory-face className={cn("pointer-events-none self-end whitespace-nowrap rounded-full border border-neutral-900 px-2 py-0.5 text-[11px] font-bold leading-tight", marked ? "bg-neutral-900 text-white" : "bg-white text-neutral-950")}>Obligatorio hoy</span></button>}
               </div>;
             })}
             <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 text-left text-sm font-bold md:w-full", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
@@ -502,9 +505,6 @@ export function ManagerColorEditor({
                   (station ? displayStationLabel(locale, station) : cell.stationId ? boardStationLabel(locale, cell.stationId, day?.stations ?? []) : "") :
                   edit?.family ? `${PAINT_FAMILY_LABELS[edit.family]} · ${copy.auto}` :
                     station ? displayStationLabel(locale, station) : cell.kind === "off" ? t.timelineOffShift : t.timelineUnassigned;
-                const savedNumber = !edit && cell.kind === "seated"
-                  ? shift.assignments.find((item) => item.stationId === cell.stationId && new Date(item.hourStart).getTime() === chicagoHourStart(date, hour).getTime())?.seatNumber
-                  : null;
                 const dots = showLevels
                   ? eligibilityDots({
                     gaps,
@@ -519,7 +519,7 @@ export function ManagerColorEditor({
                   return dot.dim ? `${name} entrenando` : name;
                 }).join(", ");
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{savedNumber != null && <span className="ml-1 tabular-nums" data-testid={`paint-seat-${shift.id}-${hour}`}> {savedNumber}</span>}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : "border-dashed border-neutral-400 bg-white text-neutral-700", edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`}>{label}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}</button>}
                 </td>;
               })}
             </tr>)}</tbody>

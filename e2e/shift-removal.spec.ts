@@ -33,10 +33,31 @@ test("only an unlocked manager can see shift removal controls", async ({ page })
   await page.getByTestId("manager-unlock-submit").click();
   await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.getByTestId("shift-removal-panel")).toBeVisible();
+  await expect(page.getByTestId("shift-removal-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("[data-testid^='shift-removal-row-']")).toHaveCount(0);
   await expect(page.getByTestId("shift-removal-panel")).toContainText("Quitar o restaurar turno");
 
   await page.getByTestId("compact-manager").click();
   await expect(page.getByTestId("shift-removal-panel")).toHaveCount(0);
+});
+
+test("the removal line stays closed and names how many shifts are removed", async ({ page }) => {
+  await page.route("**/api/shift-removals?*", async (route) => {
+    await route.fulfill({
+      json: {
+        removals: [
+          { id: "removed-1", state: "removed" },
+          { id: "removed-2", state: "removed" },
+          { id: "resolved-1", state: "resolved" },
+        ],
+      },
+    });
+  });
+  await managerPage(page);
+  await expect(page.getByTestId("shift-removal-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("shift-removal-panel")).toContainText("Quitar o restaurar turno (2 quitados)");
+  await expect(page.locator("[data-testid^='shift-removal-row-']")).toHaveCount(0);
+  await expect(page.locator("[data-testid^='removed-shift-']")).toHaveCount(0);
 });
 
 test("a second manager's stale removal cannot remove the same shift twice", async ({ page, browser }) => {
@@ -57,6 +78,7 @@ test("a second manager's stale removal cannot remove the same shift twice", asyn
   }
   await page.getByTestId("compact-date").selectOption("2026-09-20");
   await page.getByTestId("compact-view").selectOption("timeline");
+  await page.getByTestId("shift-removal-toggle").click();
   const row = page.getByTestId("shift-removal-panel").locator("[data-testid^='shift-removal-row-']").first();
   await expect(row).toBeVisible();
   const rowId = await row.getAttribute("data-testid");
@@ -67,6 +89,7 @@ test("a second manager's stale removal cannot remove the same shift twice", asyn
   await managerPage(second, "1357");
   await second.getByTestId("compact-date").selectOption("2026-09-20");
   await second.getByTestId("compact-view").selectOption("timeline");
+  await second.getByTestId("shift-removal-toggle").click();
   const staleRow = second.getByTestId(rowId!);
   await expect(staleRow).toBeVisible();
   await staleRow.getByRole("button", { name: "Quitar turno" }).click();

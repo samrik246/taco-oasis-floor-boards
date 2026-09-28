@@ -45,6 +45,7 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
   managerToken: string; readonly: boolean; onSaved: () => Promise<void>;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -109,8 +110,17 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
     }
   }
 
+  const removedCount = entries.filter((entry) => entry.state === "removed").length;
+  const foldLabel = removedCount > 0
+    ? `Quitar o restaurar turno (${removedCount} quitados)`
+    : "Quitar o restaurar turno";
+
   return <section className="rounded-xl border border-neutral-300 p-4" data-testid="shift-removal-panel">
-    <h2 className="text-lg font-bold">Quitar o restaurar turno</h2>
+    <button type="button" className="w-full text-left text-lg font-bold" aria-expanded={open}
+      onClick={() => setOpen((value) => !value)} data-testid="shift-removal-toggle">
+      {foldLabel}
+    </button>
+    {open && <>
     <p className="text-sm">Solo cambia el tablero; no cambia When I Work. Elige el turno y confirma el motivo.</p>
     <div className="mt-3 space-y-2">
       {(day?.shifts ?? []).filter((s) => !s.supersededAt).map((shift) => <div key={shift.id}
@@ -169,5 +179,6 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
       </div>
     </div>}
     {feedback && <p role="status" className="mt-2" data-testid="shift-removal-feedback">{feedback}</p>}
+    </>}
   </section>;
 }

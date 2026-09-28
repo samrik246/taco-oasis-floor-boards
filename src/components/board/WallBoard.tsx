@@ -188,9 +188,6 @@ export function WallBoard() {
                       <span key={item.assignment.id}>
                         {index > 0 ? ", " : ""}
                         {displayName(item.shift)}
-                        {item.assignment.seatNumber != null && (
-                          <span className="ml-2 text-2xl font-black tabular-nums" data-testid={`wall-seat-${station.id}`}> {item.assignment.seatNumber}</span>
-                        )}
                       </span>
                     ))
                   : t.wallEmptySeat}

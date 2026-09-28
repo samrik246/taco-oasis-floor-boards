@@ -46,6 +46,18 @@ async function openCocina(page: Page, date: string) {
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
 }
 
+async function clearOwnerMarks() {
+  const root = process.env.FLOOR_BOARDS_TEST_ROOT;
+  if (!root) throw new Error("FLOOR_BOARDS_TEST_ROOT is missing");
+  const prisma = new PrismaClient({
+    datasources: { db: { url: `file:${path.join(root, "e2e.db")}` } },
+  });
+  await prisma.mandatoryMark.deleteMany({
+    where: { board: "cocina", date: { in: [markDate, nextDate] } },
+  });
+  await prisma.$disconnect();
+}
+
 test.beforeAll(async () => {
   const root = process.env.FLOOR_BOARDS_TEST_ROOT;
   if (!root) throw new Error("FLOOR_BOARDS_TEST_ROOT is missing");
@@ -110,42 +122,78 @@ test("C6 a mandatory gap lights at 12 and a pending paint clears it, and 10 stay
   await expect(page.getByTestId("mandatory-gap-pdf_tq1r-12")).toHaveCount(0);
 });
 
-test("C7 an owner mark lights for that date only, and a manager and a staff tablet see no toggle", async ({ page }) => {
-  await keepDesk(page);
-  await unlock(page, "8642");
-  await openCocina(page, markDate);
-  await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
-  await expect(page.getByTestId("paint-palette-pdf_tq1r")).toContainText("Falta");
-  await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
-  await expect(page.getByTestId("mandatory-toggle-pdf_tq1r")).toHaveCount(0);
+// Chromium ignores `pointer` on Emulation.setEmulatedMedia. Touch emulation is what flips `(pointer: coarse)`.
+test.describe("coarse pointer", () => {
+  test.use({ hasTouch: true });
 
-  await page.getByTestId("mandatory-toggle-pdf_pstl").click();
-  await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
-  const extra = page.getByTestId("mandatory-gap-pdf_pstl-12");
-  await expect(extra).toHaveText("PSTL");
-  await expect(extra).toHaveClass(/purple/);
+  test.beforeEach(async () => {
+    await clearOwnerMarks();
+  });
 
-  await page.getByTestId("compact-date").selectOption(nextDate);
-  await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
-  await expect(page.getByTestId("paint-palette-pdf_tq1r")).toContainText("Falta");
-  await expect(page.getByTestId("paint-palette-pdf_tf1r")).toContainText("Falta");
-  await expect(page.getByTestId("paint-palette-pdf_pr1e")).toContainText("Falta");
-  await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
-  await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
+  test("C7 an owner mark lights for that date only, and a manager and a staff tablet see no toggle", async ({ page }) => {
+    await keepDesk(page);
+    await unlock(page, "8642");
+    await openCocina(page, markDate);
+    expect(await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)).toBe(true);
+    await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
+    await expect(page.getByTestId("paint-palette-pdf_tq1r")).toContainText("Falta");
+    await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
+    await expect(page.getByTestId("mandatory-toggle-pdf_tq1r")).toHaveCount(0);
 
-  await unlock(page, "2468");
-  await openCocina(page, markDate);
-  await expect(page.locator("[data-testid^='mandatory-toggle-']")).toHaveCount(0);
-  await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
-  await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click();
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
+    const pill = await page.getByTestId("mandatory-toggle-pdf_pstl").boundingBox();
+    const card = await page.getByTestId("paint-palette-pdf_pstl").boundingBox();
+    expect(pill && card && pill.width < card.width).toBeTruthy();
+    const hit = await page.getByTestId("mandatory-toggle-pdf_pstl").evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const face = button.querySelector("[data-mandatory-face]")!.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + 6, rect.top + 4);
+      return {
+        coarse: window.matchMedia("(pointer: coarse)").matches,
+        hitHeight: rect.height,
+        hitWidth: rect.width,
+        faceHeight: face.height,
+        cardWidth: button.parentElement?.getBoundingClientRect().width ?? 0,
+        topIsButton: top === button,
+      };
+    });
+    expect(hit.coarse).toBe(true);
+    expect(hit.hitHeight).toBeGreaterThanOrEqual(48);
+    expect(hit.hitWidth).toBeGreaterThanOrEqual(48);
+    expect(hit.hitWidth).toBeLessThan(hit.cardWidth);
+    expect(hit.faceHeight).toBeLessThan(hit.hitHeight);
+    expect(hit.topIsButton).toBe(true);
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
+    const extra = page.getByTestId("mandatory-gap-pdf_pstl-12");
+    await expect(extra).toHaveText("PSTL");
+    await expect(extra).toHaveClass(/purple/);
 
-  await page.goto("/");
-  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
-  await expect(page.getByText("Falta")).toHaveCount(0);
-  await expect(page.getByText("Obligatorio hoy")).toHaveCount(0);
-  await expect(page.getByTestId("mandatory-gaps")).toHaveCount(0);
-  await page.goto(`/?wall=1&date=${chicagoToday()}`);
-  await expect(page.getByText("Falta")).toHaveCount(0);
-  await expect(page.getByTestId("mandatory-gaps")).toHaveCount(0);
+    await page.getByTestId("compact-date").selectOption(nextDate);
+    await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
+    await expect(page.getByTestId("paint-palette-pdf_tq1r")).toContainText("Falta");
+    await expect(page.getByTestId("paint-palette-pdf_tf1r")).toContainText("Falta");
+    await expect(page.getByTestId("paint-palette-pdf_pr1e")).toContainText("Falta");
+    await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
+
+    await unlock(page, "2468");
+    await openCocina(page, markDate);
+    await expect(page.locator("[data-testid^='mandatory-toggle-']")).toHaveCount(0);
+    await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
+    await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
+
+    await page.goto("/");
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+    await expect(page.getByText("Falta")).toHaveCount(0);
+    await expect(page.getByText("Obligatorio hoy")).toHaveCount(0);
+    await expect(page.getByTestId("mandatory-gaps")).toHaveCount(0);
+    await page.goto(`/?wall=1&date=${chicagoToday()}`);
+    await expect(page.getByText("Falta")).toHaveCount(0);
+    await expect(page.getByTestId("mandatory-gaps")).toHaveCount(0);
+  });
 });
