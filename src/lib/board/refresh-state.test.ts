@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCurrentBoardRequest, liveRefreshState, offlineRefreshState } from "./refresh-state";
+import { isCurrentBoardRequest, isCurrentRequestToken, liveRefreshState, offlineRefreshState } from "./refresh-state";
 
 const cajaCache = {
   version: 1 as const,
@@ -39,5 +39,13 @@ describe("board refresh state", () => {
       { board: "cocina", date: "2026-09-23" },
       { board: "cocina", date: "2026-09-22" },
     )).toBe(false);
+  });
+
+  it("rejects a delayed response whose token is no longer the desk token", () => {
+    expect(isCurrentRequestToken(null, "owner-token")).toBe(false);
+    expect(isCurrentRequestToken("owner-token", null)).toBe(false);
+    expect(isCurrentRequestToken("owner-token", "next-token")).toBe(false);
+    expect(isCurrentRequestToken(null, null)).toBe(true);
+    expect(isCurrentRequestToken("owner-token", "owner-token")).toBe(true);
   });
 });

@@ -231,3 +231,175 @@ test("a forbidden placement already on the board warns staff and a manager", asy
     expect(body).toContain('"abilityBlocked":true');
   }
 });
+
+async function placeNiaToday(today: string) {
+  const root = process.env.FLOOR_BOARDS_TEST_ROOT;
+  if (!root) throw new Error("FLOOR_BOARDS_TEST_ROOT is missing");
+  const prisma = new PrismaClient({
+    datasources: { db: { url: `file:${path.join(root, "e2e.db")}` } },
+  });
+  try {
+    const person = await prisma.employee.findUniqueOrThrow({ where: { externalId } });
+    await prisma.employeeStationAbility.upsert({
+      where: { employeeId_stationId: { employeeId: person.id, stationId: "pdf_guia" } },
+      create: { employeeId: person.id, stationId: "pdf_guia", level: "forbidden" },
+      update: { level: "forbidden" },
+    });
+    const startAt = fromZonedTime(`${today}T09:00:00`, "America/Chicago");
+    const endAt = fromZonedTime(`${today}T17:00:00`, "America/Chicago");
+    let shift = await prisma.shift.findFirst({
+      where: { employeeId: person.id, date: today, board: "cocina", boardRemoved: false },
+    });
+    if (!shift) {
+      shift = await prisma.shift.create({
+        data: {
+          employeeId: person.id,
+          date: today,
+          startAt,
+          endAt,
+          sourcePosition: "Cocina",
+          board: "cocina",
+        },
+      });
+    }
+    const already = await prisma.assignment.findFirst({
+      where: { shiftId: shift.id, stationId: "pdf_guia" },
+    });
+    if (already) return;
+    for (const hour of [10, 12, 13, 14, 15]) {
+      const hourStart = fromZonedTime(
+        `${today}T${String(hour).padStart(2, "0")}:00:00`,
+        "America/Chicago",
+      );
+      const hourEnd = fromZonedTime(
+        `${today}T${String(hour + 1).padStart(2, "0")}:00:00`,
+        "America/Chicago",
+      );
+      const clash = await prisma.assignment.findFirst({
+        where: {
+          OR: [
+            { employeeId: person.id, hourStart },
+            { stationId: "pdf_guia", hourStart },
+          ],
+        },
+      });
+      if (clash) continue;
+      await prisma.assignment.create({
+        data: {
+          shiftId: shift.id,
+          employeeId: person.id,
+          stationId: "pdf_guia",
+          hourStart,
+          hourEnd,
+        },
+      });
+      return;
+    }
+    throw new Error("no free hour for the forbidden placement");
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+test("owner lock leaves no levels in the tablet cache or on a later offline board", async ({ page }) => {
+  const today = chicagoToday();
+  await placeNiaToday(today);
+
+  const ownerBodies: string[] = [];
+  page.on("response", async (response) => {
+    if (!response.ok() || !response.url().includes(`/api/boards/cocina/days/${today}`)) return;
+    if (!response.request().headers()["x-manager-session"]) return;
+    try {
+      ownerBodies.push(await response.text());
+    } catch {
+      /* a later reader took the body */
+    }
+  });
+
+  await keepDesk(page);
+  await page.goto("/?board=cocina");
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+  await page.getByTestId("compact-manager").click();
+  await page.getByTestId("manager-code-input").fill("8642");
+  await page.getByTestId("manager-unlock-submit").click();
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
+  await page.getByTestId("compact-view").selectOption("board");
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-show-levels", "1");
+  await expect(page.getByTestId("ability-filter")).toBeVisible();
+  await expect.poll(() => ownerBodies.some((body) => body.includes('"abilities"'))).toBe(true);
+
+  const stored = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  expect(stored).toBeTruthy();
+  expect(stored).not.toContain('"abilities"');
+  expect(stored).toContain('"abilityBlocked":true');
+
+  const releases: Array<() => void> = [];
+  let held = 0;
+  await page.route(`**/api/boards/cocina/days/${today}`, async (route) => {
+    if (!route.request().headers()["x-manager-session"]) {
+      await route.abort("failed");
+      return;
+    }
+    const response = await route.fetch();
+    const body = await response.text();
+    held += 1;
+    await new Promise<void>((resolve) => {
+      releases.push(resolve);
+    });
+    await route.fulfill({
+      status: response.status(),
+      headers: response.headers(),
+      body,
+    });
+  });
+
+  await page.getByTestId("toolbar-more").click();
+  await page.getByTestId("locale-toggle-en").click();
+  await expect.poll(() => held).toBeGreaterThan(0);
+
+  let seen = 0;
+  const pending = held;
+  const arrived = page.waitForResponse((response) => {
+    const match = response.ok()
+      && response.url().includes(`/api/boards/cocina/days/${today}`)
+      && Boolean(response.request().headers()["x-manager-session"]);
+    if (!match) return false;
+    seen += 1;
+    return seen >= pending;
+  });
+  await page.getByTestId("compact-manager").click();
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+  await expect(page.getByTestId("offline-banner")).toBeVisible();
+  for (const release of releases) release();
+  await arrived;
+
+  const floor = page.getByTestId("floor-board");
+  await expect(floor).toHaveAttribute("data-role", "staff");
+  await expect(floor).toHaveAttribute("data-day-abilities", "0");
+  await expect(floor).toHaveAttribute("data-show-levels", "0");
+  await expect(floor).toHaveAttribute("data-offline", "1");
+  await expect(page.getByTestId("offline-banner")).toBeVisible();
+  await expect(page.getByTestId("ability-badge")).toHaveCount(0);
+  await expect(page.locator("[data-testid^='favorite-']")).toHaveCount(0);
+  await expect(floor).not.toContainText(/fuerte|entrenando/);
+  const afterLock = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  expect(afterLock).not.toContain('"abilities"');
+
+  await page.evaluate(() => {
+    const key = "taco-oasis-last-board-v1";
+    const parsed = JSON.parse(localStorage.getItem(key) || "null");
+    const employee = parsed?.day?.shifts?.[0]?.employee;
+    if (!employee) throw new Error("cache has no shift to poison");
+    employee.abilities = [{ stationId: "pdf_guia", level: "forbidden" }];
+    localStorage.setItem(key, JSON.stringify(parsed));
+  });
+  await page.goto("/?wall=1&board=cocina");
+  await expect(page.getByTestId("wall-board")).toBeVisible();
+  await expect(page.getByTestId("offline-banner")).toBeVisible();
+  await expect(page.getByTestId("ability-badge")).toHaveCount(0);
+  await expect(page.locator("[data-testid^='favorite-']")).toHaveCount(0);
+  await expect(page.getByTestId("wall-board")).not.toContainText(/fuerte|entrenando/);
+  const afterWall = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  expect(afterWall).not.toContain('"abilities"');
+  expect(afterWall).toContain('"abilityBlocked":true');
+});

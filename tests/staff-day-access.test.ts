@@ -214,6 +214,55 @@ describe("offline cache keeps today only", () => {
     writeRaw(todayYmd);
     expect(readLastBoard(now)?.date).toBe(todayYmd);
   });
+
+  it("drops abilities on write and rewrites a poisoned snapshot on read", () => {
+    const day = {
+      date: todayYmd,
+      stations: [],
+      shifts: [{
+        employee: {
+          id: "e",
+          firstName: "Nia",
+          abilities: [{ stationId: "pdf_guia", level: "forbidden" }],
+        },
+        assignments: [{ id: "a", stationId: "pdf_guia", abilityBlocked: true }],
+      }],
+    };
+    saveLastBoard({ board: "caja", date: todayYmd, day }, now);
+    expect(day.shifts[0]?.employee).toHaveProperty("abilities");
+    const raw = store.get("taco-oasis-last-board-v1") ?? "";
+    expect(raw).not.toContain('"abilities"');
+    expect(raw).toContain('"abilityBlocked":true');
+    expect(readLastBoard(now)?.day).toEqual({
+      date: todayYmd,
+      stations: [],
+      shifts: [{
+        employee: { id: "e", firstName: "Nia" },
+        assignments: [{ id: "a", stationId: "pdf_guia", abilityBlocked: true }],
+      }],
+    });
+
+    const poisoned = JSON.parse(raw) as { day: { shifts: { employee: { abilities?: unknown } }[] } };
+    poisoned.day.shifts[0]!.employee.abilities = [{ stationId: "pdf_guia", level: "preferred" }];
+    store.set("taco-oasis-last-board-v1", JSON.stringify(poisoned));
+    expect(JSON.stringify(readLastBoard(now)?.day)).not.toContain('"abilities"');
+    expect(store.get("taco-oasis-last-board-v1")).not.toContain('"abilities"');
+    expect(store.get("taco-oasis-last-board-v1")).toContain('"abilityBlocked":true');
+  });
+
+  it("rewrites abilities out of a cached day that is not shown", () => {
+    store.set("taco-oasis-last-board-v1", JSON.stringify({
+      version: 1,
+      board: "cocina",
+      date: "2026-10-02",
+      day: {
+        shifts: [{ employee: { id: "e", abilities: [{ stationId: "pdf_guia", level: "ok" }] } }],
+      },
+      savedAt: now.toISOString(),
+    }));
+    expect(readLastBoard(now)).toBeNull();
+    expect(store.get("taco-oasis-last-board-v1")).not.toContain('"abilities"');
+  });
 });
 
 describe("staff panels (return prompts, tareas) never keep another day", () => {

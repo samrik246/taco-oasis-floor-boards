@@ -63,9 +63,10 @@ import {
 import { violationMessage } from "@/lib/violation-messages";
 import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
-import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
+import { readLastBoardFor, saveLastBoard, stripEmployeeAbilities } from "@/lib/offline-board";
 import {
   isCurrentBoardRequest,
+  isCurrentRequestToken,
   liveRefreshState,
   offlineRefreshState,
   panelResponse,
@@ -204,10 +205,12 @@ export function FloorBoard() {
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
-  // Compare every response with the current selection so a slow prior request
-  // cannot repaint a newly selected board/date.
+  // Compare every response with the current selection and the token that
+  // started it, so a slow prior request cannot repaint another board or a
+  // desk that has since locked.
   const activeBoardRef = useRef(board);
   const activeDateRef = useRef(date);
+  const managerTokenRef = useRef<string | null>(null);
   const syncedUrlBoardRef = useRef(requestedBoard);
   activeBoardRef.current = board;
   activeDateRef.current = date;
@@ -254,18 +257,6 @@ export function FloorBoard() {
     [],
   );
 
-  useManagerIdle({
-    active: isManager && !readonly,
-    idleMs,
-    onIdle: () => {
-      lock();
-      setMainView("schedule");
-      setUnlockOpen(false);
-      setPendingMove(null);
-      showToast("ok", t.managerIdleLogout);
-    },
-  });
-
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
     const apply = () => setIsLargeUi(mq.matches);
@@ -298,6 +289,26 @@ export function FloorBoard() {
   // Staff get today only from /api/days; a manager gets every imported day.
   // Re-runs on unlock and lock, so locking drops back to today.
   const managerToken = manager?.token ?? null;
+  managerTokenRef.current = managerToken;
+
+  function lockDesk() {
+    managerTokenRef.current = null;
+    setDay((current) => (current ? stripEmployeeAbilities(current) : current));
+    lock();
+  }
+
+  useManagerIdle({
+    active: isManager && !readonly,
+    idleMs,
+    onIdle: () => {
+      lockDesk();
+      setMainView("schedule");
+      setUnlockOpen(false);
+      setPendingMove(null);
+      showToast("ok", t.managerIdleLogout);
+    },
+  });
+
   const refreshDates = useCallback(async () => {
     try {
       const res = await fetch("/api/days", {
@@ -326,6 +337,12 @@ export function FloorBoard() {
     }
     const requestedBoard = board;
     const requestedDate = date;
+    const requestToken = managerToken;
+    const responseStillCurrent = () =>
+      isCurrentBoardRequest(
+        { board: activeBoardRef.current, date: activeDateRef.current },
+        { board: requestedBoard, date: requestedDate },
+      ) && isCurrentRequestToken(managerTokenRef.current, requestToken);
     setLoading(true);
     try {
       const res = await fetch(`/api/boards/${requestedBoard}/days/${requestedDate}`, {
@@ -334,28 +351,19 @@ export function FloorBoard() {
       if (res.status === 401) {
         // Not offline: this day needs a manager. Show nothing; /api/days
         // (re-run on lock) moves the bar back to today.
-        if (isCurrentBoardRequest(
-          { board: activeBoardRef.current, date: activeDateRef.current },
-          { board: requestedBoard, date: requestedDate },
-        )) setDay(null);
+        if (responseStillCurrent()) setDay(null);
         return;
       }
       if (!res.ok) throw new Error("load");
       const data = (await res.json()) as DayBoardDto;
-      if (!isCurrentBoardRequest(
-        { board: activeBoardRef.current, date: activeDateRef.current },
-        { board: requestedBoard, date: requestedDate },
-      )) return;
+      if (!responseStillCurrent()) return;
       const next = liveRefreshState(data);
       setDay(next.day);
       setLoadError(null);
       setOffline(next.offline);
       saveLastBoard({ board: requestedBoard, date: requestedDate, day: data });
     } catch {
-      if (!isCurrentBoardRequest(
-        { board: activeBoardRef.current, date: activeDateRef.current },
-        { board: requestedBoard, date: requestedDate },
-      )) return;
+      if (!responseStillCurrent()) return;
       const cached = readLastBoardFor(requestedBoard);
       const fallback = offlineRefreshState<DayBoardDto>(requestedBoard, cached);
       setOffline(fallback.offline);
@@ -528,9 +536,11 @@ export function FloorBoard() {
     return () => window.clearInterval(id);
   }, [refreshDates, refreshPhase1]);
 
-  const showLevels = Boolean(
+  const dayHasAbilities = Boolean(
     day?.shifts.some((shift) => Array.isArray(shift.employee.abilities)),
   );
+  const ownerSession = manager?.role === "owner";
+  const showLevels = ownerSession && dayHasAbilities;
 
   const available = useMemo(() => {
     if (!day || !date) return [];
@@ -1024,8 +1034,7 @@ export function FloorBoard() {
     selectLedgerEmployee(shift);
     if (readonly || offline || !isManager) return;
     if (selectedStationId) {
-      const level = abilityFor(shift, selectedStationId);
-      if (level === "forbidden") {
+      if (showLevels && abilityFor(shift, selectedStationId) === "forbidden") {
         showCardFeedback(selectedStationId, "err", t.toastForbidden);
         return;
       }
@@ -1053,7 +1062,7 @@ export function FloorBoard() {
   }
 
   function exitManager(): boolean {
-    lock();
+    lockDesk();
     setMainView("schedule");
     return true;
   }
@@ -1189,6 +1198,8 @@ export function FloorBoard() {
       data-large-ui={isLargeUi ? "1" : "0"}
       data-locale={locale}
       data-role={isManager ? "manager" : "staff"}
+      data-day-abilities={dayHasAbilities ? "1" : "0"}
+      data-show-levels={showLevels ? "1" : "0"}
       data-main-view={mainView}
       data-testid="floor-board"
     >

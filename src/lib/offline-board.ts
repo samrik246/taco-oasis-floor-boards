@@ -16,6 +16,40 @@ export type CachedFloorBoard = {
   savedAt: string;
 };
 
+function employeeRecord(shift: unknown): Record<string, unknown> | null {
+  if (!shift || typeof shift !== "object" || !("employee" in shift)) return null;
+  const employee = (shift as { employee?: unknown }).employee;
+  if (!employee || typeof employee !== "object") return null;
+  return employee as Record<string, unknown>;
+}
+
+/** True when any shift still carries the owner-only abilities key. */
+export function dayCarriesAbilities(day: unknown): boolean {
+  if (!day || typeof day !== "object" || !("shifts" in day)) return false;
+  const shifts = (day as { shifts?: unknown }).shifts;
+  if (!Array.isArray(shifts)) return false;
+  return shifts.some((shift) => {
+    const employee = employeeRecord(shift);
+    return employee != null && "abilities" in employee;
+  });
+}
+
+/**
+ * Drop `employee.abilities` and keep everything else, including `abilityBlocked`.
+ * The caller's object is left unchanged.
+ */
+export function stripEmployeeAbilities<T>(day: T): T {
+  if (!dayCarriesAbilities(day)) return day;
+  const copy = structuredClone(day);
+  const shifts = (copy as { shifts?: unknown }).shifts;
+  if (!Array.isArray(shifts)) return copy;
+  for (const shift of shifts) {
+    const employee = employeeRecord(shift);
+    if (employee && "abilities" in employee) delete employee.abilities;
+  }
+  return copy;
+}
+
 export function saveLastBoard(
   snapshot: Omit<CachedFloorBoard, "version" | "savedAt">,
   now: Date = new Date(),
@@ -26,7 +60,7 @@ export function saveLastBoard(
     version: 1,
     board: snapshot.board,
     date: snapshot.date,
-    day: snapshot.day,
+    day: stripEmployeeAbilities(snapshot.day),
     savedAt: new Date().toISOString(),
   };
   try {
@@ -42,6 +76,13 @@ export function readLastBoard(now: Date = new Date()): CachedFloorBoard | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedFloorBoard;
+    if (!parsed || typeof parsed !== "object") return null;
+    // An older build may have saved owner levels. Rewrite the stored snapshot
+    // so a later staff read cannot find them, even when this cache is not today.
+    if (dayCarriesAbilities(parsed.day)) {
+      parsed.day = stripEmployeeAbilities(parsed.day);
+      window.localStorage.setItem(KEY, JSON.stringify(parsed));
+    }
     if (parsed.version !== 1 || !parsed.day || !parsed.date) return null;
     if (parsed.board !== "caja" && parsed.board !== "cocina") return null;
     // Today only. A cache written before this rule may hold a planned day,
