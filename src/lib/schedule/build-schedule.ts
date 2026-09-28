@@ -6,6 +6,7 @@ import {
   hourGridHours,
 } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { groupedStationRank } from "@/lib/assignments/paint-families";
 import { stationShortCode } from "./station-codes";
 
 export type ScheduleShiftLike = {
@@ -296,7 +297,8 @@ export function stationAtSelectedHour(
 
 /**
  * Pintar row order. Entrada and Nombre reuse the schedule comparator.
- * Puesto uses the selected hour's station, then the name comparator.
+ * Puesto uses the selected hour's station. A complete paint family sits
+ * together, in number order, where member 1 sits in the board order.
  * Unassigned sorts last. This is not the schedule grid's most-hours station.
  */
 export function comparePintarRows(
@@ -306,8 +308,9 @@ export function comparePintarRows(
   stationOrder: ReadonlyMap<string, number>,
 ): number {
   if (sort === "position") {
+    const grouped = groupedStationRank(stationOrder);
     const rank = (id: string | null) =>
-      id == null ? Number.MAX_SAFE_INTEGER : (stationOrder.get(id) ?? Number.MAX_SAFE_INTEGER - 1);
+      id == null ? Number.MAX_SAFE_INTEGER : (grouped.get(id) ?? Number.MAX_SAFE_INTEGER - 1);
     const delta = rank(a.stationId) - rank(b.stationId);
     if (delta !== 0) return delta;
     return compareScheduleRows(a, b, "name");

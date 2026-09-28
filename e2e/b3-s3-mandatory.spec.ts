@@ -121,6 +121,9 @@ test("C7 an owner mark lights for that date only, and a manager and a staff tabl
 
   await page.getByTestId("mandatory-toggle-pdf_pstl").click();
   await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
+  const pill = await page.getByTestId("mandatory-toggle-pdf_pstl").boundingBox();
+  const card = await page.getByTestId("paint-palette-pdf_pstl").boundingBox();
+  expect(pill && card && pill.width < card.width).toBeTruthy();
   await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
   const extra = page.getByTestId("mandatory-gap-pdf_pstl-12");
   await expect(extra).toHaveText("PSTL");
