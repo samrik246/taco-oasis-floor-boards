@@ -325,3 +325,17 @@ model BoardChangeLog {
   @@index([date, createdAt])
   @@index([createdAt])
 }
+
+/// One extra mandatory cocina station for a single date. The three standing
+/// stations are not rows here; they stay in code. Old dates are left as written.
+model MandatoryMark {
+  id        String   @id @default(cuid())
+  board     String
+  date      String
+  stationId String
+  createdAt DateTime @default(now())
+  managerId String
+
+  @@unique([board, date, stationId])
+  @@index([date])
+}

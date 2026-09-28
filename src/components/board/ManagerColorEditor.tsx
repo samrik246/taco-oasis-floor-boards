@@ -11,6 +11,8 @@ import type { PaintEdit } from "@/lib/assignments/paint";
 import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, familyForStation, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
+import { isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory } from "@/lib/mandatory";
+import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
 import { buildTimelineRows, personName } from "./timeline-rows";
 import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
@@ -136,6 +138,7 @@ export function ManagerColorEditor({
     forbidden: "Esta persona no puede trabajar en ese puesto.",
     full: "Todos los números están ocupados en esa hora. Nadie fue reemplazado.",
     needChoice: "Elige un puesto o Borrar primero.",
+    markFailed: "No se pudo marcar el puesto.",
     reasonTitle: "Motivo para cambiar un puesto actual o pasado",
     noPerson: "Sin persona",
   } : {
@@ -161,6 +164,7 @@ export function ManagerColorEditor({
     forbidden: "This person cannot work that position.",
     full: "All numbered positions are occupied at that hour. Nobody was replaced.",
     needChoice: "Pick a position or Erase first.",
+    markFailed: "Could not mark the position.",
     reasonTitle: "Reason for changing a current or past position",
     noPerson: "No person",
   };
@@ -186,6 +190,20 @@ export function ManagerColorEditor({
     stationLabelFor: (id) => displayStationLabel(locale, day.stations.find((s) => s.id === id) ?? { id, label: id, color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null }),
   }) : [], [day, date, hours, locale, t]);
   const choices = useMemo(() => paletteChoices(day), [day]);
+  const gaps = useMemo(() => {
+    if (board !== "cocina" || !day?.mandatory) return [];
+    return uncoveredMandatory({
+      stationIds: day.mandatory.stationIds,
+      hours,
+      date,
+      shifts: day.shifts,
+      drafts: Object.values(draft).map((edit) => ({
+        shiftId: edit.shiftId,
+        hour: edit.hour,
+        stationId: edit.stationId,
+      })),
+    });
+  }, [board, day, hours, date, draft]);
 
   function commitDraft(next: Draft, nextUndo: Draft[]) {
     const retained = writePaintDraft(managerId, board, date, Object.values(next));
@@ -283,6 +301,28 @@ export function ManagerColorEditor({
     stage(edit);
   }
 
+  async function toggleMandatory(stationId: string, on: boolean) {
+    if (busy || readonly || day?.mandatory?.canMark !== true) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/admin/mandatory", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...managerAuthHeaders(managerToken) },
+        body: JSON.stringify({ date, stationId, on }),
+      });
+      if (!response.ok) {
+        setFeedback({ kind: "err", text: copy.markFailed });
+        return;
+      }
+      await onSaved();
+    } catch {
+      setFeedback({ kind: "err", text: copy.markFailed });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selectedChoice = choices.find((choice) => choice.id === selected);
 
   return (
@@ -324,11 +364,19 @@ export function ManagerColorEditor({
           <div className="flex gap-2 overflow-x-auto pb-1 md:max-h-[65vh] md:flex-col md:overflow-y-auto" data-testid="paint-palette">
             {choices.map((choice) => {
               const people = day ? choice.stationIds.flatMap((id) => assignmentsAtStationHour(day.shifts, id, date, selectedHour).map(({ shift }) => displayName(shift))) : [];
-              return <button key={choice.id} type="button" className={cn("touch-target min-h-11 w-48 shrink-0 rounded-md border-2 px-2 py-2 text-left text-sm font-bold md:w-full", choice.color ? stationColorClass(choice.color) : "border-neutral-800 bg-neutral-100 text-neutral-950", selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`}>
-                <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
-                {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
-                <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
-              </button>;
+              const stationId = choice.id.startsWith("family:") ? null : choice.id;
+              const missing = stationId != null && gaps.some((gap) => gap.stationId === stationId && gap.hour === selectedHour);
+              const marked = stationId != null && (day?.mandatory?.extraStationIds.includes(stationId) ?? false);
+              const canToggle = day?.mandatory?.canMark === true && stationId != null && !isDefaultMandatory(stationId);
+              return <div key={choice.id} className="w-48 shrink-0 md:w-full">
+                <button type="button" className={cn("touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"}>
+                  <span className="block">{choice.id.startsWith("family:") ? `${choice.label} · ${copy.auto}` : displayStationLabel(locale, day!.stations.find((station) => station.id === choice.id)!)}</span>
+                  {choice.detail && <span className="block text-xs font-medium break-words">{choice.detail}</span>}
+                  <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
+                  {missing && <span className="block text-xs font-bold uppercase">Falta</span>}
+                </button>
+                {canToggle && stationId && <button type="button" className={cn("touch-target mt-1 min-h-11 w-full rounded-md border-2 border-neutral-900 px-2 text-left text-xs font-bold", marked ? "bg-neutral-900 text-white" : "bg-white")} aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}>Obligatorio hoy</button>}
+              </div>;
             })}
             <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-2 text-left text-sm font-bold md:w-full", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} style={{ minWidth: "8.5rem", flexShrink: 0 }} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
           </div>
@@ -359,6 +407,17 @@ export function ManagerColorEditor({
                 </td>;
               })}
             </tr>)}</tbody>
+            {day?.mandatory && <tfoot><tr data-testid="mandatory-gaps">
+              <th className="sticky left-0 bg-white" scope="row" />
+              {hours.map((hour) => {
+                const boxes = gaps.filter((gap) => gap.hour === hour);
+                return <td key={hour} className="align-top p-0.5" data-testid={`mandatory-gap-hour-${hour}`}>{boxes.map((gap) => {
+                  const station = day.stations.find((item) => item.id === gap.stationId);
+                  const label = mandatoryGapLabel(station ?? { label: gap.stationId });
+                  return <span key={gap.stationId} className={cn("mb-0.5 block rounded px-0.5 text-center text-[10px] font-bold leading-4", station ? stationColorClass(station.color) : "bg-neutral-200")} data-testid={`mandatory-gap-${gap.stationId}-${hour}`}>{label}</span>;
+                })}</td>;
+              })}
+            </tr></tfoot>}
           </table>
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>

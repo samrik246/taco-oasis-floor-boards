@@ -23,6 +23,11 @@ function employeeRecord(shift: unknown): Record<string, unknown> | null {
   return employee as Record<string, unknown>;
 }
 
+function dayRecord(day: unknown): Record<string, unknown> | null {
+  if (!day || typeof day !== "object") return null;
+  return day as Record<string, unknown>;
+}
+
 /** True when any shift still carries the owner-only abilities key. */
 export function dayCarriesAbilities(day: unknown): boolean {
   if (!day || typeof day !== "object" || !("shifts" in day)) return false;
@@ -50,6 +55,16 @@ export function stripEmployeeAbilities<T>(day: T): T {
   return copy;
 }
 
+/** Manager-only day fields stay off the shared tablet, the same way levels do. */
+export function stripSharedTabletDay<T>(day: T): T {
+  const withoutAbilities = stripEmployeeAbilities(day);
+  const record = dayRecord(withoutAbilities);
+  if (!record || !("mandatory" in record)) return withoutAbilities;
+  const copy = withoutAbilities === day ? structuredClone(withoutAbilities) : withoutAbilities;
+  delete (copy as { mandatory?: unknown }).mandatory;
+  return copy;
+}
+
 export function saveLastBoard(
   snapshot: Omit<CachedFloorBoard, "version" | "savedAt">,
   now: Date = new Date(),
@@ -60,7 +75,7 @@ export function saveLastBoard(
     version: 1,
     board: snapshot.board,
     date: snapshot.date,
-    day: stripEmployeeAbilities(snapshot.day),
+    day: stripSharedTabletDay(snapshot.day),
     savedAt: new Date().toISOString(),
   };
   try {
@@ -77,10 +92,12 @@ export function readLastBoard(now: Date = new Date()): CachedFloorBoard | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedFloorBoard;
     if (!parsed || typeof parsed !== "object") return null;
-    // An older build may have saved owner levels. Rewrite the stored snapshot
-    // so a later staff read cannot find them, even when this cache is not today.
-    if (dayCarriesAbilities(parsed.day)) {
-      parsed.day = stripEmployeeAbilities(parsed.day);
+    // An older build may have saved owner levels or one-day marks. Rewrite the
+    // stored snapshot so a later staff read cannot find them, even when this
+    // cache is not today.
+    const record = dayRecord(parsed.day);
+    if (dayCarriesAbilities(parsed.day) || (record != null && "mandatory" in record)) {
+      parsed.day = stripSharedTabletDay(parsed.day);
       window.localStorage.setItem(KEY, JSON.stringify(parsed));
     }
     if (parsed.version !== 1 || !parsed.day || !parsed.date) return null;

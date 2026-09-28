@@ -48,11 +48,19 @@ export type ShiftDto = {
   assignments: AssignmentDto[];
 };
 
+export type MandatoryDto = {
+  stationIds: string[];
+  extraStationIds: string[];
+  canMark: boolean;
+};
+
 export type DayBoardDto = {
   board: "caja" | "cocina";
   date: string;
   stations: StationDto[];
   shifts: ShiftDto[];
+  /** Cocina manager and owner only. Absent for staff and for caja. */
+  mandatory?: MandatoryDto;
 };
 
 export type BoardKindUi = "caja" | "cocina";

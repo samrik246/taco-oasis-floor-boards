@@ -11,6 +11,8 @@ export type BoardChangeParts = {
   hour?: number | null;
   stationId?: string | null;
   count: number;
+  /** Mandatory on/off only. The summary then ends in that word and omits count. */
+  mark?: "on" | "off";
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -24,6 +26,7 @@ export const BOARD_CHANGE_ROUTES = {
   clear: "DELETE /api/assignments/[id]",
   positionMove: "POST /api/position-moves",
   abilities: "PUT /api/admin/abilities",
+  mandatory: "PUT /api/admin/mandatory",
 } as const;
 
 /** Day, hour, station, count. Request prose never reaches this line. */
@@ -39,6 +42,10 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   }
   if (parts.stationId && /^[A-Za-z0-9_,.-]{1,80}$/.test(parts.stationId)) {
     bits.push(`station=${parts.stationId}`);
+  }
+  if (parts.mark === "on" || parts.mark === "off") {
+    bits.push(parts.mark);
+    return bits.join(" ");
   }
   const count = Number.isInteger(parts.count) && parts.count >= 0 ? parts.count : 0;
   bits.push(`count=${count}`);
