@@ -2,9 +2,11 @@
 
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -151,6 +153,54 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(self.query('SELECT id FROM "Station" WHERE id="yellow2"'), [("yellow2",)])
         with sqlite3.connect(backups[0]) as copy:
             self.assertEqual(copy.execute('SELECT id FROM "Station" WHERE id="yellow2"').fetchall(), [])
+
+
+class RemoteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+
+    def test_remote_argv_is_ssh_with_the_host_command(self):
+        sha = "ab" * 32
+        self.assertEqual(
+            edit_board.remote_argv("mini", "/opt/taco-oasis", "preflight"),
+            ["ssh", "mini",
+             "cd /opt/taco-oasis && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight"],
+        )
+        self.assertEqual(
+            edit_board.remote_argv("mini", "/opt/taco-oasis", "apply", sha),
+            ["ssh", "mini",
+             "cd /opt/taco-oasis && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply " + sha],
+        )
+        spaced = edit_board.remote_argv("mini", "/opt/taco oasis", "preflight")
+        self.assertEqual(
+            spaced[2],
+            "cd '/opt/taco oasis' && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight",
+        )
+        with self.assertRaises(edit_board.Refusal):
+            edit_board.remote_argv("-oProxyJump=evil", "/opt/taco-oasis", "preflight")
+
+    def test_remote_streams_the_packet_and_returns_the_exit_code(self):
+        packet = Path(self.temp.name) / "packet.json"
+        payload = b'{"version":1}\n'
+        packet.write_bytes(payload)
+        seen = {}
+
+        def runner(argv, stdin):
+            seen["argv"] = argv
+            seen["stdin"] = stdin
+            return subprocess.CompletedProcess(argv, 4, stdout=b"host-out\n", stderr=b"")
+
+        out = io.BytesIO()
+        code = edit_board.remote_run(
+            "mini", "/opt/taco-oasis", "apply", packet, "ab" * 32, runner, out, io.BytesIO(),
+        )
+        self.assertEqual(code, 4)
+        self.assertEqual(seen["argv"][0], "ssh")
+        self.assertEqual(seen["stdin"], payload)
+        self.assertIn("--apply", seen["argv"][2])
+        self.assertNotIn("IdentityFile", " ".join(seen["argv"]))
+        self.assertEqual(out.getvalue(), b"host-out\n")
 
 
 if __name__ == "__main__":

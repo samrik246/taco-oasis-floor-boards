@@ -198,6 +198,35 @@ This replaces a separate clock-margin check around the two pull slots with a rea
 
 **Scope of this change:** `scripts/release-lock.sh` is ready for any installer in this repo to adopt. It is not yet wired into an actual onsite installer — no installer script exists in this repository's git history (any branch) to add it to. The hash-pinned onsite packet script run on T MAC MINI is maintained outside this repo; adopting this same lock directory, path, and algorithm there is a follow-up change owned by whoever maintains that script, not part of this PR.
 
+## Agent colour edits from this Mac (B3 S6)
+
+`scripts/agent-paint.ts` runs on the installed release with Node 22 and the app `tsx`, the same way `set-owner.ts` does. It reads one JSON packet on stdin:
+
+`{ version: 1, release, board, date, agent, edits: [{ employeeId, hour, stationId | family | erase }] }`
+
+`agent` is letters, digits, and spaces, at most 40 characters. An edit names one numbered `stationId`, one paint `family`, or `"erase": true`.
+
+Preflight is the default (`--preflight`). It resolves each edit to the one active shift that covers that hour. Two shifts on the same day stay separate: an hour in the gap is refused, and an hour covered by more than one shift is refused. It fills `expectedShift` and `expected` from the current rows, and runs the Pintar save checks without writing. A family edit is rewritten to the concrete station that dry run picks. That station is what the SHA-256 binds, and the cell may still name the family. It prints the resolved packet, that SHA-256, and a per-cell before/after list of station ids, names, and hours. Apply saves that station and does not choose a different seat in the family.
+
+`--apply <sha256>` takes the shared release lock (`src/lib/release-lock.ts`) for the whole save. After the lock is held it reads `RELEASE_SHA` again, resolves and validates, then calls `paintAssignments` once, and only then releases the lock. The change-log actor is `Agente <agent>` with route `script agent-paint`, so the owner Cambios screen shows that name. Pass the resolved packet from preflight. A different SHA is refused before any write. A board that changed since preflight is refused by the save's own stale checks, and nothing is written.
+
+From this Mac, once the SSH config exists, stream the packet and return the remote exit code. The script does not handle keys or passwords. The existing SQLite editor flags stay as they are.
+
+```bash
+python3 scripts/edit-board.py remote --host <ssh-alias> --app <absolute-app-path> preflight packet.json
+python3 scripts/edit-board.py remote --host <ssh-alias> --app <absolute-app-path> apply resolved.json <sha256>
+```
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Preflight finished, or the save finished |
+| 2 | A rule refused the edit: a taken seat, a person who cannot take that position, an hour outside the shift, or a stale board |
+| 3 | The packet or the SHA-256 is not valid |
+| 4 | The packet `release` does not match the installed `RELEASE_SHA` |
+| 1 | Another failure, including a release lock that is already held |
+
+The command output does not include ability levels. The live preflight-and-apply proof waits until the SSH link to the floor-boards Mac exists; it is not part of this merge.
+
 ## Optional: Vercel
 
 Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.

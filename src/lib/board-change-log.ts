@@ -27,6 +27,7 @@ export const BOARD_CHANGE_ROUTES = {
   positionMove: "POST /api/position-moves",
   abilities: "PUT /api/admin/abilities",
   mandatory: "PUT /api/admin/mandatory",
+  agentPaint: "script agent-paint",
 } as const;
 
 /** Day, hour, station, count. Request prose never reaches this line. */
