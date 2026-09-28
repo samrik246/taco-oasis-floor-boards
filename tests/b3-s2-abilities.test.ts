@@ -396,12 +396,16 @@ describe("B3 S2 abilities", () => {
     expect(await prisma.assignment.count({ where: { shiftId: shift.id } })).toBe(0);
 
     const open = await prisma.shift.findFirstOrThrow({ where: { employeeId: beaId, date: future } });
+    const openStation = "pdf_pstl";
+    expect(await prisma.employeeStationAbility.findUnique({
+      where: { employeeId_stationId: { employeeId: beaId, stationId: openStation } },
+    })).toBeNull();
     const allowed = await assignHour(authed(managerToken, "http://local/api/assignments", {
       method: "PUT",
-      body: JSON.stringify({ shiftId: open.id, stationId: "pdf_guia", date: future, hour: 11 }),
+      body: JSON.stringify({ shiftId: open.id, stationId: openStation, date: future, hour: 11 }),
     }));
     expect(allowed.status).toBe(200);
-    expect(await prisma.assignment.count({ where: { shiftId: open.id, stationId: "pdf_guia" } })).toBe(1);
+    expect(await prisma.assignment.count({ where: { shiftId: open.id, stationId: openStation } })).toBe(1);
   });
 
   it("B6 a forbidden assignment already on the board warns a manager and a staff tablet", async () => {
