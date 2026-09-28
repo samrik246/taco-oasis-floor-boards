@@ -220,7 +220,7 @@ test("K4 a manager outline is the same on every open cell and the payload has no
   await expect(page.locator("[data-outline='dashed'], [data-outline='filled']")).toHaveCount(0);
 });
 
-test("K5 Habilidades cells use the station colour and poco, and the Employees panel keeps entrenando", async ({ page }) => {
+test("K5 Habilidades headers keep the station colour, cells use the S12 mark, and the Employees panel keeps entrenando", async ({ page }) => {
   await keepDesk(page);
   await page.goto("/back-office");
   await page.getByTestId("back-office-code").fill("8642");
@@ -231,7 +231,38 @@ test("K5 Habilidades cells use the station colour and poco, and the Employees pa
   const cell = page.getByTestId("ability-cell-b3s12-grid-moss-pdf_guia");
   await expect(cell).toHaveText("poco");
   await expect(header).toHaveClass(/bg-orange-200/);
-  await expect(cell).toHaveClass(/bg-orange-200/);
+  await expect(cell).toHaveAttribute("data-mark", "dashed");
+  await expect(cell).toHaveClass(/border-dashed/);
+  await expect(cell).toHaveClass(/border-orange-600/);
+  await expect(cell).not.toHaveClass(/bg-orange-200/);
+  const marks = await page.locator("[data-testid^='ability-cell-']").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      text: (node.textContent ?? "").trim(),
+      mark: node.getAttribute("data-mark"),
+      className: node.className,
+    })),
+  );
+  const markForWord: Record<string, string> = {
+    no: "none",
+    poco: "dashed",
+    bien: "solid",
+    fuerte: "filled",
+    mixto: "none",
+  };
+  expect(marks.length).toBeGreaterThan(0);
+  for (const row of marks) {
+    expect(row.mark).toBe(markForWord[row.text]);
+    if (row.mark === "dashed") expect(row.className).toContain("border-dashed");
+    if (row.mark === "none") expect(row.className).toContain("bg-white");
+    if (row.mark === "solid") {
+      expect(row.className).toContain("border-solid");
+      expect(row.className).toContain("bg-white");
+    }
+    if (row.mark === "filled") {
+      expect(row.className).toContain("border-solid");
+      expect(row.className).not.toContain("bg-white");
+    }
+  }
   const words = await page.locator("[data-testid^='ability-cell-']").allTextContents();
   expect(words.some((word) => word.includes("entrenando"))).toBe(false);
   await expect(page.getByTestId("ability-header-pdf_crne")).toHaveCount(0);

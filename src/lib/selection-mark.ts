@@ -93,6 +93,43 @@ export function markFillClass(color: string): string {
   return MARK_FILL[color] ?? "bg-neutral-600";
 }
 
+/** Mid fills where white type fails. The word stays inside a fuerte cell. */
+const FILLED_INK: Record<string, string> = {
+  yellow: "text-neutral-950",
+  lime: "text-neutral-950",
+  orange: "text-neutral-950",
+  cyan: "text-neutral-950",
+};
+
+function markInkClass(color: string): string {
+  return FILLED_INK[color] ?? "text-white";
+}
+
+const PLAIN_CELL = "border-solid border-neutral-300 bg-white text-neutral-800";
+
+/**
+ * Habilidades cell. Same border and fill tokens as SelectionMarkDot:
+ * no is plain, poco is a dashed edge, bien is a solid edge, fuerte is the dot fill plus that edge.
+ */
+export function gridCellMarkClass(
+  level: string,
+  color: string,
+): { className: string; mark: SelectionMark } {
+  const mark = selectionMark(level);
+  if (mark === "none") return { className: PLAIN_CELL, mark };
+  const border = markBorderClass(color);
+  if (mark === "dashed") {
+    return { className: `border-dashed ${border} bg-white text-neutral-900`, mark };
+  }
+  if (mark === "filled") {
+    return {
+      className: `border-solid ${border} ${markFillClass(color)} ${markInkClass(color)}`,
+      mark,
+    };
+  }
+  return { className: `border-solid ${border} bg-white text-neutral-900`, mark };
+}
+
 export function openCellOutlineClass(input: {
   mode: "rest" | "manager" | "owner";
   mark: SelectionMark;
