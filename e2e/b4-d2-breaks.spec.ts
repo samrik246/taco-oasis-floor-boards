@@ -242,8 +242,9 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
 
   await openFromBoard();
   await signIn();
-  const start = chicagoDateTime(date, "9:00 am").toISOString();
-  const fullEnd = chicagoDateTime(date, "10:00 am").toISOString();
+  // The earlier case in this file leaves Ada on cocina from 9:00 to 10:00.
+  const start = chicagoDateTime(date, "8:00 am").toISOString();
+  const fullEnd = chicagoDateTime(date, "9:00 am").toISOString();
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   await expect(page.getByTestId("break-save")).toHaveAttribute("data-end", fullEnd);
   await page.getByTestId("break-save").click();
