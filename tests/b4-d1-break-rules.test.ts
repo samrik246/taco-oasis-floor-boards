@@ -451,6 +451,7 @@ describe("B4 D1 break rules", () => {
     expect(await prisma.mandatoryMark.findMany({ orderBy: { id: "asc" } })).toEqual(beforeMarks);
   });
 
+  // Six pnpm exec children. Actions run 36456884427 hit Vitest's 5s default.
   it("K6 dry run prints counts only, and apply backs up before an idempotent write", async () => {
     process.env.STAFF_PASSCODE_PEPPER = TEST_PEPPER;
     const known = await person("known", "Quilla");
@@ -525,7 +526,7 @@ describe("B4 D1 break rules", () => {
     fs.rmSync(csv, { force: true });
     fs.rmSync(bad, { force: true });
     fs.rmSync(dup, { force: true });
-  });
+  }, 60_000);
 
   it("K7 no API returns a passcode, and db push is additive", async () => {
     const home = fs.readFileSync(path.join(root, "scripts/home-base.sh"), "utf8");
