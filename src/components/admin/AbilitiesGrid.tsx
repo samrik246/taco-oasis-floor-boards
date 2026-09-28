@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { cellWord, nextStoredLevel, type CellLevel } from "@/lib/abilities/levels";
 import { stationColorClass } from "@/components/board/board-helpers";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
+import { gridCellMarkClass } from "@/lib/selection-mark";
+import { cn } from "@/lib/utils";
 
 type Column = { key: string; label: string; kind: "family" | "station"; color: string };
 type Setting = { key: string; hidden: boolean; defaultLevel: "ok" | "forbidden" };
@@ -185,15 +187,20 @@ export function AbilitiesGrid({ token }: { token: string }) {
                   {visible.map((column) => {
                     const level = person.cells[column.key] ?? "ok";
                     const faded = settingFor(column.key).hidden ? "opacity-40" : "";
-                    const columnColor = stationColorClass(column.color);
+                    const mark = gridCellMarkClass(level, column.color);
                     return (
-                      <td key={column.key} className={`px-1 py-1 ${columnColor} ${faded}`}>
+                      <td key={column.key} className={`px-1 py-1 ${faded}`}>
                         <button
                           type="button"
-                          className={`min-h-11 min-w-11 rounded-md border-2 px-2 text-xs font-black ${columnColor}`}
+                          className={cn(
+                            "min-h-11 min-w-11 rounded-md border-2 px-2 text-xs font-black",
+                            mark.className,
+                          )}
                           disabled={saving === `${person.id}:${column.key}`}
                           onClick={() => void tap(person, column)}
                           data-testid={`ability-cell-${person.externalId}-${column.key}`}
+                          data-mark={mark.mark}
+                          data-level={level}
                         >
                           {cellWord(level)}
                         </button>
