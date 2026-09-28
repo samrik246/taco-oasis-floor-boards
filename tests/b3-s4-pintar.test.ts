@@ -11,7 +11,7 @@ import { PrismaClient } from "@prisma/client";
 import { GET as dayBoard } from "@/app/api/boards/[board]/days/[date]/route";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { paintAssignments, type PaintEdit } from "@/lib/assignments/paint";
-import { planPaintSeatNumbers } from "@/lib/assignments/seat-number";
+import { numberedFamilySeats, planPaintSeatNumbers } from "@/lib/assignments/seat-number";
 import {
   copyDayAssignments,
   createAssignment,
@@ -32,6 +32,7 @@ import {
   compareScheduleRows,
   stationAtSelectedHour,
 } from "@/lib/schedule/build-schedule";
+import { seedDemoScheduleAssignments } from "@/lib/schedule/seed-demo-assignments";
 import { syntheticCsv, type SyntheticRow } from "./helpers/synthetic-schedule";
 
 const prisma = new PrismaClient();
@@ -49,6 +50,8 @@ const people = {
   cam: { id: `${stamp}-cam`, shift: `${stamp}-cam-shift` },
   rio: { id: `${stamp}-rio`, shift: `${stamp}-rio-shift` },
 } as const;
+const demoPerson = { id: `${stamp}-demo`, shift: `${stamp}-demo-shift` };
+const demoDate = "2035-04-19";
 
 function editOf(
   person: { id: string; shift: string },
@@ -112,8 +115,11 @@ describe("B3 S4 pintar order", () => {
 
 describe("B3 S4 paint numbers", () => {
   afterAll(async () => {
-    const ids = Object.values(people).map((person) => person.id);
-    const shifts = Object.values(people).flatMap((person) => [person.shift, "later" in person ? person.later : ""]);
+    const ids = [...Object.values(people).map((person) => person.id), demoPerson.id];
+    const shifts = [
+      ...Object.values(people).flatMap((person) => [person.shift, "later" in person ? person.later : ""]),
+      demoPerson.shift,
+    ];
     await prisma.boardChangeLog.deleteMany({ where: { managerId: { in: [actor.id, `${stamp}-mgr`] } } });
     await prisma.assignment.deleteMany({ where: { employeeId: { in: ids } } });
     await prisma.shiftRemovalEvent.deleteMany({ where: { override: { externalId: { startsWith: stamp } } } });
@@ -387,6 +393,32 @@ describe("B3 S4 paint numbers", () => {
     await prisma.assignment.deleteMany({ where: { shift: { date: importDate, employee: { externalId: { in: [`${stamp}-out`, `${stamp}-in`] } } } } });
     await prisma.shift.deleteMany({ where: { employee: { externalId: { in: [`${stamp}-out`, `${stamp}-in`] } } } });
     await prisma.employee.deleteMany({ where: { externalId: { in: [`${stamp}-out`, `${stamp}-in`] } } });
+  });
+
+  it("D4 the demo seeder stores a number on a numbered-family seat", async () => {
+    await prisma.employee.create({
+      data: { id: demoPerson.id, externalId: demoPerson.id, firstName: "Dee", lastName: "Moss" },
+    });
+    await prisma.shift.create({
+      data: {
+        id: demoPerson.shift,
+        employeeId: demoPerson.id,
+        board: "cocina",
+        date: demoDate,
+        sourcePosition: "Cocina",
+        startAt: chicagoDateTime(demoDate, "12:00 pm"),
+        endAt: chicagoDateTime(demoDate, "1:00 pm"),
+      },
+    });
+    const seeded = await seedDemoScheduleAssignments([demoDate]);
+    const rows = await prisma.assignment.findMany({ where: { employeeId: demoPerson.id } });
+    expect(seeded.created).toBe(1);
+    expect(rows).toHaveLength(1);
+    expect(numberedFamilySeats(rows[0]!.stationId)).not.toBeNull();
+    expect(rows[0]).toMatchObject({ stationId: "pdf_br2a", seatNumber: 1 });
+    await prisma.assignment.deleteMany({ where: { employeeId: demoPerson.id } });
+    await prisma.shift.delete({ where: { id: demoPerson.shift } });
+    await prisma.employee.delete({ where: { id: demoPerson.id } });
   });
 });
 

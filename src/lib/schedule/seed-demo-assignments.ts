@@ -19,11 +19,13 @@ const CAJA_SEED_STATIONS = new Set(["mana", "green1", "purple1", "nieves"]);
  * Idempotent: skips hours that already have an assignment for that person
  * or a full station. Uses bulk create for speed.
  */
-export async function seedDemoScheduleAssignments(): Promise<{
+export async function seedDemoScheduleAssignments(
+  dates: readonly string[] = DEMO_DATES,
+): Promise<{
   created: number;
   dates: string[];
 }> {
-  const dates = [...DEMO_DATES];
+  const selected = [...dates];
   const toCreate: Array<{
     shiftId: string;
     employeeId: string;
@@ -32,7 +34,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
     hourEnd: Date;
   }> = [];
 
-  for (const date of dates) {
+  for (const date of selected) {
     for (const board of ["caja", "cocina"] as const) {
       const stations = ALL_STATIONS.filter((s) => {
         if (s.board !== board) return false;
@@ -120,7 +122,7 @@ export async function seedDemoScheduleAssignments(): Promise<{
     });
   }
 
-  return { created: toCreate.length, dates };
+  return { created: toCreate.length, dates: selected };
 }
 
 export function demoDates(): readonly string[] {
