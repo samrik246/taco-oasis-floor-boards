@@ -341,3 +341,13 @@ model MandatoryMark {
   @@unique([board, date, stationId])
   @@index([date])
 }
+
+/// One Habilidades column rule. A person with no ability row uses defaultLevel.
+/// The install seed writes these rows only. It never writes an ability row.
+model AbilityColumnSetting {
+  key          String   @id
+  hidden       Boolean  @default(false)
+  /// ok | forbidden. ok is Nuevos bien. forbidden is Nuevos no.
+  defaultLevel String
+  updatedAt    DateTime @updatedAt
+}

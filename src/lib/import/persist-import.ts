@@ -2,9 +2,10 @@ import { prisma } from "@/lib/db";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { seedAbilitiesFromPositions } from "@/lib/rules/abilities";
 import { validateAssignment } from "@/lib/rules/assign";
-import type { AbilityLevel } from "@/lib/rules/types";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import {
   planReconcile,
@@ -227,6 +228,7 @@ export async function commitImport(
       ]);
     }
     const employeeIdByExternal = new Map<string, string>();
+    const columnDefaults = await loadColumnDefaults(tx);
     for (const [externalId, info] of nameByExternal) {
       const emp = await tx.employee.upsert({
         where: { externalId },
@@ -234,11 +236,14 @@ export async function commitImport(
         update: { firstName: info.firstName, lastName: info.lastName },
       });
       employeeIdByExternal.set(externalId, emp.id);
-      // Seed only missing abilities. A manager's manual ability edit is authoritative.
+      // Seed only missing abilities. A saved row stays as the manager left it.
+      // A missing bien follows the column default, so Nuevos no is stored as no.
       for (const seed of seedAbilitiesFromPositions(positionsByExternal.get(externalId) ?? [])) {
+        const columnDefault = columnDefaults.get(seed.stationId);
+        const level = seed.level === "ok" && columnDefault === "forbidden" ? "forbidden" : seed.level;
         await tx.employeeStationAbility.upsert({
           where: { employeeId_stationId: { employeeId: emp.id, stationId: seed.stationId } },
-          create: { employeeId: emp.id, stationId: seed.stationId, level: seed.level },
+          create: { employeeId: emp.id, stationId: seed.stationId, level },
           update: {},
         });
       }
@@ -364,7 +369,7 @@ export async function commitImport(
           shiftStart: incoming.startAt, shiftEnd: incoming.endAt,
           stationId: station.id, stationBoard: station.board, shiftBoard: incoming.board,
           maxConcurrent: station.maxConcurrent, existingOccupancy: occupancy,
-          abilityLevel: (ability?.level as AbilityLevel | undefined) ?? null,
+          abilityLevel: levelWhenUnset(ability?.level, columnDefaults.get(cell.stationId)),
           personAlreadyAssignedAtHour: personBusy > 0, chicagoHour: hour,
         });
         if (violations.length > 0) {

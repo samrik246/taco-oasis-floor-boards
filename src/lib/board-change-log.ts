@@ -13,6 +13,12 @@ export type BoardChangeParts = {
   count: number;
   /** Mandatory on/off only. The summary then ends in that word and omits count. */
   mark?: "on" | "off";
+  /** Habilidades column hide. The summary then omits count. */
+  columnHidden?: "hidden" | "shown";
+  /** Habilidades column default. The summary then omits count. */
+  columnDefault?: "ok" | "forbidden";
+  /** Saved bien rows rewritten to no. The summary is station counts and no names. */
+  abilityOkReset?: readonly { stationId: string; count: number }[];
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -26,6 +32,8 @@ export const BOARD_CHANGE_ROUTES = {
   clear: "DELETE /api/assignments/[id]",
   positionMove: "POST /api/position-moves",
   abilities: "PUT /api/admin/abilities",
+  abilityColumns: "PUT /api/admin/ability-columns",
+  abilityColumnSeed: "script seed-ability-columns",
   mandatory: "PUT /api/admin/mandatory",
   agentPaint: "script agent-paint",
 } as const;
@@ -44,8 +52,21 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   if (parts.stationId && /^[A-Za-z0-9_,.-]{1,80}$/.test(parts.stationId)) {
     bits.push(`station=${parts.stationId}`);
   }
+  if (parts.abilityOkReset) {
+    for (const row of parts.abilityOkReset) {
+      if (!/^[a-z0-9_]{1,32}$/.test(row.stationId)) continue;
+      const count = Number.isInteger(row.count) && row.count >= 0 ? row.count : 0;
+      bits.push(`${row.stationId}=${count}`);
+    }
+    return bits.join(" ");
+  }
   if (parts.mark === "on" || parts.mark === "off") {
     bits.push(parts.mark);
+    return bits.join(" ");
+  }
+  if (parts.columnHidden || parts.columnDefault) {
+    if (parts.columnHidden) bits.push(parts.columnHidden);
+    if (parts.columnDefault) bits.push(`default=${parts.columnDefault}`);
     return bits.join(" ");
   }
   const count = Number.isInteger(parts.count) && parts.count >= 0 ? parts.count : 0;

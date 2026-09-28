@@ -4,9 +4,12 @@ import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log"
 import { isAbilityLevel } from "@/lib/employees/service";
 import type { AbilityLevel } from "@/lib/rules/types";
 import { abilityColumn, cellLevel, cocinaAbilityColumns } from "@/lib/abilities/levels";
+import { defaultsByStation, loadAbilityColumnSettings } from "@/lib/abilities/column-settings";
 
 export async function loadCocinaAbilityGrid() {
   const columns = cocinaAbilityColumns();
+  const settings = await loadAbilityColumnSettings();
+  const defaults = defaultsByStation(settings);
   const shifts = await prisma.shift.findMany({
     where: { board: "cocina", boardRemoved: false, supersededAt: null },
     select: {
@@ -36,12 +39,20 @@ export async function loadCocinaAbilityGrid() {
       firstName: employee.firstName,
       lastName: employee.lastName,
       cells: Object.fromEntries(
-        columns.map((column) => [column.key, cellLevel(column.stationIds, employee.abilities)]),
+        columns.map((column) => [
+          column.key,
+          cellLevel(column.stationIds, employee.abilities, defaults),
+        ]),
       ),
     }));
   return {
     board: "cocina" as const,
-    columns: columns.map(({ key, label, kind }) => ({ key, label, kind })),
+    columns: columns.map(({ key, label, kind, color }) => ({ key, label, kind, color })),
+    settings: settings.map((row) => ({
+      key: row.key,
+      hidden: row.hidden,
+      defaultLevel: row.defaultLevel,
+    })),
     people,
   };
 }
