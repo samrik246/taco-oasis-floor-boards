@@ -173,7 +173,8 @@ jobs:
           # B2: the timer runs <app>/scripts/wiw-export.ts, which imports through
           # the folder import. Both must be packed (checked again on the tarball).
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts \
-                        scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts; do
+                        scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
+                        scripts/agent-paint.ts; do
             /usr/bin/sed 's/^ *//' "$WORKFLOW" | /usr/bin/grep -Fx "$script" > /dev/null || {
               echo "::error::RUNTIME_PATHS must pack ${script}."
               exit 1
@@ -194,6 +195,7 @@ jobs:
             public
             prisma/schema.prisma
             prisma/seed.ts
+            scripts/agent-paint.ts
             scripts/edit-board.py
             scripts/home-base.sh
             scripts/import-from-folder.ts
@@ -235,7 +237,8 @@ jobs:
           fi
           tar -tzf taco-oasis-floor-boards.tgz > "$STAGE.files"
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts scripts/seed-position-map.ts \
-                        scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts; do
+                        scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
+                        scripts/agent-paint.ts; do
             /usr/bin/grep -Fxq "./${script}" "$STAGE.files" || {
               echo "::error::Production artifact is missing ${script}."
               exit 1

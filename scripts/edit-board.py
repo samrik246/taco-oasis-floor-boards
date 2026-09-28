@@ -11,6 +11,8 @@ from datetime import date, datetime, timezone
 import hashlib
 import json
 import os
+import shlex
+import subprocess
 from pathlib import Path
 import re
 import sqlite3
@@ -306,7 +308,61 @@ def run(app, packet_path, expected_packet_sha, apply):
             "backup_sha256": backup_sha}
 
 
+def remote_argv(host, app, mode, sha=None):
+    """ssh argv that streams a packet into the installed agent-paint command."""
+    if not isinstance(host, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@:-]{0,80}", host):
+        raise Refusal("ssh host alias is invalid")
+    if not isinstance(app, str) or not app.startswith("/") or "\n" in app or "\x00" in app:
+        raise Refusal("app path must be absolute")
+    if mode == "preflight":
+        if sha is not None:
+            raise Refusal("preflight does not take a sha")
+        remote = "cd %s && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight" % shlex.quote(app)
+    elif mode == "apply":
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+            raise Refusal("apply needs the resolved packet sha")
+        remote = "cd %s && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply %s" % (
+            shlex.quote(app), shlex.quote(sha))
+    else:
+        raise Refusal("remote mode must be preflight or apply")
+    return ["ssh", host, remote]
+
+
+def remote_run(host, app, mode, packet_path, sha=None, runner=None, out=None, err=None):
+    packet_path = Path(packet_path)
+    if not packet_path.is_file() or packet_path.is_symlink():
+        raise Refusal("packet missing or symlinked")
+    payload = packet_path.read_bytes()
+    argv = remote_argv(host, app, mode, sha)
+    if runner is None:
+        completed = subprocess.run(argv, input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        completed = runner(argv, payload)
+    (sys.stdout.buffer if out is None else out).write(completed.stdout or b"")
+    (sys.stderr.buffer if err is None else err).write(completed.stderr or b"")
+    return int(completed.returncode)
+
+
+def remote_main(argv):
+    parser = argparse.ArgumentParser(prog="edit-board.py remote")
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--app", required=True)
+    parser.add_argument("mode", choices=("preflight", "apply"))
+    parser.add_argument("packet", type=Path)
+    parser.add_argument("sha", nargs="?")
+    args = parser.parse_args(argv)
+    if args.mode == "preflight" and args.sha:
+        raise Refusal("preflight does not take a sha")
+    return remote_run(args.host, args.app, args.mode, args.packet, None if args.mode == "preflight" else args.sha)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "remote":
+        try:
+            return remote_main(sys.argv[2:])
+        except Refusal as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
+            return 3
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app-dir", type=Path, required=True)
     parser.add_argument("--packet", type=Path, required=True)

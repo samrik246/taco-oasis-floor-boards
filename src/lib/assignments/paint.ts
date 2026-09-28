@@ -37,7 +37,14 @@ type PaintFailure = {
   violations?: RuleViolation[];
 };
 
-type PaintResult = { ok: true; saved: number } | PaintFailure;
+/** Concrete station a dry run would save for one change. Absent on a real save. */
+export type PaintDryStation = {
+  shiftId: string;
+  hour: number;
+  stationId: string | null;
+};
+
+type PaintResult = { ok: true; saved: number; stations?: PaintDryStation[] } | PaintFailure;
 
 const conflict = (message: string): PaintFailure => ({
   ok: false,
@@ -70,10 +77,16 @@ function isWriteConflict(error: unknown): boolean {
  * match the assignment id and station visible when painting began. A WIW
  * re-import or another tablet's write therefore asks for a fresh review.
  */
+export type PaintRunOptions = {
+  /** Run the same checks and return before any assignment or change-log write. */
+  dryRun?: boolean;
+};
+
 export async function paintAssignments(
   request: PaintRequest,
   now: Date = new Date(),
   actor?: BoardChangeActor,
+  options?: PaintRunOptions,
 ): Promise<PaintResult> {
   if (request.edits.length === 0) return { ok: true, saved: 0 };
   try {
@@ -279,6 +292,18 @@ export async function paintAssignments(
           seatNumber: row.seatNumber,
         }] : []),
       );
+      if (options?.dryRun) {
+        return {
+          ok: true,
+          saved: changes.length,
+          stations: changes.map((change) => ({
+            shiftId: change.shift.id,
+            hour: change.edit.hour,
+            stationId: change.stationId,
+          })),
+        };
+      }
+
       for (const row of planned.persist) {
         await tx.assignment.update({ where: { id: row.id }, data: { seatNumber: row.seatNumber } });
       }
