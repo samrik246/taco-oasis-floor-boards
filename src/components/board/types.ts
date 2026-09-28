@@ -56,11 +56,22 @@ export type MandatoryDto = {
   canMark: boolean;
 };
 
+/** Saved assignment rows for one station. No person and no ability level. */
+export type StationUseDto = {
+  stationId: string;
+  count: number;
+};
+
 export type DayBoardDto = {
   board: "caja" | "cocina";
   date: string;
   stations: StationDto[];
   shifts: ShiftDto[];
+  /**
+   * Per-station saved counts for the 28 days before `date`.
+   * Absent only on a snapshot written before this field existed.
+   */
+  stationUse?: StationUseDto[];
   /** Cocina manager and owner only. Absent for staff and for caja. */
   mandatory?: MandatoryDto;
 };
