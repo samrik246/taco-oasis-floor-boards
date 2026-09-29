@@ -32,7 +32,8 @@ export interface UpcomingSource {
 }
 
 export const SHEET_REFRESH_MS = 5 * 60 * 1000;
-const SHEET_TIMEOUT_MS = 20_000;
+/** One C1 read may run this long before the last good copy is kept. */
+export const SHEET_TIMEOUT_MS = 60_000;
 
 /** Today in the restaurant's clock. */
 export function chicagoToday(now: Date = new Date()): string {

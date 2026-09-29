@@ -13,6 +13,7 @@ import {
 import {
   FixtureSource,
   SHEET_REFRESH_MS,
+  SHEET_TIMEOUT_MS,
   SheetSource,
   chicagoToday,
   nextEnabled,
@@ -394,6 +395,69 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
       expect(snap.stale).toBe(true);
       expect(snap.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
       expect(snap.fetchedAt).toBe(new Date(t0).toISOString());
+    }
+  });
+
+  it("gives C1 60s: an answer at about 30s is fresh, and silence keeps the last good copy", async () => {
+    expect(SHEET_TIMEOUT_MS).toBe(60_000);
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    // Ten test milliseconds stand for one second of the C1 budget, so this
+    // case does not sleep a minute. AbortSignal.timeout is still asked for 60_000.
+    const scale = 100;
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      expect(ms).toBe(SHEET_TIMEOUT_MS);
+      return realTimeout(ms / scale);
+    });
+    const wait = (ms: number, signal?: AbortSignal | null) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        if (!signal) return;
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError"));
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+
+    let n = 0;
+    const impl = async (_u: string, init?: RequestInit) => {
+      n += 1;
+      if (n === 1) return new Response(JSON.stringify({ orders: [REAL.orders[0]] }), { status: 200 });
+      if (n === 2) {
+        await wait(30_000 / scale, init?.signal);
+        return new Response(JSON.stringify({ orders: [REAL.orders[1]] }), { status: 200 });
+      }
+      await wait(120_000 / scale, init?.signal);
+      return new Response(JSON.stringify({ orders: [] }), { status: 200 });
+    };
+
+    try {
+      const src = new SheetSource(url, "k", impl);
+      const t0 = new Date("2026-09-25T15:00:00Z").getTime();
+      const first = await src.load(new Date(t0));
+      expect(first).toMatchObject({ stale: false, fetchedAt: new Date(t0).toISOString() });
+      expect(first.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
+
+      const slowStart = Date.now();
+      const slow = await src.load(new Date(t0 + SHEET_REFRESH_MS));
+      const slowMs = Date.now() - slowStart;
+      expect(slowMs).toBeGreaterThanOrEqual(250);
+      expect(slowMs).toBeLessThan(SHEET_TIMEOUT_MS / scale);
+      expect(slow).toMatchObject({ stale: false, fetchedAt: new Date(t0 + SHEET_REFRESH_MS).toISOString() });
+      expect(slow.orders.map((o) => o.id_tail)).toEqual(["hj35YY"]);
+
+      const hangStart = Date.now();
+      const hung = await src.load(new Date(t0 + 2 * SHEET_REFRESH_MS));
+      const hangMs = Date.now() - hangStart;
+      expect(hangMs).toBeGreaterThanOrEqual(500);
+      expect(hangMs).toBeLessThan(2_000);
+      expect(hung.stale).toBe(true);
+      expect(hung.orders.map((o) => o.id_tail)).toEqual(["hj35YY"]);
+      expect(hung.fetchedAt).toBe(new Date(t0 + SHEET_REFRESH_MS).toISOString());
+      expect(spy).toHaveBeenCalledTimes(3);
+    } finally {
+      spy.mockRestore();
     }
   });
 });
