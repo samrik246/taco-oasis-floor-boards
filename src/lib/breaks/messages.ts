@@ -23,3 +23,12 @@ export const BREAK_UNCONFIGURED = "Descansos no configurado";
 export const BREAK_EXPIRED = "Se acabó el tiempo. Entra otra vez.";
 
 export const BREAK_LOG_ACTOR = { id: "break", name: "Descansos" } as const;
+
+/** Manager dialog only. Unlisted codes keep the staff line. */
+export const MANAGER_BREAK_TEXT: Record<string, string> = {
+  ...BREAK_REFUSAL_TEXT,
+  OUTSIDE_SHIFT: "Ese horario queda fuera de su turno.",
+  ALLOWANCE: "Eso pasa de sus minutos.",
+  BOARD_MISMATCH: "Ese descanso es de la otra área.",
+  NOT_FOUND: "No encontramos a esta persona.",
+};

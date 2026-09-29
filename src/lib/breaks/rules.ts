@@ -22,6 +22,11 @@ export class BreakRefused extends Error {
 
 export type BreakWindow = { start: Date; end: Date };
 
+/** Present only on the manager path. Staff saves and clears omit it. */
+export type BreakManagerActor = { id: string; name: string; kind: "manager" };
+
+const BREAK_TX = { maxWait: 1_000, timeout: 8_000 } as const;
+
 export type BreakShift = {
   id: string;
   board: string;
@@ -133,7 +138,46 @@ function isBusy(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = "code" in error ? String(error.code) : "";
   const message = error instanceof Error ? error.message : "";
-  return code === "P2034" || /SQLITE_BUSY|database is locked/i.test(message);
+  // P1008 is the SQLite connector giving up while another writer holds the file.
+  return code === "P2034" || code === "P1008" || /SQLITE_BUSY|database is locked/i.test(message);
+}
+
+export type ClearRead = {
+  id: string;
+  actor: string;
+  updatedAtMs: number;
+  startAtMs: number;
+  endAtMs: number;
+};
+
+/** Strictly newer than the row it replaces, including a same-slot save in the same millisecond. */
+export function nextBreakWriteStamp(previousMs: number | null, nowMs = Date.now()): Date {
+  if (previousMs == null) return new Date(nowMs);
+  return new Date(Math.max(nowMs, previousMs + 1));
+}
+
+/**
+ * Test seam. The clear commits its read, then this runs, then it deletes only
+ * if that same row is still there. The mini has no test root, so this stays unset.
+ */
+let afterClearRead: ((snapshot: ClearRead | null) => Promise<void>) | null = null;
+let breakLockBusyRemaining = 0;
+
+export function setAfterClearReadForTests(
+  probe: ((snapshot: ClearRead | null) => Promise<void>) | null,
+): void {
+  if (!process.env.FLOOR_BOARDS_TEST_ROOT) {
+    throw new Error("break read probe requires the test root");
+  }
+  afterClearRead = probe;
+}
+
+/** Each count throws one busy error inside the lock retry, then the real write runs. */
+export function setBreakLockBusyForTests(count: number): void {
+  if (!process.env.FLOOR_BOARDS_TEST_ROOT) {
+    throw new Error("break lock fault requires the test root");
+  }
+  breakLockBusyRemaining = count;
 }
 
 async function liveBreaks(
@@ -155,6 +199,24 @@ async function liveBreaks(
     .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
 }
 
+async function withBreakLock<T>(write: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= BREAK_LOCK_ATTEMPTS; attempt += 1) {
+    try {
+      if (breakLockBusyRemaining > 0) {
+        breakLockBusyRemaining -= 1;
+        throw new Error("SQLITE_BUSY: database is locked");
+      }
+      return await write();
+    } catch (error) {
+      if (!isBusy(error) || attempt === BREAK_LOCK_ATTEMPTS) {
+        if (isBusy(error)) throw new BreakRefused("LOCK_CONFLICT");
+        throw error;
+      }
+    }
+  }
+  throw new BreakRefused("LOCK_CONFLICT");
+}
+
 async function writeBreak(
   input: {
     employeeId: string;
@@ -162,6 +224,7 @@ async function writeBreak(
     startAt: Date;
     endAt: Date;
     expectedBoard?: "caja" | "cocina";
+    actor?: BreakManagerActor;
   },
 ): Promise<{ id: string; replaced: boolean }> {
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -193,11 +256,14 @@ async function writeBreak(
     }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-      select: { id: true, board: true },
+      select: { id: true, board: true, updatedAt: true },
     });
     if (input.expectedBoard && existing && existing.board !== input.expectedBoard) {
       throw new BreakRefused("BOARD_MISMATCH");
     }
+    const manager = input.actor?.kind === "manager" ? input.actor : null;
+    const actorId = manager ? manager.id : employee.id;
+    const updatedAt = nextBreakWriteStamp(existing?.updatedAt.getTime() ?? null);
     const saved = existing
       ? await tx.staffBreak.update({
         where: { id: existing.id },
@@ -206,7 +272,8 @@ async function writeBreak(
           board: decision.board,
           startAt: input.startAt,
           endAt: input.endAt,
-          actor: employee.id,
+          actor: actorId,
+          updatedAt,
         },
       })
       : await tx.staffBreak.create({
@@ -217,21 +284,23 @@ async function writeBreak(
           date: input.date,
           startAt: input.startAt,
           endAt: input.endAt,
-          actor: employee.id,
+          actor: actorId,
+          updatedAt,
         },
       });
     await writeBoardChange(tx, {
-      id: employee.id,
-      name: `${employee.firstName} ${employee.lastName}`.trim(),
-      route: BOARD_CHANGE_ROUTES.breakSave,
+      id: actorId,
+      name: manager ? manager.name : `${employee.firstName} ${employee.lastName}`.trim(),
+      route: manager ? BOARD_CHANGE_ROUTES.breakManagerSave : BOARD_CHANGE_ROUTES.breakSave,
     }, {
       date: input.date,
       count: 1,
       breakStart: formatInTimeZone(input.startAt, TIMEZONE, "HH:mm"),
       breakEnd: formatInTimeZone(input.endAt, TIMEZONE, "HH:mm"),
+      ...(manager ? { employeeId: employee.id } : {}),
     });
     return { id: saved.id, replaced: existing != null };
-  }, { maxWait: 1_000, timeout: 8_000 });
+  }, BREAK_TX);
 }
 
 /** One transaction. A busy lock is retried, then refused. A failed save leaves the old row. */
@@ -242,46 +311,127 @@ export async function saveBreak(input: {
   endAt: Date;
   /** When set, a shift or an existing row on the other board is refused and left in place. */
   expectedBoard?: "caja" | "cocina";
+  /** Manager id and name. Absent, the row and the log stay the employee's. */
+  actor?: BreakManagerActor;
 }): Promise<{ id: string; replaced: boolean }> {
-  for (let attempt = 1; attempt <= BREAK_LOCK_ATTEMPTS; attempt += 1) {
-    try {
-      return await writeBreak(input);
-    } catch (error) {
-      if (!isBusy(error) || attempt === BREAK_LOCK_ATTEMPTS) {
-        if (isBusy(error)) throw new BreakRefused("LOCK_CONFLICT");
-        throw error;
-      }
-    }
-  }
-  throw new BreakRefused("LOCK_CONFLICT");
+  return withBreakLock(() => writeBreak(input));
 }
 
-/** Deletes this board's break only. A row on the other board stays and is refused. */
+function sameClearRead(
+  existing: { id: string; actor: string; updatedAt: Date; startAt: Date; endAt: Date },
+  snapshot: ClearRead,
+): boolean {
+  return existing.id === snapshot.id
+    && existing.actor === snapshot.actor
+    && existing.updatedAt.getTime() === snapshot.updatedAtMs
+    && existing.startAt.getTime() === snapshot.startAtMs
+    && existing.endAt.getTime() === snapshot.endAtMs;
+}
+
+async function readClearSnapshot(input: {
+  employeeId: string;
+  date: string;
+}): Promise<ClearRead | null> {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.staffBreakLock.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: { updatedAt: new Date() },
+    });
+    const existing = await tx.staffBreak.findUnique({
+      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
+      select: { id: true, actor: true, updatedAt: true, startAt: true, endAt: true },
+    });
+    if (!existing) return null;
+    return {
+      id: existing.id,
+      actor: existing.actor,
+      updatedAtMs: existing.updatedAt.getTime(),
+      startAtMs: existing.startAt.getTime(),
+      endAtMs: existing.endAt.getTime(),
+    };
+  }, BREAK_TX);
+}
+
+async function writeClear(input: {
+  employeeId: string;
+  date: string;
+  board: "caja" | "cocina";
+  actor?: BreakManagerActor;
+}): Promise<{ cleared: boolean }> {
+  const snapshot = await readClearSnapshot(input);
+  if (afterClearRead) await afterClearRead(snapshot);
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.staffBreakLock.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: { updatedAt: new Date() },
+    });
+    const existing = await tx.staffBreak.findUnique({
+      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
+    });
+    const manager = input.actor?.kind === "manager" ? input.actor : null;
+    if (manager) {
+      if (existing && existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
+      const live = await tx.shift.findFirst({
+        where: {
+          employeeId: input.employeeId,
+          date: input.date,
+          board: input.board,
+          supersededAt: null,
+          boardRemoved: false,
+        },
+        select: { id: true },
+      });
+      if (!live) throw new BreakRefused("OUTSIDE_SHIFT");
+      if (!existing) return { cleared: false };
+    } else {
+      if (!existing) return { cleared: false };
+      if (existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
+    }
+    if (!snapshot || !sameClearRead(existing, snapshot)) throw new BreakRefused("LOCK_CONFLICT");
+    await tx.staffBreak.delete({ where: { id: existing.id } });
+    if (manager) {
+      await writeBoardChange(tx, {
+        id: manager.id,
+        name: manager.name,
+        route: BOARD_CHANGE_ROUTES.breakManagerClear,
+      }, {
+        date: input.date,
+        count: 1,
+        board: input.board,
+        employeeId: input.employeeId,
+      });
+    } else {
+      const employee = await tx.employee.findUnique({
+        where: { id: input.employeeId },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      await writeBoardChange(tx, {
+        id: employee?.id ?? input.employeeId,
+        name: employee ? `${employee.firstName} ${employee.lastName}`.trim() : "Descansos",
+        route: BOARD_CHANGE_ROUTES.breakClear,
+      }, {
+        date: input.date,
+        count: 1,
+        board: input.board,
+      });
+    }
+    return { cleared: true };
+  }, BREAK_TX);
+}
+
+/**
+ * Deletes this board's break only. A row on the other board stays and is refused.
+ * The read commits under the lock. The delete runs only when that same row is still
+ * the one on disk, so a save that landed after the read is left in place.
+ * A manager clear also requires a live shift on this board.
+ */
 export async function clearBreak(input: {
   employeeId: string;
   date: string;
   board: "caja" | "cocina";
+  actor?: BreakManagerActor;
 }): Promise<{ cleared: boolean }> {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const existing = await tx.staffBreak.findUnique({
-      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-    });
-    if (!existing) return { cleared: false };
-    if (existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
-    await tx.staffBreak.delete({ where: { id: existing.id } });
-    const employee = await tx.employee.findUnique({
-      where: { id: input.employeeId },
-      select: { id: true, firstName: true, lastName: true },
-    });
-    await writeBoardChange(tx, {
-      id: employee?.id ?? input.employeeId,
-      name: employee ? `${employee.firstName} ${employee.lastName}`.trim() : "Descansos",
-      route: BOARD_CHANGE_ROUTES.breakClear,
-    }, {
-      date: input.date,
-      count: 1,
-      board: input.board,
-    });
-    return { cleared: true };
-  });
+  return withBreakLock(() => writeClear(input));
 }

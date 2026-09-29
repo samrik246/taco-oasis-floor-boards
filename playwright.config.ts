@@ -1,6 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import { closeSync, lstatSync, mkdtempSync, openSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+
+/** 09:30 Chicago today, so a morning break is "now" on the read-only page. */
+const e2eNow = fromZonedTime(
+  `${formatInTimeZone(new Date(), "America/Chicago", "yyyy-MM-dd")}T09:30:00`,
+  "America/Chicago",
+).toISOString();
 
 const PORT = 3100;
 const baseURL = `http://127.0.0.1:${PORT}`;
@@ -70,6 +77,7 @@ export default defineConfig({
       DEMO_MANAGER_CODES: "1",
       MANAGER_SESSION_SECRET: "playwright-manager-session-secret-000000",
       STAFF_PASSCODE_PEPPER: "playwright-staff-passcode-pepper-0000",
+      FLOOR_BOARDS_E2E_NOW: e2eNow,
       // Short idle so manager→staff timeout e2e stays fast
       MANAGER_IDLE_MS: "1500",
     },
