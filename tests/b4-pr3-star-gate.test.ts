@@ -52,7 +52,7 @@ describe("B4 PR 3 star gate", () => {
       startAt: at("9:00 am"),
       endAt: at("9:15 am"),
       shifts: [shift("ada", "8:00 am", "4:00 pm")],
-    })).toEqual({ status: "booked", coverEmployeeId: null, coverShiftId: null });
+    })).toEqual({ status: "booked", coverEmployeeId: null, coverShiftId: null, shuffleEmployeeId: null, shuffleShiftId: null });
   });
 
   it("refuses a break that touches the open end of a star shift", () => {
@@ -72,7 +72,7 @@ describe("B4 PR 3 star gate", () => {
       endAt: at("3:15 pm"),
       shifts: [shift("bea", "8:00 am", "4:00 pm"), shift("ada", "11:00 am", "3:30 pm")],
       paints: [paint("ada", "pdf_tq1r", "3:00 pm")],
-    })).toEqual({ status: "booked", coverEmployeeId: null, coverShiftId: null });
+    })).toEqual({ status: "booked", coverEmployeeId: null, coverShiftId: null, shuffleEmployeeId: null, shuffleShiftId: null });
   });
 
   it("a star person waits, and a free cover books onto that seat", () => {
@@ -92,7 +92,7 @@ describe("B4 PR 3 star gate", () => {
       shifts,
       paints,
       coverEmployeeId: "bea",
-    })).toEqual({ status: "booked", coverEmployeeId: "bea", coverShiftId: "bea" });
+    })).toEqual({ status: "booked", coverEmployeeId: "bea", coverShiftId: "bea", shuffleEmployeeId: null, shuffleShiftId: null });
   });
 
   it("refuses a cover who already sits a star", () => {

@@ -16,6 +16,10 @@ import { TIMEZONE } from "@/lib/constants";
 
 type Slot = { startAt: string; endAt: string };
 
+type CoverChoice =
+  | { kind: "simple"; employeeId: string; shiftId: string; firstName: string }
+  | { kind: "shuffle"; moves: [{ employeeId: string; shiftId: string; firstName: string }, { employeeId: string; shiftId: string; firstName: string }] };
+
 type Managed = {
   firstName: string;
   allowanceMinutes: number;
@@ -24,7 +28,13 @@ type Managed = {
   blocked: { startAt: string; endAt: string; reason: "blackout" | "overlap" }[];
   slots: Slot[];
   saved: Slot | null;
+  pending: Slot | null;
+  covers: CoverChoice[];
 };
+
+function coverLabel(cover: CoverChoice): string {
+  return cover.kind === "simple" ? cover.firstName : `${cover.moves[0].firstName} y ${cover.moves[1].firstName}`;
+}
 
 function clock(iso: string): string {
   return formatInTimeZone(new Date(iso), TIMEZONE, "HH:mm");
@@ -51,6 +61,8 @@ export function ManagerBreakDialog({
   const [busy, setBusy] = useState(false);
   const [chosenStart, setChosenStart] = useState<string | null>(null);
   const [chosenEnd, setChosenEnd] = useState<string | null>(null);
+  const [covers, setCovers] = useState<CoverChoice[]>([]);
+  const [coverWindow, setCoverWindow] = useState<Slot | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +79,8 @@ export function ManagerBreakDialog({
           return;
         }
         setMine(body);
+        setCovers(body.covers ?? []);
+        setCoverWindow(body.pending);
         if (body.row === "other") setMessage("Ese descanso es de la otra área.");
       } catch {
         if (!cancelled) setMessage("No se pudo abrir el descanso.");
@@ -77,8 +91,8 @@ export function ManagerBreakDialog({
     };
   }, [board, employeeId, managerToken]);
 
-  async function commit(response: Response, fallback: string) {
-    const body = await response.json() as { error?: string; waiting?: boolean; message?: string };
+  async function commit(response: Response, fallback: string, slot: Slot | null) {
+    const body = await response.json() as { error?: string; waiting?: boolean; message?: string; covers?: CoverChoice[] };
     if (!response.ok) {
       setMessage(body.error ?? fallback);
       setBusy(false);
@@ -86,6 +100,10 @@ export function ManagerBreakDialog({
     }
     if (body.waiting) {
       setMessage(body.message ?? "Un gerente tiene que nombrar quién te cubre.");
+      setCovers(body.covers ?? []);
+      setCoverWindow(slot);
+      setChosenStart(null);
+      setChosenEnd(null);
       setBusy(false);
       return;
     }
@@ -98,7 +116,7 @@ export function ManagerBreakDialog({
     }
   }
 
-  async function save(slot: BreakChoice) {
+  async function save(slot: BreakChoice, cover?: { employeeId: string; shuffleEmployeeId?: string }) {
     if (busy) return;
     setBusy(true);
     setMessage("");
@@ -106,9 +124,15 @@ export function ManagerBreakDialog({
       const response = await fetch("/api/breaks/manage", {
         method: "POST",
         headers: { "content-type": "application/json", ...managerAuthHeaders(managerToken) },
-        body: JSON.stringify({ board, employeeId, startAt: slot.startAt, endAt: slot.endAt }),
+        body: JSON.stringify({
+          board,
+          employeeId,
+          startAt: slot.startAt,
+          endAt: slot.endAt,
+          ...(cover ? { coverEmployeeId: cover.employeeId, shuffleEmployeeId: cover.shuffleEmployeeId } : {}),
+        }),
       });
-      await commit(response, "Elige otro horario.");
+      await commit(response, "Elige otro horario.", slot);
     } catch {
       setMessage("No se pudo actualizar");
       setBusy(false);
@@ -125,7 +149,7 @@ export function ManagerBreakDialog({
         headers: { "content-type": "application/json", ...managerAuthHeaders(managerToken) },
         body: JSON.stringify({ board, employeeId }),
       });
-      await commit(response, "No se pudo quitar.");
+      await commit(response, "No se pudo quitar.", null);
     } catch {
       setMessage("No se pudo actualizar");
       setBusy(false);
@@ -154,6 +178,30 @@ export function ManagerBreakDialog({
           </p>
         )}
         {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-sm font-bold" role="alert" data-testid="descanso-message">{message}</p>}
+        {covers.length > 0 && coverWindow && (
+          <div className="mt-3 flex flex-col gap-2">
+            {covers.map((cover) => {
+              const key = cover.kind === "simple" ? cover.employeeId : `${cover.moves[0].employeeId}-${cover.moves[1].employeeId}`;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-3 text-sm font-bold disabled:opacity-40"
+                  data-testid="descanso-cover"
+                  data-kind={cover.kind}
+                  data-cover={cover.kind === "simple" ? cover.employeeId : cover.moves[0].employeeId}
+                  data-shuffle={cover.kind === "shuffle" ? cover.moves[1].employeeId : ""}
+                  disabled={busy}
+                  onClick={() => void save(coverWindow, cover.kind === "simple"
+                    ? { employeeId: cover.employeeId }
+                    : { employeeId: cover.moves[0].employeeId, shuffleEmployeeId: cover.moves[1].employeeId })}
+                >
+                  {coverLabel(cover)}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {faces.length > 0 && !showingLengths && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             {faces.map((face) => (

@@ -1,4 +1,9 @@
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { prisma } from "@/lib/db";
+import {
+  listBreakCovers,
+  type BreakCover,
+} from "@/lib/breaks/covers";
 import {
   blockedBreakQuarters,
   offeredBreakSlots,
@@ -13,6 +18,8 @@ import {
   type BreakManagerActor,
   type BreakShift,
 } from "@/lib/breaks/rules";
+import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
 import { chicagoToday } from "@/lib/upcoming/source";
 
 export type ManagedBreakRow = "absent" | "this" | "other";
@@ -74,7 +81,109 @@ export async function loadManagedBreak(input: {
     saved: row === "this" && savedRow && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
+    pending: row === "this" && savedRow && savedRow.status === "pending"
+      ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
+      : null,
+    covers: row === "this" && savedRow?.status === "pending"
+      ? await loadBreakCovers({
+        board: input.board,
+        employeeId: employee.id,
+        date,
+        startAt: savedRow.startAt,
+        endAt: savedRow.endAt,
+      })
+      : [],
   };
+}
+
+/** The manager list for one window. Names only. The lock rechecks the same list on the tap. */
+export async function loadBreakCovers(input: {
+  board: "caja" | "cocina";
+  employeeId: string;
+  date: string;
+  startAt: Date;
+  endAt: Date;
+}): Promise<BreakCover[]> {
+  const shifts = await prisma.shift.findMany({
+    where: { date: input.date, supersededAt: null, boardRemoved: false },
+    include: { employee: { select: { firstName: true } } },
+  });
+  const shiftIds = shifts.map((shift) => shift.id);
+  const paints = shiftIds.length === 0
+    ? []
+    : await prisma.assignment.findMany({
+      where: { shiftId: { in: shiftIds } },
+      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
+    });
+  const marks = await prisma.mandatoryMark.findMany({
+    where: { board: input.board, date: input.date },
+    select: { stationId: true },
+  });
+  const extra = marks
+    .map((mark) => mark.stationId)
+    .filter((stationId) => !isDefaultMandatory(stationId));
+  const breakRows = await prisma.staffBreak.findMany({
+    where: { date: input.date },
+    select: {
+      employeeId: true,
+      shiftId: true,
+      board: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      coverEmployeeId: true,
+      shuffleEmployeeId: true,
+    },
+  });
+  const abilities = await prisma.employeeStationAbility.findMany({
+    where: { employeeId: { in: shifts.map((shift) => shift.employeeId) } },
+    select: { employeeId: true, stationId: true, level: true },
+  });
+  const defaults = await loadColumnDefaults();
+  const breaks: SliceBreak[] = breakRows.flatMap((row) => {
+    if (row.status !== "booked" && row.status !== "pending") return [];
+    if (row.board !== "caja" && row.board !== "cocina") return [];
+    return [{
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      board: row.board,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      status: row.status,
+      coverEmployeeId: row.coverEmployeeId,
+      shuffleEmployeeId: row.shuffleEmployeeId,
+    }];
+  });
+  return listBreakCovers({
+    date: input.date,
+    board: input.board as SliceBoard,
+    employeeId: input.employeeId,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    shifts: shifts.map((shift) => ({
+      id: shift.id,
+      employeeId: shift.employeeId,
+      board: shift.board,
+      startAt: shift.startAt,
+      endAt: shift.endAt,
+      superseded: false,
+      boardRemoved: false,
+    })),
+    paints: paints.flatMap((row) => {
+      if (!row.employeeId) return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        stationId: row.stationId,
+        hourStart: row.hourStart,
+      }];
+    }),
+    breaks,
+    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra],
+    abilities,
+    defaults,
+    names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+  });
 }
 
 export async function saveManagedBreak(input: {
@@ -83,6 +192,8 @@ export async function saveManagedBreak(input: {
   employeeId: string;
   startAt: Date;
   endAt: Date;
+  coverEmployeeId?: string | null;
+  shuffleEmployeeId?: string | null;
   now?: Date;
 }) {
   return saveBreak({
@@ -92,6 +203,8 @@ export async function saveManagedBreak(input: {
     endAt: input.endAt,
     expectedBoard: input.board,
     actor: input.manager,
+    coverEmployeeId: input.coverEmployeeId,
+    shuffleEmployeeId: input.shuffleEmployeeId,
   });
 }
 

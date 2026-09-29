@@ -374,8 +374,12 @@ model StaffBreak {
   actor      String
   /// booked takes a spot. pending waits for a cover and takes none.
   status     String   @default("booked")
+  /// Person who takes this break's star seat.
   coverEmployeeId String?
   coverShiftId    String?
+  /// Free person who takes the cover's star. Set only for a Shuffle of two moves.
+  shuffleEmployeeId String?
+  shuffleShiftId    String?
 
   @@unique([employeeId, date])
   @@index([board, date])

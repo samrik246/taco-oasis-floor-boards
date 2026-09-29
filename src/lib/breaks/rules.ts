@@ -5,6 +5,8 @@ import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoDateOffset } from "@/lib/date-math";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
+import { listBreakCovers, listedCover, type BreakCover } from "@/lib/breaks/covers";
 import { assessStarGate, readBreakGate } from "@/lib/slices/break-gate";
 import type { SliceBoard, SliceBreak, SlicePaint, SliceShift } from "@/lib/slices/day-slices";
 import { chicagoDateTime } from "@/lib/time";
@@ -256,6 +258,7 @@ async function starWorld(
       endAt: true,
       status: true,
       coverEmployeeId: true,
+      shuffleEmployeeId: true,
     },
   });
   return {
@@ -287,6 +290,7 @@ async function starWorld(
         endAt: row.endAt,
         status: row.status,
         coverEmployeeId: row.coverEmployeeId,
+        shuffleEmployeeId: row.shuffleEmployeeId,
       }];
     }),
     starStationIds: [...MANDATORY_STATIONS_BY_BOARD[board], ...extra],
@@ -320,8 +324,9 @@ async function writeBreak(
     expectedBoard?: "caja" | "cocina";
     actor?: BreakManagerActor;
     coverEmployeeId?: string | null;
+    shuffleEmployeeId?: string | null;
   },
-): Promise<{ id: string; replaced: boolean; status: "booked" | "pending" }> {
+): Promise<{ id: string; replaced: boolean; status: "booked" | "pending"; covers: BreakCover[] }> {
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.staffBreakLock.upsert({
       where: { id: 1 },
@@ -366,6 +371,39 @@ async function writeBreak(
       throw new BreakRefused("BOARD_MISMATCH");
     }
     const world = await starWorld(tx, input.date, decision.board as SliceBoard);
+    const namedIds = [...new Set(world.shifts.map((shift) => shift.employeeId))];
+    const [abilityRows, nameRows, defaults] = await Promise.all([
+      tx.employeeStationAbility.findMany({
+        where: { employeeId: { in: namedIds } },
+        select: { employeeId: true, stationId: true, level: true },
+      }),
+      tx.employee.findMany({
+        where: { id: { in: namedIds } },
+        select: { id: true, firstName: true },
+      }),
+      loadColumnDefaults(tx),
+    ]);
+    const covers = listBreakCovers({
+      date: input.date,
+      board: decision.board as SliceBoard,
+      employeeId: input.employeeId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      shifts: world.shifts,
+      paints: world.paints,
+      breaks: world.breaks,
+      starStationIds: world.starStationIds,
+      abilities: abilityRows,
+      defaults,
+      names: new Map(nameRows.map((person) => [person.id, person.firstName])),
+    });
+    const requestedCover = input.coverEmployeeId ?? null;
+    const requestedShuffle = input.shuffleEmployeeId ?? null;
+    if (requestedCover || requestedShuffle) {
+      if (!requestedCover || !listedCover(covers, requestedCover, requestedShuffle)) {
+        throw new BreakRefused("BAD_COVER");
+      }
+    }
     const star = assessStarGate({
       date: input.date,
       board: decision.board as SliceBoard,
@@ -376,17 +414,23 @@ async function writeBreak(
       paints: world.paints,
       breaks: world.breaks,
       starStationIds: world.starStationIds,
-      coverEmployeeId: input.coverEmployeeId,
+      coverEmployeeId: requestedCover,
+      shuffleEmployeeId: requestedShuffle,
     });
     let status: "booked" | "pending" = "booked";
     let coverEmployeeId: string | null = null;
     let coverShiftId: string | null = null;
+    let shuffleEmployeeId: string | null = null;
+    let shuffleShiftId: string | null = null;
     if ("code" in star) {
+      if (requestedCover) throw new BreakRefused(star.code === "NEEDS_COVER" ? "BAD_COVER" : star.code);
       if (star.code !== "NEEDS_COVER") throw new BreakRefused(star.code);
       status = "pending";
     } else {
       coverEmployeeId = star.coverEmployeeId;
       coverShiftId = star.coverShiftId;
+      shuffleEmployeeId = star.shuffleEmployeeId;
+      shuffleShiftId = star.shuffleShiftId;
     }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
@@ -410,6 +454,8 @@ async function writeBreak(
           status,
           coverEmployeeId,
           coverShiftId,
+          shuffleEmployeeId,
+          shuffleShiftId,
           updatedAt,
         },
       })
@@ -425,6 +471,8 @@ async function writeBreak(
           status,
           coverEmployeeId,
           coverShiftId,
+          shuffleEmployeeId,
+          shuffleShiftId,
           updatedAt,
         },
       });
@@ -439,7 +487,7 @@ async function writeBreak(
       breakEnd: formatInTimeZone(input.endAt, TIMEZONE, "HH:mm"),
       ...(manager ? { employeeId: employee.id } : {}),
     });
-    return { id: saved.id, replaced: existing != null, status };
+    return { id: saved.id, replaced: existing != null, status, covers: status === "pending" ? covers : [] };
   }, BREAK_TX);
 }
 
@@ -455,7 +503,9 @@ export async function saveBreak(input: {
   actor?: BreakManagerActor;
   /** Named by the manager. Absent, a star seat waits. */
   coverEmployeeId?: string | null;
-}): Promise<{ id: string; replaced: boolean; status: "booked" | "pending" }> {
+  /** Second Shuffle move. Present only with the star-seat person who moves over. */
+  shuffleEmployeeId?: string | null;
+}): Promise<{ id: string; replaced: boolean; status: "booked" | "pending"; covers: BreakCover[] }> {
   return withBreakLock(() => writeBreak(input));
 }
 

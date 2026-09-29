@@ -15,6 +15,8 @@ const postSchema = z.object({
   employeeId: z.string().min(1),
   startAt: z.string().min(1),
   endAt: z.string().min(1),
+  coverEmployeeId: z.string().min(1).optional(),
+  shuffleEmployeeId: z.string().min(1).optional(),
 });
 
 const deleteSchema = z.object({
@@ -78,6 +80,8 @@ export async function POST(request: Request) {
       employeeId: parsed.data.employeeId,
       startAt,
       endAt,
+      coverEmployeeId: parsed.data.coverEmployeeId,
+      shuffleEmployeeId: parsed.data.shuffleEmployeeId,
     });
     return NextResponse.json({
       id: saved.id,
@@ -85,7 +89,9 @@ export async function POST(request: Request) {
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
       waiting: saved.status === "pending",
-      ...(saved.status === "pending" ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER } : {}),
+      ...(saved.status === "pending"
+        ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER, covers: saved.covers }
+        : {}),
     }, { headers: NO_STORE });
   } catch (error) {
     return refused(error);
