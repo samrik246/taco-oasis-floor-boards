@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoDateOffset } from "@/lib/date-math";
+import { readBreakGate } from "@/lib/slices/break-gate";
 import { chicagoDateTime } from "@/lib/time";
 
 const MINUTE_MS = 60_000;
@@ -239,6 +240,21 @@ async function writeBreak(
     });
     if (!employee) throw new BreakRefused("NOT_FOUND");
     const shifts = await tx.shift.findMany({ where: { employeeId: input.employeeId, date: input.date } });
+    const gate = readBreakGate({
+      date: input.date,
+      employeeId: input.employeeId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      shifts: shifts.map((shift) => ({
+        id: shift.id,
+        employeeId: shift.employeeId,
+        board: shift.board,
+        startAt: shift.startAt,
+        endAt: shift.endAt,
+        superseded: shift.supersededAt != null,
+        boardRemoved: shift.boardRemoved,
+      })),
+    });
     const others = await tx.staffBreak.findMany({
       where: { date: input.date, employeeId: { not: input.employeeId } },
       select: { shiftId: true, board: true, startAt: true, endAt: true },
@@ -251,6 +267,7 @@ async function writeBreak(
       otherBreaks: await liveBreaks(tx, others),
     });
     if ("code" in decision) throw new BreakRefused(decision.code);
+    if (!gate.everyTouchedSliceInsideShift) throw new BreakRefused("OUTSIDE_SHIFT");
     if (input.expectedBoard && decision.board !== input.expectedBoard) {
       throw new BreakRefused("BOARD_MISMATCH");
     }

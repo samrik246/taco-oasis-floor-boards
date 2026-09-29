@@ -31,6 +31,7 @@ describe("i18n board locale", () => {
     expect(messagesFor("es").viewSchedule).toBe("Horario");
     expect(messagesFor("es").scheduleAllDay).toBe("Día");
     expect(messagesFor("es").scheduleRestOfDay).toBe("Resto");
+    expect(messagesFor("es").huecos(2)).toBe("Huecos 2");
   });
 
   it("keeps caja UI English", () => {
@@ -42,6 +43,7 @@ describe("i18n board locale", () => {
     expect(messagesFor("es").ownerUnlocked("S1 Owner")).toBe("Dueño - 5 min: S1 Owner");
     expect(messagesFor("en").viewSchedule).toBe("Schedule");
     expect(messagesFor("en").scheduleAllDay).toBe("Day");
+    expect(messagesFor("en").huecos(2)).toBe("Gaps 2");
   });
 
   it("shows current saved station names and keeps unknown IDs out of visible text", () => {
