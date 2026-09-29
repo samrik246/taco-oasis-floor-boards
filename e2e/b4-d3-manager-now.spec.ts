@@ -37,21 +37,49 @@ test("a manager moves a break on Pintar, the stripe moves, and the now page show
       endAt: chicagoDateTime(date, "4:00 pm"),
     },
   });
+  // Earlier specs already paint some cocina seats. (stationId, hourStart) is
+  // unique, and a pending paint refuses a seat that hour is taken.
+  const hourNine = chicagoDateTime(date, "9:00 am");
+  const hourTen = chicagoDateTime(date, "10:00 am");
   const stations = await prisma.station.findMany({
     where: { board: "cocina" },
-    orderBy: { sortOrder: "asc" },
-    take: 2,
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
   });
-  const painted = stations[0];
-  const other = stations[1];
-  if (!painted || !other) throw new Error("cocina needs two stations");
+  const [takenNine, takenTen] = await Promise.all([
+    prisma.assignment.findMany({ where: { hourStart: hourNine }, select: { stationId: true } }),
+    prisma.assignment.findMany({ where: { hourStart: hourTen }, select: { stationId: true } }),
+  ]);
+  const busyNine = new Set(takenNine.map((row) => row.stationId));
+  const busyTen = new Set(takenTen.map((row) => row.stationId));
+  let painted: (typeof stations)[number] | undefined;
+  let other: (typeof stations)[number] | undefined;
+  for (const seat of stations) {
+    if (busyNine.has(seat.id)) continue;
+    const pendingSeat = stations.find((station) => station.id !== seat.id && !busyTen.has(station.id));
+    if (!pendingSeat) continue;
+    painted = seat;
+    other = pendingSeat;
+    break;
+  }
+  if (!painted || !other) {
+    throw new Error("cocina needs a free 9:00 seat and a different free 10:00 seat");
+  }
   await prisma.assignment.create({
     data: {
       shiftId: shift.id,
       employeeId: person.id,
       stationId: painted.id,
-      hourStart: chicagoDateTime(date, "9:00 am"),
+      hourStart: hourNine,
       hourEnd: chicagoDateTime(date, "10:00 am"),
+    },
+  });
+  // One break per window on this board. An earlier spec leaves 09:00 taken.
+  await prisma.staffBreak.deleteMany({
+    where: {
+      board: "cocina",
+      date,
+      startAt: { lt: hourTen },
+      endAt: { gt: hourNine },
     },
   });
 
