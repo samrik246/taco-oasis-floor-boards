@@ -141,7 +141,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.locator("[data-testid^='schedule-group-']")).toHaveCount(0);
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
       "data-sort",
-      "name",
+      "time",
     );
     const positionBlock = page.locator("[data-text-kind='position']").first();
     await expect(positionBlock).toBeVisible();
@@ -337,6 +337,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     );
     await expect(page.getByTestId("schedule-sort-time")).toContainText(
       /Hora/i,
+    );
+    await expect(page.getByTestId("schedule-sort-time")).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
 
     await page.getByTestId("view-toggle-rush").click();

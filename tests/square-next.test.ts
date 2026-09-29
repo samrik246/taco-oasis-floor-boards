@@ -18,6 +18,7 @@ import {
   nextEnabled,
   sourceFromEnv,
 } from "@/lib/upcoming/source";
+import { NEXT_POLL_MS, STALE_AFTER_MS, readIsStale } from "@/lib/upcoming/cadence";
 import { monthGrid, weekDays, addMonths } from "@/lib/upcoming/calendar";
 import { OrderDetail } from "@/components/next/OrderDetail";
 import { NEXT_COPY } from "@/components/next/next-copy";
@@ -25,6 +26,14 @@ import { MonthCell } from "@/components/next/NextOrders";
 import { OrderCard } from "@/components/next/parts";
 import { dayHeading, monthTitle, relativeDay, shortDay, time12, urgency } from "@/components/next/format";
 import { DEFAULT_PREFS, parsePrefs } from "@/components/next/prefs";
+import { messagesFor } from "@/lib/i18n";
+import { SchedulePanel } from "@/components/board/SchedulePanel";
+import {
+  T4gStripView,
+  ordersOnDay,
+  reduceStripLoad,
+  type StripSnap,
+} from "@/components/board/T4gStrip";
 
 /**
  * The fence is checked with its own patterns here, not the app's, so a bug
@@ -212,6 +221,18 @@ describe("SQUARE NEXT rendered page", () => {
         const surfaces = {
           card: createElement(OrderCard, { order, t, locale, today: TODAY, columns: DEFAULT_PREFS.columns, zebra: false, onOpen: noop }),
           detail: createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t, locale, today: TODAY }),
+          strip: createElement(T4gStripView, {
+            snap: {
+              kind: "on",
+              orders: [order],
+              today: order.event_date,
+              stale: false,
+              fetchedAt: `${TODAY}T15:00:00.000Z`,
+            },
+            date: order.event_date,
+            locale,
+            nowMs: Date.parse(`${TODAY}T15:00:00.000Z`),
+          }),
         };
         for (const [name, el] of Object.entries(surfaces)) {
           const text = renderToStaticMarkup(el).replace(/<[^>]*>/g, "");
@@ -225,6 +246,44 @@ describe("SQUARE NEXT rendered page", () => {
         }
       }
     }
+  });
+
+  it("the strip shows the tail and the fulfill word, and drops private fields and kitchen lines", () => {
+    const leaky = hostile();
+    leaky.id_tail = "LEAK01";
+    (leaky.lines as Record<string, unknown>[])[0].modifiers =
+      "1 x Sweet Tea, maria@example.com 214-555-0100, $45.00";
+    const raw = hostile();
+    const { orders, heldBack } = fencePayload({ orders: [raw, leaky] });
+    expect(heldBack).toBe(1);
+    expect(orders).toHaveLength(1);
+    const order = orders[0]!;
+    const html = renderToStaticMarkup(
+      createElement(T4gStripView, {
+        snap: {
+          kind: "on",
+          orders,
+          today: order.event_date,
+          stale: false,
+          fetchedAt: `${order.event_date}T15:00:00.000Z`,
+        },
+        date: order.event_date,
+        locale: "es",
+        nowMs: Date.parse(`${order.event_date}T15:00:00.000Z`),
+      }),
+    );
+    const strings = renderedStrings(html);
+    expect(strings).toContain(`#${order.id_tail}`);
+    expect(strings).toContain(NEXT_COPY.es.fulfillType.DELIVERY);
+    expect(strings).not.toContain("Maria");
+    expect(strings).not.toContain("555-0100");
+    expect(strings).not.toContain("Main Street");
+    expect(strings).not.toContain("45000");
+    expect(strings).not.toContain("$");
+    expect(strings).not.toContain(String(raw.order_id));
+    expect(strings).not.toContain("LEAK01");
+    expect(strings).not.toContain("maria@example.com");
+    for (const line of order.lines) expect(strings).not.toContain(line.item_name);
   });
 
   it("the API route returns fenced kitchen fields only", async () => {
@@ -343,6 +402,128 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
       expect(snap.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
       expect(snap.fetchedAt).toBe(new Date(t0).toISOString());
     }
+  });
+});
+
+describe("Horario T4G strip", () => {
+  it("shares the five-minute poll and the fifteen-minute stale age", () => {
+    expect(SHEET_REFRESH_MS).toBe(NEXT_POLL_MS);
+    expect(NEXT_POLL_MS).toBe(5 * 60 * 1000);
+    expect(STALE_AFTER_MS).toBe(15 * 60 * 1000);
+    const fetched = "2026-09-29T15:00:00.000Z";
+    const at = Date.parse(fetched);
+    expect(readIsStale(false, fetched, at + STALE_AFTER_MS)).toBe(false);
+    expect(readIsStale(false, fetched, at + STALE_AFTER_MS + 1)).toBe(true);
+    expect(readIsStale(true, fetched, at)).toBe(true);
+    expect(readIsStale(false, null, at)).toBe(true);
+    expect(readIsStale(false, undefined, at)).toBe(true);
+  });
+
+  it("opens Horario on Hora and keeps Nombre, Hora, Puesto", () => {
+    const html = renderToStaticMarkup(
+      createElement(SchedulePanel, {
+        day: null,
+        date: "2026-09-20",
+        locale: "es",
+        t: messagesFor("es"),
+      }),
+    );
+    expect(html).toContain('data-sort="time"');
+    const nameAt = html.indexOf('data-testid="schedule-sort-name"');
+    const timeAt = html.indexOf('data-testid="schedule-sort-time"');
+    const positionAt = html.indexOf('data-testid="schedule-sort-position"');
+    expect(nameAt).toBeGreaterThan(-1);
+    expect(nameAt).toBeLessThan(timeAt);
+    expect(timeAt).toBeLessThan(positionAt);
+    expect(html.slice(nameAt, positionAt)).toContain('aria-pressed="true"');
+    expect(html).toContain(">Nombre<");
+    expect(html).toContain(">Hora<");
+    expect(html).toContain(">Puesto<");
+  });
+
+  it("keeps the day on screen, in time order, and treats off, empty, and stale reads", () => {
+    const { orders } = fencePayload(REAL);
+    const day = "2026-09-29";
+    const shifted = orders.map((order, i) => ({
+      ...order,
+      event_date: i === 2 ? "2026-09-30" : day,
+      event_time: (["14:00", "09:15", "08:00"] as const)[i]!,
+    }));
+    expect(ordersOnDay(shifted, day).map((order) => order.event_time)).toEqual(["09:15", "14:00"]);
+    expect(ordersOnDay(shifted, "2026-09-30").map((order) => order.id_tail)).toEqual([orders[2]!.id_tail]);
+
+    const tied = [
+      { ...orders[0]!, event_date: day, event_time: "10:00", id_tail: "zzzzZZ" },
+      { ...orders[1]!, event_date: day, event_time: "10:00", id_tail: "aaaaAA" },
+    ];
+    expect(ordersOnDay(tied, day).map((order) => order.id_tail)).toEqual(["aaaaAA", "zzzzZZ"]);
+
+    const onBody = {
+      source: "fixture",
+      orders: shifted,
+      today: day,
+      stale: false,
+      fetchedAt: "2026-09-29T15:00:00.000Z",
+    };
+    const good = reduceStripLoad(null, { ok: true, body: onBody });
+    expect(good.kind).toBe("on");
+    const kept = reduceStripLoad(good, { ok: false });
+    expect(kept).toMatchObject({ kind: "on", stale: true, fetchedAt: onBody.fetchedAt });
+    if (kept.kind !== "on") throw new Error("kept");
+    expect(kept.orders.map((order) => order.id_tail)).toEqual(shifted.map((order) => order.id_tail));
+
+    const firstFail = reduceStripLoad(null, { ok: false });
+    expect(firstFail).toEqual({ kind: "on", orders: [], today: "", stale: true, fetchedAt: null });
+    const staleHtml = renderToStaticMarkup(
+      createElement(T4gStripView, {
+        snap: firstFail,
+        date: day,
+        locale: "es",
+        nowMs: Date.parse("2026-09-29T15:00:00.000Z"),
+      }),
+    );
+    expect(staleHtml).toContain('data-testid="t4g-strip-stale"');
+    expect(staleHtml).not.toContain("t4g-order-");
+    expect(staleHtml).not.toContain("t4g-strip-empty");
+
+    const off = reduceStripLoad(good, { ok: true, body: { source: "off", orders: shifted } });
+    expect(off).toEqual({ kind: "off" });
+    expect(renderToStaticMarkup(createElement(T4gStripView, {
+      snap: off,
+      date: day,
+      locale: "es",
+      nowMs: Date.parse("2026-09-29T15:00:00.000Z"),
+    }))).toBe("");
+
+    const freshAt = Date.parse("2026-09-29T15:00:00.000Z");
+    const emptySnap: StripSnap = {
+      kind: "on",
+      orders: [],
+      today: day,
+      stale: false,
+      fetchedAt: "2026-09-29T15:00:00.000Z",
+    };
+    const emptyToday = renderToStaticMarkup(
+      createElement(T4gStripView, { snap: emptySnap, date: day, locale: "es", nowMs: freshAt }),
+    );
+    expect(emptyToday).toContain('data-testid="t4g-strip-empty"');
+    expect(emptyToday).toContain(NEXT_COPY.es.t4gEmptyToday);
+    const emptyOther = renderToStaticMarkup(
+      createElement(T4gStripView, { snap: emptySnap, date: "2026-09-30", locale: "en", nowMs: freshAt }),
+    );
+    expect(emptyOther).toContain(NEXT_COPY.en.t4gEmptyDay);
+
+    const noGuests = { ...orders[0]!, guests: null, event_date: day };
+    const guestHtml = renderToStaticMarkup(
+      createElement(T4gStripView, {
+        snap: { kind: "on", orders: [noGuests], today: day, stale: false, fetchedAt: emptySnap.fetchedAt },
+        date: day,
+        locale: "es",
+        nowMs: freshAt,
+      }),
+    );
+    expect(guestHtml).toContain(`#${noGuests.id_tail}`);
+    expect(guestHtml).not.toContain(NEXT_COPY.es.guests);
   });
 });
 
