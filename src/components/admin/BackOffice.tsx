@@ -1084,7 +1084,7 @@ function PositionsTab({
                 )
               }
             >
-              <option value="">None</option>
+              <option value="">{copy.none}</option>
               {options.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}

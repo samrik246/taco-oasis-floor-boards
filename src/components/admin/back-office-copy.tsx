@@ -55,6 +55,7 @@ export type BackOfficeCopy = {
   day: string;
   savedPosition: (position: string) => string;
   notOneBoard: string;
+  none: string;
 };
 
 const es: BackOfficeCopy = {
@@ -120,6 +121,7 @@ const es: BackOfficeCopy = {
   day: "Día",
   savedPosition: (position) => `Guardado "${position}"`,
   notOneBoard: "(no está en un solo tablero — no se puede mapear)",
+  none: "Ninguno",
 };
 
 const en: BackOfficeCopy = {
@@ -185,6 +187,7 @@ const en: BackOfficeCopy = {
   day: "Day",
   savedPosition: (position) => `Saved "${position}"`,
   notOneBoard: "(not on one board — can't be mapped)",
+  none: "None",
 };
 
 export function backOfficeCopy(locale: Locale): BackOfficeCopy {

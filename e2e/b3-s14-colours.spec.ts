@@ -34,6 +34,7 @@ test("both boards render the S14 station colours", async ({ page }) => {
   await keepDesk(page);
   await unlock(page);
   if (await ensureSampleLoaded(page)) await unlock(page);
+  await page.getByTestId("toolbar-more").click();
   await page.getByTestId("board-toggle-caja").click();
   await selectDate(page, "2026-09-20");
   await page.getByTestId("view-toggle-board").click();
