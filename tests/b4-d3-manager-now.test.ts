@@ -2,7 +2,7 @@
  * B4 D3: manager break moves and the read-only on-break page.
  * Rich's letters are 1A 2A 3A 4A. Elliot's 23:57:55 reply governs the folds.
  */
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { GET as boardDay } from "@/app/api/boards/[board]/days/[date]/route";
@@ -16,10 +16,14 @@ import { listBreaksNow } from "@/lib/breaks/now";
 import { managerShiftLine, showDescansoButton } from "@/lib/breaks/picker-steps";
 import {
   assessBreak,
+  BREAK_LOCK_ATTEMPTS,
   BreakRefused,
   calendarWeekday,
   clearBreak,
+  nextBreakWriteStamp,
   saveBreak,
+  setAfterClearReadForTests,
+  setBreakLockBusyForTests,
   type BreakShift,
 } from "@/lib/breaks/rules";
 import { signStaffSession } from "@/lib/breaks/session";
@@ -134,6 +138,8 @@ describe("B4 D3 manager breaks and the now page", () => {
   beforeEach(() => {
     process.env.MANAGER_SESSION_SECRET = TEST_SECRET;
     unpin();
+    setAfterClearReadForTests(null);
+    setBreakLockBusyForTests(0);
   });
 
   afterAll(async () => {
@@ -564,6 +570,153 @@ describe("B4 D3 manager breaks and the now page", () => {
     expect(slice(body.shifts)).toBe(slice(beforeBody.shifts));
     expect(JSON.stringify(body.mandatory)).toBe(JSON.stringify(beforeBody.mandatory));
     expect((body.breaks ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("keeps a save that lands after the clear read, including the same slot", async () => {
+    const frozen = 1_800_000_000_000;
+    expect(nextBreakWriteStamp(frozen, frozen).getTime()).toBe(frozen + 1);
+    expect(nextBreakWriteStamp(frozen, frozen + 50).getTime()).toBe(frozen + 50);
+    expect(nextBreakWriteStamp(null, frozen).getTime()).toBe(frozen);
+
+    const boss = await manager();
+    const ada = await person("k4", "Ada");
+    const raceDate = chicagoDateOffset(wednesday, 49);
+    await shiftFor(ada.id, raceDate, "cocina", "8:00 am", "4:00 pm");
+    const same = {
+      startAt: chicagoDateTime(raceDate, "3:00 pm"),
+      endAt: chicagoDateTime(raceDate, "3:15 pm"),
+    };
+    const later = {
+      startAt: chicagoDateTime(raceDate, "3:30 pm"),
+      endAt: chicagoDateTime(raceDate, "3:45 pm"),
+    };
+    await saveBreak({
+      employeeId: ada.id,
+      date: raceDate,
+      ...same,
+      expectedBoard: "cocina",
+    });
+
+    setAfterClearReadForTests(async () => {
+      await saveBreak({
+        employeeId: ada.id,
+        date: raceDate,
+        ...later,
+        expectedBoard: "cocina",
+        actor: boss.actor,
+      });
+    });
+    const moved = await clearBreak({
+      employeeId: ada.id,
+      date: raceDate,
+      board: "cocina",
+      actor: boss.actor,
+    }).then(() => null, (error: unknown) => error);
+    expect(moved).toMatchObject({ code: "LOCK_CONFLICT" });
+    const movedRow = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: raceDate } },
+    });
+    expect(movedRow.startAt.getTime()).toBe(later.startAt.getTime());
+    expect(movedRow.actor).toBe(boss.row.id);
+
+    await prisma.staffBreak.update({
+      where: { id: movedRow.id },
+      data: { updatedAt: new Date(frozen), actor: ada.id, startAt: same.startAt, endAt: same.endAt },
+    });
+    const clockNow = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    try {
+      setAfterClearReadForTests(async (snapshot) => {
+        expect(snapshot?.updatedAtMs).toBe(frozen);
+        expect(snapshot?.actor).toBe(ada.id);
+        await saveBreak({
+          employeeId: ada.id,
+          date: raceDate,
+          ...same,
+          expectedBoard: "cocina",
+          actor: boss.actor,
+        });
+      });
+      const sameSlot = await clearBreak({
+        employeeId: ada.id,
+        date: raceDate,
+        board: "cocina",
+        actor: boss.actor,
+      }).then(() => null, (error: unknown) => error);
+      expect(sameSlot).toMatchObject({ code: "LOCK_CONFLICT" });
+      const kept = await prisma.staffBreak.findUniqueOrThrow({
+        where: { employeeId_date: { employeeId: ada.id, date: raceDate } },
+      });
+      expect(kept.actor).toBe(boss.row.id);
+      expect(kept.startAt.getTime()).toBe(same.startAt.getTime());
+      expect(kept.updatedAt.getTime()).toBe(frozen + 1);
+
+      await prisma.staffBreak.update({
+        where: { id: kept.id },
+        data: { updatedAt: new Date(frozen), actor: ada.id },
+      });
+      setAfterClearReadForTests(async () => {
+        await saveBreak({
+          employeeId: ada.id,
+          date: raceDate,
+          ...same,
+          expectedBoard: "cocina",
+        });
+      });
+      const sameActor = await clearBreak({
+        employeeId: ada.id,
+        date: raceDate,
+        board: "cocina",
+      }).then(() => null, (error: unknown) => error);
+      expect(sameActor).toMatchObject({ code: "LOCK_CONFLICT" });
+      const staffKept = await prisma.staffBreak.findUniqueOrThrow({
+        where: { employeeId_date: { employeeId: ada.id, date: raceDate } },
+      });
+      expect(staffKept.actor).toBe(ada.id);
+      expect(staffKept.updatedAt.getTime()).toBe(frozen + 1);
+    } finally {
+      clockNow.mockRestore();
+      setAfterClearReadForTests(null);
+    }
+
+    const finished = await clearBreak({
+      employeeId: ada.id,
+      date: raceDate,
+      board: "cocina",
+      actor: boss.actor,
+    });
+    expect(finished.cleared).toBe(true);
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date: raceDate } })).toBe(0);
+  });
+
+  it("returns LOCK_CONFLICT when the break lock stays busy", async () => {
+    const ada = await person("busy", "Ada");
+    const raceDate = chicagoDateOffset(wednesday, 56);
+    await shiftFor(ada.id, raceDate, "cocina", "8:00 am", "4:00 pm");
+    const slot = {
+      employeeId: ada.id,
+      date: raceDate,
+      startAt: chicagoDateTime(raceDate, "3:00 pm"),
+      endAt: chicagoDateTime(raceDate, "3:15 pm"),
+      expectedBoard: "cocina" as const,
+    };
+    setBreakLockBusyForTests(BREAK_LOCK_ATTEMPTS);
+    const refused = await saveBreak(slot).then(() => null, (error: unknown) => error);
+    expect(refused).toMatchObject({ code: "LOCK_CONFLICT" });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date: raceDate } })).toBe(0);
+
+    setBreakLockBusyForTests(BREAK_LOCK_ATTEMPTS - 1);
+    const saved = await saveBreak(slot);
+    expect(saved.replaced).toBe(false);
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date: raceDate } })).toBe(1);
+
+    setBreakLockBusyForTests(BREAK_LOCK_ATTEMPTS);
+    const blockedClear = await clearBreak({
+      employeeId: ada.id,
+      date: raceDate,
+      board: "cocina",
+    }).then(() => null, (error: unknown) => error);
+    expect(blockedClear).toMatchObject({ code: "LOCK_CONFLICT" });
+    expect(await prisma.staffBreak.count({ where: { employeeId: ada.id, date: raceDate } })).toBe(1);
   });
 
   it("splits now and the next three, and hides ids", async () => {

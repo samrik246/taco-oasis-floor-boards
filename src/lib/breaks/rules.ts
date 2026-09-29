@@ -144,16 +144,24 @@ function isBusy(error: unknown): boolean {
 
 export type ClearRead = {
   id: string;
+  actor: string;
   updatedAtMs: number;
   startAtMs: number;
   endAtMs: number;
 };
+
+/** Strictly newer than the row it replaces, including a same-slot save in the same millisecond. */
+export function nextBreakWriteStamp(previousMs: number | null, nowMs = Date.now()): Date {
+  if (previousMs == null) return new Date(nowMs);
+  return new Date(Math.max(nowMs, previousMs + 1));
+}
 
 /**
  * Test seam. The clear commits its read, then this runs, then it deletes only
  * if that same row is still there. The mini has no test root, so this stays unset.
  */
 let afterClearRead: ((snapshot: ClearRead | null) => Promise<void>) | null = null;
+let breakLockBusyRemaining = 0;
 
 export function setAfterClearReadForTests(
   probe: ((snapshot: ClearRead | null) => Promise<void>) | null,
@@ -162,6 +170,14 @@ export function setAfterClearReadForTests(
     throw new Error("break read probe requires the test root");
   }
   afterClearRead = probe;
+}
+
+/** Each count throws one busy error inside the lock retry, then the real write runs. */
+export function setBreakLockBusyForTests(count: number): void {
+  if (!process.env.FLOOR_BOARDS_TEST_ROOT) {
+    throw new Error("break lock fault requires the test root");
+  }
+  breakLockBusyRemaining = count;
 }
 
 async function liveBreaks(
@@ -186,6 +202,10 @@ async function liveBreaks(
 async function withBreakLock<T>(write: () => Promise<T>): Promise<T> {
   for (let attempt = 1; attempt <= BREAK_LOCK_ATTEMPTS; attempt += 1) {
     try {
+      if (breakLockBusyRemaining > 0) {
+        breakLockBusyRemaining -= 1;
+        throw new Error("SQLITE_BUSY: database is locked");
+      }
       return await write();
     } catch (error) {
       if (!isBusy(error) || attempt === BREAK_LOCK_ATTEMPTS) {
@@ -236,13 +256,14 @@ async function writeBreak(
     }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-      select: { id: true, board: true },
+      select: { id: true, board: true, updatedAt: true },
     });
     if (input.expectedBoard && existing && existing.board !== input.expectedBoard) {
       throw new BreakRefused("BOARD_MISMATCH");
     }
     const manager = input.actor?.kind === "manager" ? input.actor : null;
     const actorId = manager ? manager.id : employee.id;
+    const updatedAt = nextBreakWriteStamp(existing?.updatedAt.getTime() ?? null);
     const saved = existing
       ? await tx.staffBreak.update({
         where: { id: existing.id },
@@ -252,6 +273,7 @@ async function writeBreak(
           startAt: input.startAt,
           endAt: input.endAt,
           actor: actorId,
+          updatedAt,
         },
       })
       : await tx.staffBreak.create({
@@ -263,6 +285,7 @@ async function writeBreak(
           startAt: input.startAt,
           endAt: input.endAt,
           actor: actorId,
+          updatedAt,
         },
       });
     await writeBoardChange(tx, {
@@ -294,8 +317,12 @@ export async function saveBreak(input: {
   return withBreakLock(() => writeBreak(input));
 }
 
-function sameClearRead(existing: { id: string; updatedAt: Date; startAt: Date; endAt: Date }, snapshot: ClearRead): boolean {
+function sameClearRead(
+  existing: { id: string; actor: string; updatedAt: Date; startAt: Date; endAt: Date },
+  snapshot: ClearRead,
+): boolean {
   return existing.id === snapshot.id
+    && existing.actor === snapshot.actor
     && existing.updatedAt.getTime() === snapshot.updatedAtMs
     && existing.startAt.getTime() === snapshot.startAtMs
     && existing.endAt.getTime() === snapshot.endAtMs;
@@ -313,11 +340,12 @@ async function readClearSnapshot(input: {
     });
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-      select: { id: true, updatedAt: true, startAt: true, endAt: true },
+      select: { id: true, actor: true, updatedAt: true, startAt: true, endAt: true },
     });
     if (!existing) return null;
     return {
       id: existing.id,
+      actor: existing.actor,
       updatedAtMs: existing.updatedAt.getTime(),
       startAtMs: existing.startAt.getTime(),
       endAtMs: existing.endAt.getTime(),

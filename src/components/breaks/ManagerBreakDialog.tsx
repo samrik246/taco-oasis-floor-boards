@@ -55,18 +55,22 @@ export function ManagerBreakDialog({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const response = await fetch(
-        `/api/breaks/manage?board=${board}&employeeId=${encodeURIComponent(employeeId)}`,
-        { headers: managerAuthHeaders(managerToken) },
-      );
-      const body = await response.json() as Managed & { error?: string };
-      if (cancelled) return;
-      if (!response.ok) {
-        setMessage(body.error ?? "No se pudo abrir el descanso.");
-        return;
+      try {
+        const response = await fetch(
+          `/api/breaks/manage?board=${board}&employeeId=${encodeURIComponent(employeeId)}`,
+          { headers: managerAuthHeaders(managerToken) },
+        );
+        const body = await response.json() as Managed & { error?: string };
+        if (cancelled) return;
+        if (!response.ok) {
+          setMessage(body.error ?? "No se pudo abrir el descanso.");
+          return;
+        }
+        setMine(body);
+        if (body.row === "other") setMessage("Ese descanso es de la otra área.");
+      } catch {
+        if (!cancelled) setMessage("No se pudo abrir el descanso.");
       }
-      setMine(body);
-      if (body.row === "other") setMessage("Ese descanso es de la otra área.");
     })();
     return () => {
       cancelled = true;
