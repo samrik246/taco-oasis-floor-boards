@@ -21,6 +21,7 @@ export const STATION_COLORS = [
   "light-brown",
   "light-orange",
   "deep-orange",
+  "dark-orange",
   "light-green",
   "dark-green",
   "light-sky",

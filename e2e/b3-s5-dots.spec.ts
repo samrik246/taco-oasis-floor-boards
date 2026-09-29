@@ -154,8 +154,10 @@ test("E3 owner dots at 12 are full, dim and absent, and a pending Taquero 1 pain
   await page.getByTestId(`paint-cell-${ada}-12`).click();
   await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
   await expect(page.locator("[data-testid$='-12-pdf_tq1r'][data-testid^='eligibility-dot-']")).toHaveCount(0);
-  await expect(page.getByTestId(`eligibility-dots-${bea}-12`)).toHaveCount(0);
-  await expect(page.getByTestId(`eligibility-dots-${cal}-12`)).toHaveCount(0);
+  await expect(page.getByTestId(`eligibility-dot-${bea}-12-pdf_tq1r`)).toHaveCount(0);
+  await expect(page.getByTestId(`eligibility-dot-${cal}-12-pdf_tq1r`)).toHaveCount(0);
+  await expect(page.getByTestId(`eligibility-dot-${bea}-12-pdf_guia`)).toBeVisible();
+  await expect(page.getByTestId(`eligibility-dot-${cal}-12-pdf_guia`)).toBeVisible();
 });
 
 test("E4 a manager payload has no dots or abilities, and an owner lock clears the dots", async ({ page }) => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AbilitiesGrid } from "@/components/admin/AbilitiesGrid";
+import { TurnosTab } from "@/components/admin/TurnosTab";
 import { STATION_COLORS } from "@/lib/admin/validate";
 import { hourGridHours } from "@/lib/hour-grid";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
@@ -43,7 +44,7 @@ type TareaRow = {
 
 type ManagerRow = { id: string; name: string; active: boolean; longIdle: boolean; role: string };
 
-type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "habilidades" | "managers" | "cambios" | "positions";
+type Tab = "stations" | "people" | "tareas" | "seats" | "sales" | "habilidades" | "managers" | "cambios" | "positions" | "turnos";
 
 type ChangeRow = {
   id: string;
@@ -230,6 +231,7 @@ export function BackOffice() {
               ? ([["habilidades", "Habilidades"], ["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][])
               : []),
             ["positions", "Positions"],
+            ["turnos", "Turnos"],
           ] as [Tab, string][]).map(([id, label]) => (
           <button
             key={id}
@@ -286,6 +288,7 @@ export function BackOffice() {
       {tab === "positions" && (
         <PositionsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
+      {tab === "turnos" && token && <TurnosTab token={token} />}
     </main>
   );
 }

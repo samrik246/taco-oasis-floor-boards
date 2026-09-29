@@ -76,15 +76,15 @@ describe("B3 S8 palette order", () => {
       { stationId: "mana", count: 0 },
     ];
     const order = paletteStationIds({ stations: CAJA_STATIONS, stationUse });
-    expect(order.slice(0, 4)).toEqual(["green1", "yellow", "purple1", "nieves"]);
+    expect(order.slice(0, 5)).toEqual(["mana", "green1", "yellow", "purple1", "nieves"]);
     expect(order.filter((id) => isDefaultMandatory(id))).toEqual([
+      "mana",
       "green1",
       "yellow",
       "purple1",
       "nieves",
     ]);
-    expect(order[4]).toBe("yellow2");
-    expect(order[5]).toBe("mana");
+    expect(order[5]).toBe("yellow2");
     expect(order.filter((id) => id === "yellow")).toEqual(["yellow"]);
 
     const withExtras = paletteStationIds({
@@ -92,7 +92,8 @@ describe("B3 S8 palette order", () => {
       stationUse: [...stationUse, { stationId: "blue", count: 99 }],
       extraStationIds: ["blue", "green2"],
     });
-    expect(withExtras.slice(0, 6)).toEqual([
+    expect(withExtras.slice(0, 7)).toEqual([
+      "mana",
       "green1",
       "yellow",
       "purple1",
@@ -100,7 +101,7 @@ describe("B3 S8 palette order", () => {
       "green2",
       "blue",
     ]);
-    expect(withExtras[6]).toBe("yellow2");
+    expect(withExtras[7]).toBe("yellow2");
   });
 
   it("keeps the same order when a draft is not part of the saved counts", () => {

@@ -365,13 +365,13 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
     await page.goto("/?wall=1");
     await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "en");
-    await expect(page.getByTestId("wall-station-yellow")).toBeVisible();
+    await expect(page.getByTestId("wall-clock")).toBeVisible();
+    await expect(page.getByTestId("wall-hour")).toBeVisible();
     await expect(page.getByTestId("load-sample")).toHaveCount(0);
     await shot(page, "wall-mode-caja.png");
     await page.goto("/?wall=1&board=cocina");
     await expect(page.getByTestId("wall-board")).toHaveAttribute("data-locale", "es");
-    await expect(page.getByTestId("wall-station-pdf_tf1r")).toBeVisible();
-    await expect(page.getByTestId("wall-station-pdf_tf1r")).toContainText(/Tortilla y freidora 1/i);
+    await expect(page.getByTestId("wall-hour")).toBeVisible();
 
     // Readonly mode still blocks mutations
     await page.goto("/?readonly=1");

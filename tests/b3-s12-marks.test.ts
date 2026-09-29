@@ -86,7 +86,8 @@ describe("B3 S12 selection marks", () => {
   });
 
   it("K2 dots follow default-mandatory gaps only, and Birria 1 cannot be unmarked", async () => {
-    expect(MANDATORY_STATIONS_BY_BOARD.cocina).toEqual(["pdf_tq1r", "pdf_tf1r", "pdf_pr1e", "pdf_br1a"]);
+    expect(MANDATORY_STATIONS_BY_BOARD.cocina).toEqual(["pdf_tq1r", "pdf_tf1r", "pdf_pr1e", "pdf_br1a", "pdf_guia"]);
+    expect(MANDATORY_STATIONS_BY_BOARD.caja).toEqual(["green1", "purple1", "yellow", "nieves", "mana"]);
     expect(isDefaultMandatory("pdf_br1a")).toBe(true);
     expect(isDefaultMandatory("pdf_br2a")).toBe(false);
     expect(isDefaultMandatory("pdf_pstl")).toBe(false);

@@ -127,6 +127,7 @@ export function stationColorClass(color: string): string {
     "light-brown": "bg-[#e4c49a] border-[#8a5a2b] text-[#3f2a14]",
     "light-orange": "bg-orange-300 border-orange-700 text-orange-950",
     "deep-orange": "bg-orange-600 border-orange-900 text-white",
+    "dark-orange": "bg-orange-800 border-orange-950 text-white",
     "light-green": "bg-green-300 border-green-700 text-green-950",
     "dark-green": "bg-green-800 border-green-950 text-white",
     "light-sky": "bg-sky-200 border-sky-700 text-sky-950",

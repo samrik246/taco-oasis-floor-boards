@@ -145,7 +145,7 @@ describe("Phase 1: move reasons", () => {
 describe("Kitchen phase: board template + seed", () => {
   it("keeps load categories mapped to retained Cocina seats", () => {
     const cocina = getBoardConfig("cocina");
-    expect(cocina.stations).toHaveLength(19);
+    expect(cocina.stations).toHaveLength(20);
     expect(KITCHEN_LOAD_STATIONS.map((s) => s.id)).toEqual([
       "fryer",
       "tortilla",
