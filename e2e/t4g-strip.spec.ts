@@ -3,9 +3,14 @@ import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * Horario T4G strip. The host env stays unset. This spec serves /api/upcoming
- * the same way e2e/next.spec.ts does, with the three kitchen records.
+ * Horario T4G strip. The host env stays unset. This spec serves the strip
+ * route and /api/upcoming the same way e2e/next.spec.ts serves Próximos,
+ * with the three kitchen records.
  */
+
+function isUpcoming(url: URL): boolean {
+  return url.pathname === "/api/upcoming" || url.pathname === "/api/upcoming/strip";
+}
 
 const FIXTURE = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), "fixtures/square-next/orders.json"), "utf8"),
@@ -80,7 +85,7 @@ test("Horario opens on Hora and the strip follows the day on screen", async ({ p
   }
   await selectDate(page, DAY);
 
-  await page.route("**/api/upcoming", (route) =>
+  await page.route(isUpcoming, (route) =>
     route.fulfill({
       json:
         mode === "off"
@@ -131,4 +136,87 @@ test("Horario opens on Hora and the strip follows the day on screen", async ({ p
   await page.getByTestId("view-toggle-schedule").click();
   await expect(page.getByTestId("t4g-strip")).toHaveCount(0);
   await expect(page.getByTestId("schedule-panel")).toBeVisible();
+});
+
+test("the strip leads with the first name on cocina and caja, and Próximos stays nameless", async ({ page }) => {
+  const named = {
+    ...FIXTURE.orders[0],
+    event_date: DAY,
+    event_time: "11:30",
+    ready_time: "11:00",
+    guests: 16,
+    fulfill_type: "PICKUP",
+    first_name: "Ana",
+  };
+  const unnamed = {
+    ...FIXTURE.orders[1],
+    event_date: DAY,
+    event_time: "12:30",
+    ready_time: "10:30",
+    guests: 24,
+    fulfill_type: "DELIVERY",
+    first_name: "",
+  };
+  const label = "Ana · Listo 11:00 · 16 personas";
+  const plain = "Listo 10:30 · 24 personas";
+
+  await page.route(isUpcoming, (route) => {
+    const strip = new URL(route.request().url()).pathname.endsWith("/strip");
+    const orders = strip
+      ? [named, unnamed]
+      : [{ ...named, first_name: "Ana" }, { ...unnamed, first_name: "Ana" }];
+    return route.fulfill({
+      json: {
+        source: "fixture",
+        orders,
+        heldBack: 0,
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        today: DAY,
+      },
+    });
+  });
+
+  await keepDesk(page);
+  await page.goto("/");
+  await expect(page.getByTestId("floor-board")).toBeVisible();
+  await page.getByTestId("toolbar-more").click();
+  await unlock(page);
+
+  const days = (await (
+    await page.request.get("/api/days", { headers: await managerHeaders(page) })
+  ).json()) as { dates: string[] };
+  if (!days.dates.includes(DAY)) {
+    await page.getByTestId("load-sample").click();
+    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
+      timeout: 60_000,
+    });
+  }
+  await selectDate(page, DAY);
+  await page.getByTestId("view-toggle-schedule").click();
+
+  const cells = page.locator("[data-testid='t4g-order-label']");
+  await expect(cells).toHaveCount(2);
+  await expect(cells.nth(0)).toHaveText(label);
+  await expect(cells.nth(1)).toHaveText(plain);
+  await expect(page.getByTestId("t4g-strip")).not.toContainText("AgIeZY");
+
+  await cells.nth(0).click();
+  await expect(page.getByTestId("t4g-detail")).toContainText(label);
+  await expect(page.getByTestId("t4g-detail")).toContainText("RECOGER");
+  await expect(page.getByTestId("t4g-detail")).not.toContainText("AgIeZY");
+  await page.getByTestId("next-detail-close").click();
+
+  await page.getByTestId("board-toggle-cocina").click();
+  await expect(page.getByTestId("t4g-order-label").nth(0)).toHaveText(label);
+  await expect(page.getByTestId("t4g-order-label").nth(1)).toHaveText(plain);
+
+  await page.getByTestId("board-toggle-caja").click();
+  await expect(page.getByTestId("t4g-order-label").nth(0)).toHaveText(label);
+
+  await page.goto("/next");
+  await expect(page.getByTestId("next-list")).toBeVisible();
+  await expect(page.locator("[data-testid^=next-card-]")).toHaveCount(2);
+  await expect(page.getByTestId("next-list")).not.toContainText("Ana");
+  await expect(page.getByTestId("next-list")).not.toContainText(label);
 });

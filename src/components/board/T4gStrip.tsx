@@ -2,7 +2,7 @@
 
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { NEXT_POLL_MS, readIsStale } from "@/lib/upcoming/cadence";
-import { fencePayload, type UpcomingOrder } from "@/lib/upcoming/fence";
+import { fenceStripPayload, type UpcomingOrder } from "@/lib/upcoming/fence";
 import type { Locale } from "@/lib/i18n";
 import { NEXT_COPY } from "@/components/next/next-copy";
 import { stripOrderLabel } from "@/components/next/strip-label";
@@ -14,14 +14,14 @@ export type StripSnap =
   | { kind: "off" }
   | {
       kind: "on";
-      orders: UpcomingOrder[];
+      orders: Array<UpcomingOrder & { first_name?: string }>;
       today: string;
       stale: boolean;
       fetchedAt: string | null;
     };
 
 /** Orders for the day on the board, soonest event_time first, then tail. */
-export function ordersOnDay(orders: UpcomingOrder[], date: string): UpcomingOrder[] {
+export function ordersOnDay<T extends UpcomingOrder>(orders: T[], date: string): T[] {
   return orders
     .filter((order) => order.event_date === date)
     .sort(
@@ -30,7 +30,7 @@ export function ordersOnDay(orders: UpcomingOrder[], date: string): UpcomingOrde
 }
 
 /**
- * One GET /api/upcoming result.
+ * One GET /api/upcoming/strip result.
  * Off paints nothing. A failed read keeps the last good list and marks it stale.
  * A failure before any good read is a stale line with no cells.
  */
@@ -54,7 +54,7 @@ export function reduceStripLoad(
   }
   return {
     kind: "on",
-    orders: fencePayload(body).orders,
+    orders: fenceStripPayload(body).orders,
     today: typeof body.today === "string" ? body.today : "",
     stale: body.stale === true,
     fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : null,
@@ -139,7 +139,7 @@ function T4gStripLive({ date, locale }: { date: string; locale: Locale }) {
       if (stopped) return;
       setNowMs(Date.now());
       try {
-        const res = await fetch("/api/upcoming", { cache: "no-store" });
+        const res = await fetch("/api/upcoming/strip", { cache: "no-store" });
         if (!res.ok) throw new Error(String(res.status));
         const body: unknown = await res.json();
         if (stopped) return;
@@ -193,7 +193,7 @@ function T4gStripLive({ date, locale }: { date: string; locale: Locale }) {
   );
 }
 
-/** T4G orders for the day on screen. Reads only GET /api/upcoming. */
+/** T4G orders for the day on screen. Reads only GET /api/upcoming/strip. */
 export function T4gStrip({ date, locale }: { date: string; locale: Locale }) {
   return (
     <T4gGuard>

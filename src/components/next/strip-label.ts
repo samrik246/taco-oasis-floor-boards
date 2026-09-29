@@ -3,8 +3,7 @@ import type { NextCopy } from "./next-copy";
 /**
  * Staff words for one T4G order on the floor board.
  * The order code is not part of this string.
- * Part B: when the fence allows `first_name`, that field leads the label.
- * This function already reads it. The fence does not accept it yet.
+ * A sanitized first name leads the label. An empty name leaves the old label.
  */
 export function stripOrderLabel(
   order: {

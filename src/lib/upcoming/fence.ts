@@ -1,10 +1,12 @@
 /**
- * SQUARE NEXT privacy fence (23A). Every order that reaches the page passes
+ * SQUARE NEXT privacy fence (23A). Every order that reaches a page passes
  * through here. Only the kitchen-record fields below survive; any other key
  * the source sends is dropped. An order whose text looks like a name, phone,
  * email, street address, or money is held back whole, never shown in part.
  *
- * The C1 read-only link must send exactly these fields (docs/SQUARE-NEXT.md).
+ * D4 adds one strip-only field. `fenceOrder` / `fencePayload` stay nameless
+ * for Próximos. `fenceStripOrder` / `fenceStripPayload` keep a sanitized
+ * `first_name` (one word, or empty). The C1 link's other keys still drop.
  */
 
 export const ORDER_FIELDS = [
@@ -37,6 +39,13 @@ export type UpcomingOrder = {
   guests: number | null;
   lines: UpcomingLine[];
 };
+
+/** Kitchen order plus the strip-only first name. Empty when the source value is unfit. */
+export type StripOrder = UpcomingOrder & { first_name: string };
+
+/** One word: letters (accents included), apostrophe, hyphen. At most 20 characters. */
+const FIRST_NAME = /^[\p{L}'’-]*\p{L}[\p{L}'’-]*$/u;
+const FIRST_NAME_MAX = 20;
 
 export type FenceResult = {
   orders: UpcomingOrder[];
@@ -98,6 +107,18 @@ function cleanLine(raw: unknown): UpcomingLine | null {
   return { item_name, variation, modifiers, qty };
 }
 
+/**
+ * Strip-only first name. A longer value keeps its first word when that word
+ * fits; a phone, email, address, or any other shape becomes "".
+ */
+export function acceptFirstName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const word = value.replace(/\s+/g, " ").trim().split(" ")[0]?.normalize("NFC") ?? "";
+  if (!word || word.length > FIRST_NAME_MAX) return "";
+  if (!FIRST_NAME.test(word)) return "";
+  return word;
+}
+
 /** One order through the allow-list, or null when it must be held back. */
 export function fenceOrder(raw: unknown): UpcomingOrder | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -154,4 +175,32 @@ export function fencePayload(payload: unknown): FenceResult {
     else heldBack += 1;
   }
   return { orders, heldBack };
+}
+
+/** Same allow-list as `fencePayload`, plus a sanitized `first_name` on each kept order. */
+export function fenceStripPayload(payload: unknown): { orders: StripOrder[]; heldBack: number } {
+  const list =
+    payload && typeof payload === "object" && Array.isArray((payload as { orders?: unknown }).orders)
+      ? ((payload as { orders: unknown[] }).orders)
+      : null;
+  if (!list) return { orders: [], heldBack: 0 };
+  const orders: StripOrder[] = [];
+  let heldBack = 0;
+  for (const raw of list) {
+    const order = fenceStripOrder(raw);
+    if (order) orders.push(order);
+    else heldBack += 1;
+  }
+  return { orders, heldBack };
+}
+
+/** `fenceOrder` plus the strip name. A bad name does not hold the order back. */
+export function fenceStripOrder(raw: unknown): StripOrder | null {
+  const order = fenceOrder(raw);
+  if (!order) return null;
+  const first =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? acceptFirstName((raw as { first_name?: unknown }).first_name)
+      : "";
+  return { ...order, first_name: first };
 }

@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LINE_FIELDS,
   ORDER_FIELDS,
+  acceptFirstName,
   fenceOrder,
   fencePayload,
+  fenceStripOrder,
+  fenceStripPayload,
   forbiddenText,
 } from "@/lib/upcoming/fence";
 import {
@@ -50,6 +53,15 @@ const LEAKS: [string, RegExp][] = [
 
 function leaks(text: string): string[] {
   return LEAKS.filter(([, re]) => re.test(text)).map(([name]) => name);
+}
+
+/**
+ * Cadence follows `Date.now()` at settle. Park that clock without freezing
+ * `setTimeout`, so a scaled C1 abort still completes.
+ */
+function parkCadence(ms: number): Date {
+  vi.setSystemTime(ms);
+  return new Date(ms);
 }
 
 /** Visible text plus every attribute value of rendered markup. */
@@ -120,6 +132,41 @@ describe("SQUARE NEXT field allow-list", () => {
       expect(json).not.toContain(bad);
     }
     expect(leaks(json)).toEqual([]);
+  });
+
+  it("keeps a strip first name as one word and empties a phone, email, or address", () => {
+    expect(acceptFirstName("Ana Maria")).toBe("Ana");
+    expect(acceptFirstName("  José  García ")).toBe("José");
+    expect(acceptFirstName("O'Brien")).toBe("O'Brien");
+    expect(acceptFirstName("Ana-Maria")).toBe("Ana-Maria");
+    expect(acceptFirstName("A".repeat(20))).toBe("A".repeat(20));
+    expect(acceptFirstName("A".repeat(21))).toBe("");
+    expect(acceptFirstName("(214) 555-0100")).toBe("");
+    expect(acceptFirstName("maria@example.com")).toBe("");
+    expect(acceptFirstName("1234 Main Street")).toBe("");
+    expect(acceptFirstName("Ana1")).toBe("");
+    expect(acceptFirstName(12)).toBe("");
+    expect(acceptFirstName("")).toBe("");
+
+    const order = fenceStripOrder({
+      ...hostile(),
+      first_name: "Ana Maria",
+      last_name: "Example",
+      phone: "(214) 555-0100",
+    });
+    expect(order).not.toBeNull();
+    expect(order!.first_name).toBe("Ana");
+    expect(order).not.toHaveProperty("last_name");
+    expect(order).not.toHaveProperty("phone");
+    expect(Object.keys(order!).sort()).toEqual([...ORDER_FIELDS, "first_name"].sort());
+    expect(JSON.stringify(order)).not.toContain("Maria");
+    expect(JSON.stringify(order)).not.toContain("555");
+
+    for (const first_name of ["(214) 555-0100", "maria@example.com", "1234 Main Street"]) {
+      const emptied = fenceStripOrder({ ...hostile(), first_name });
+      expect(emptied!.first_name, first_name).toBe("");
+      expect(JSON.stringify(emptied)).not.toContain(first_name);
+    }
   });
 
   it("holds back an order whose kitchen text carries a phone, email, address, or money", () => {
@@ -295,6 +342,26 @@ describe("SQUARE NEXT rendered page", () => {
     expect(leaks(text)).toEqual([]);
   });
 
+  it("the strip route can carry a first name and /api/upcoming cannot", async () => {
+    vi.stubEnv("NEXT_SOURCE", "fixture");
+    vi.resetModules();
+    const general = await import("@/app/api/upcoming/route");
+    const strip = await import("@/app/api/upcoming/strip/route");
+    const generalBody = (await (await general.GET()).json()) as { orders: Record<string, unknown>[] };
+    const stripBody = (await (await strip.GET()).json()) as { orders: Record<string, unknown>[] };
+    expect(generalBody.orders.length).toBeGreaterThan(0);
+    expect(stripBody.orders.length).toBe(generalBody.orders.length);
+    expect(JSON.stringify(generalBody)).not.toContain("first_name");
+    for (const order of generalBody.orders) {
+      expect(order).not.toHaveProperty("first_name");
+      expect(Object.keys(order).sort()).toEqual([...ORDER_FIELDS].sort());
+    }
+    for (const order of stripBody.orders) {
+      expect(order.first_name).toBe("");
+      expect(Object.keys(order).sort()).toEqual([...ORDER_FIELDS, "first_name"].sort());
+    }
+  });
+
   it("with NEXT_SOURCE unset the routes serve no orders and the floor link stays hidden", async () => {
     vi.stubEnv("NEXT_SOURCE", undefined as unknown as string);
     delete process.env.NEXT_SOURCE;
@@ -363,20 +430,25 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
   it("sends the key as a query parameter, reads once per 5 minutes, and fences the rows", async () => {
     const { calls, impl } = fakeFetch([ok({ orders: [hostile()] }), ok({ orders: [] })]);
     const src = new SheetSource(url, "sekret", impl);
-    const t0 = new Date("2026-09-25T15:00:00Z");
-    const a = await src.load(t0);
-    expect(calls).toHaveLength(1);
-    expect(new URL(calls[0]).searchParams.get("key")).toBe("sekret");
-    expect(a).toMatchObject({ source: "sheet", stale: false, heldBack: 0 });
-    expect(a.orders.map((o) => o.id_tail)).toEqual(["hj35YY"]);
-    expect(JSON.stringify(a)).not.toContain("sekret");
-    expect(leaks(JSON.stringify(a))).toEqual([]);
+    const t0 = Date.parse("2026-09-25T15:00:00Z");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const a = await src.load(parkCadence(t0));
+      expect(calls).toHaveLength(1);
+      expect(new URL(calls[0]).searchParams.get("key")).toBe("sekret");
+      expect(a).toMatchObject({ source: "sheet", stale: false, heldBack: 0 });
+      expect(a.orders.map((o) => o.id_tail)).toEqual(["hj35YY"]);
+      expect(JSON.stringify(a)).not.toContain("sekret");
+      expect(leaks(JSON.stringify(a))).toEqual([]);
 
-    await src.load(new Date(t0.getTime() + SHEET_REFRESH_MS - 1));
-    expect(calls).toHaveLength(1);
-    const c = await src.load(new Date(t0.getTime() + SHEET_REFRESH_MS));
-    expect(calls).toHaveLength(2);
-    expect(c.orders).toEqual([]);
+      await src.load(parkCadence(t0 + SHEET_REFRESH_MS - 1));
+      expect(calls).toHaveLength(1);
+      const c = await src.load(parkCadence(t0 + SHEET_REFRESH_MS));
+      expect(calls).toHaveLength(2);
+      expect(c.orders).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the last good orders and marks them stale when a read fails", async () => {
@@ -387,14 +459,19 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
       () => Promise.resolve(new Response("nope", { status: 500 })),
     ]);
     const src = new SheetSource(url, "k", impl);
-    const t0 = new Date("2026-09-25T15:00:00Z").getTime();
-    const first = await src.load(new Date(t0));
-    expect(first.stale).toBe(false);
-    for (let i = 1; i <= 3; i++) {
-      const snap = await src.load(new Date(t0 + i * SHEET_REFRESH_MS));
-      expect(snap.stale).toBe(true);
-      expect(snap.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
-      expect(snap.fetchedAt).toBe(new Date(t0).toISOString());
+    const t0 = Date.parse("2026-09-25T15:00:00Z");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const first = await src.load(parkCadence(t0));
+      expect(first.stale).toBe(false);
+      for (let i = 1; i <= 3; i++) {
+        const snap = await src.load(parkCadence(t0 + i * SHEET_REFRESH_MS));
+        expect(snap.stale).toBe(true);
+        expect(snap.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
+        expect(snap.fetchedAt).toBe(new Date(t0).toISOString());
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -432,24 +509,25 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
       return new Response(JSON.stringify({ orders: [] }), { status: 200 });
     };
 
+    vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const src = new SheetSource(url, "k", impl);
-      const t0 = new Date("2026-09-25T15:00:00Z").getTime();
-      const first = await src.load(new Date(t0));
+      const t0 = Date.parse("2026-09-25T15:00:00Z");
+      const first = await src.load(parkCadence(t0));
       expect(first).toMatchObject({ stale: false, fetchedAt: new Date(t0).toISOString() });
       expect(first.orders.map((o) => o.id_tail)).toEqual(["AgIeZY"]);
 
-      const slowStart = Date.now();
-      const slow = await src.load(new Date(t0 + SHEET_REFRESH_MS));
-      const slowMs = Date.now() - slowStart;
+      const slowStart = performance.now();
+      const slow = await src.load(parkCadence(t0 + SHEET_REFRESH_MS));
+      const slowMs = performance.now() - slowStart;
       expect(slowMs).toBeGreaterThanOrEqual(250);
       expect(slowMs).toBeLessThan(SHEET_TIMEOUT_MS / scale);
       expect(slow).toMatchObject({ stale: false, fetchedAt: new Date(t0 + SHEET_REFRESH_MS).toISOString() });
       expect(slow.orders.map((o) => o.id_tail)).toEqual(["hj35YY"]);
 
-      const hangStart = Date.now();
-      const hung = await src.load(new Date(t0 + 2 * SHEET_REFRESH_MS));
-      const hangMs = Date.now() - hangStart;
+      const hangStart = performance.now();
+      const hung = await src.load(parkCadence(t0 + 2 * SHEET_REFRESH_MS));
+      const hangMs = performance.now() - hangStart;
       expect(hangMs).toBeGreaterThanOrEqual(500);
       expect(hangMs).toBeLessThan(2_000);
       expect(hung.stale).toBe(true);
@@ -458,6 +536,203 @@ describe("SQUARE NEXT sheet source (off until C1's read-only link exists)", () =
       expect(spy).toHaveBeenCalledTimes(3);
     } finally {
       spy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a first name on the strip read and off the general read", async () => {
+    const { calls, impl } = fakeFetch([
+      ok({ orders: [{ ...hostile(), first_name: "Ana Maria", last_name: "Example" }] }),
+    ]);
+    const src = new SheetSource(url, "sekret", impl);
+    const t0 = new Date("2026-09-25T15:00:00Z");
+    const general = await src.load(t0);
+    const strip = await src.loadStrip(new Date(t0.getTime() + 1_000));
+    expect(calls).toHaveLength(1);
+    expect(general.orders.map((order) => order.id_tail)).toEqual(["hj35YY"]);
+    expect(JSON.stringify(general)).not.toContain("first_name");
+    expect(JSON.stringify(general)).not.toContain("Ana");
+    expect(JSON.stringify(general)).not.toContain("sekret");
+    expect(JSON.stringify(general)).not.toContain(url);
+    expect(strip.orders[0]).toMatchObject({ first_name: "Ana", id_tail: "hj35YY" });
+    expect(strip.orders[0]).not.toHaveProperty("last_name");
+  });
+
+  it("writes one log line per attempt and never the url, key, or order values", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "info").mockImplementation((msg?: unknown) => {
+      if (typeof msg === "string" && msg.startsWith("c1-read ")) lines.push(msg);
+    });
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const scale = 100;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      expect(ms).toBe(SHEET_TIMEOUT_MS);
+      return realTimeout(ms / scale);
+    });
+    const waitForAbort = (signal?: AbortSignal | null) =>
+      new Promise<Response>((_, reject) => {
+        if (!signal) {
+          reject(new Error("missing signal"));
+          return;
+        }
+        const fail = () => reject(signal.reason);
+        if (signal.aborted) fail();
+        else signal.addEventListener("abort", fail, { once: true });
+      });
+    let n = 0;
+    const impl = (u: string, init?: RequestInit) => {
+      expect(u).toContain("sekret");
+      n += 1;
+      if (n === 1) return Promise.resolve(new Response(JSON.stringify({ orders: [REAL.orders[0]] }), { status: 200 }));
+      if (n === 2) return waitForAbort(init?.signal);
+      if (n === 3) return Promise.resolve(new Response("nope", { status: 503 }));
+      if (n === 4) return Promise.resolve(new Response(JSON.stringify({ error: "bad key" }), { status: 200 }));
+      return Promise.reject(new Error("extra attempt"));
+    };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const src = new SheetSource(url, "sekret", impl);
+      const t0 = Date.parse("2026-09-25T15:00:00Z");
+      await src.load(parkCadence(t0));
+      await src.load(parkCadence(t0 + SHEET_REFRESH_MS));
+      await src.load(parkCadence(t0 + 2 * SHEET_REFRESH_MS));
+      await src.load(parkCadence(t0 + 3 * SHEET_REFRESH_MS));
+      expect(n).toBe(4);
+      expect(lines).toHaveLength(4);
+      expect(lines[0]).toMatch(/^c1-read start=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z outcome=ok duration_ms=\d+ orders=1$/);
+      expect(lines[1]).toMatch(/^c1-read start=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z outcome=timeout duration_ms=\d+ orders=0$/);
+      expect(lines[2]).toMatch(/^c1-read start=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z outcome=non-200 503 duration_ms=\d+ orders=0$/);
+      expect(lines[3]).toMatch(/^c1-read start=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z outcome=no-orders duration_ms=\d+ orders=0$/);
+      const blob = lines.join("\n");
+      expect(blob).not.toContain(url);
+      expect(blob).not.toContain("sekret");
+      expect(blob).not.toContain("AgIeZY");
+      expect(blob).not.toContain("Taco");
+    } finally {
+      spy.mockRestore();
+      timeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries once after a timeout within five minutes and coalesces concurrent loads", async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const scale = 100;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      expect(ms).toBe(SHEET_TIMEOUT_MS);
+      return realTimeout(ms / scale);
+    });
+    const calls: string[] = [];
+    const impl = (_u: string, init?: RequestInit) => {
+      calls.push("fetch");
+      if (calls.length === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ orders: [REAL.orders[0]] }), { status: 200 }));
+      }
+      return new Promise<Response>((_, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          reject(new Error("missing signal"));
+          return;
+        }
+        const fail = () => reject(signal.reason);
+        if (signal.aborted) fail();
+        else signal.addEventListener("abort", fail, { once: true });
+      });
+    };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const src = new SheetSource(url, "sekret", impl);
+      const t0 = Date.parse("2026-09-25T15:00:00Z");
+      const first = await src.load(parkCadence(t0));
+      expect(first.stale).toBe(false);
+      expect(calls).toHaveLength(1);
+
+      const timedOut = await src.load(parkCadence(t0 + SHEET_REFRESH_MS));
+      expect(calls).toHaveLength(2);
+      expect(timedOut.stale).toBe(true);
+      expect(timedOut.orders.map((order) => order.id_tail)).toEqual(["AgIeZY"]);
+      expect(timedOut.fetchedAt).toBe(new Date(t0).toISOString());
+
+      const retryAt = t0 + SHEET_REFRESH_MS + 1_000;
+      const [again, concurrent] = await Promise.all([
+        src.load(parkCadence(retryAt)),
+        src.load(parkCadence(retryAt)),
+      ]);
+      expect(calls).toHaveLength(3);
+      expect(again.stale).toBe(true);
+      expect(concurrent.orders.map((order) => order.id_tail)).toEqual(["AgIeZY"]);
+
+      await src.load(parkCadence(retryAt + 1_000));
+      await src.load(parkCadence(retryAt + 4_000));
+      expect(calls).toHaveLength(3);
+      expect(calls.join(" ")).not.toContain(url);
+
+      const cold = new SheetSource(url, "sekret", impl);
+      const coldAt = t0 + 60 * SHEET_REFRESH_MS;
+      const missed = await cold.load(parkCadence(coldAt));
+      expect(missed).toMatchObject({ stale: true, orders: [], fetchedAt: null });
+      expect(calls).toHaveLength(4);
+
+      const [coldRetry, coldConcurrent] = await Promise.all([
+        cold.load(parkCadence(coldAt + 1_000)),
+        cold.load(parkCadence(coldAt + 1_000)),
+      ]);
+      expect(calls).toHaveLength(5);
+      expect(coldRetry.orders).toEqual([]);
+      expect(coldConcurrent.fetchedAt).toBeNull();
+
+      await cold.load(parkCadence(coldAt + 2_000));
+      await cold.load(parkCadence(coldAt + 5_000));
+      expect(calls).toHaveLength(5);
+
+      await cold.load(parkCadence(coldAt + 1_000 + SHEET_REFRESH_MS));
+      expect(calls).toHaveLength(6);
+      await cold.load(parkCadence(coldAt + 1_000 + SHEET_REFRESH_MS + 1_000));
+      expect(calls).toHaveLength(7);
+      await cold.load(parkCadence(coldAt + 1_000 + SHEET_REFRESH_MS + 2_000));
+      expect(calls).toHaveLength(7);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stamps cadence when a slow read settles, not when it starts", async () => {
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const seen: number[] = [];
+    const impl = () => {
+      seen.push(Date.now());
+      if (seen.length === 1) return held;
+      return Promise.resolve(new Response(JSON.stringify({ orders: [] }), { status: 200 }));
+    };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const src = new SheetSource(url, "sekret", impl);
+      const start = Date.parse("2026-09-25T15:00:00Z");
+      const flight = src.load(parkCadence(start));
+      expect(seen).toEqual([start]);
+
+      const settle = start + 2 * 60 * 1000;
+      parkCadence(settle);
+      release(new Response(JSON.stringify({ orders: [REAL.orders[0]] }), { status: 200 }));
+      const first = await flight;
+      expect(first).toMatchObject({
+        stale: false,
+        fetchedAt: new Date(settle).toISOString(),
+      });
+      expect(first.orders.map((order) => order.id_tail)).toEqual(["AgIeZY"]);
+      expect(seen).toEqual([start]);
+
+      await src.load(parkCadence(start + SHEET_REFRESH_MS));
+      expect(seen).toEqual([start]);
+
+      await src.load(parkCadence(settle + SHEET_REFRESH_MS));
+      expect(seen).toEqual([start, settle + SHEET_REFRESH_MS]);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
@@ -626,6 +901,9 @@ describe("Horario T4G strip", () => {
     expect(stripOrderLabel({ ...pickup, guests: null }, NEXT_COPY.es)).toBe("Listo 10:30");
     expect(stripOrderLabel({ ...pickup, ready_time: null, guests: null }, NEXT_COPY.en)).toBe("Event time 11:30");
     expect(stripOrderLabel({ ...pickup, first_name: "Ana" }, NEXT_COPY.es)).toBe("Ana · Listo 10:30 · 24 personas");
+    expect(stripOrderLabel({ ...pickup, first_name: "" }, NEXT_COPY.es)).toBe("Listo 10:30 · 24 personas");
+    expect(stripOrderLabel({ ...pickup, first_name: "   " }, NEXT_COPY.es)).toBe("Listo 10:30 · 24 personas");
+    expect(stripOrderLabel({ ...pickup, first_name: "" }, NEXT_COPY.es).includes(" · · ")).toBe(false);
 
     for (const locale of ["es", "en"] as const) {
       const html = renderToStaticMarkup(
@@ -693,6 +971,37 @@ describe("Horario T4G strip", () => {
     ));
     expect(fencedHtml).not.toContain("Ana");
     expect(fencedHtml).not.toContain(tail);
+
+    const stripFenced = fenceStripPayload({ orders: [named] });
+    expect(stripFenced.orders[0]!.first_name).toBe("Ana");
+    const namedHtml = renderedStrings(renderToStaticMarkup(
+      createElement(T4gStripView, {
+        snap: {
+          kind: "on",
+          orders: stripFenced.orders,
+          today: stripFenced.orders[0]!.event_date,
+          stale: false,
+          fetchedAt: `${day}T15:00:00.000Z`,
+        },
+        date: stripFenced.orders[0]!.event_date,
+        locale: "es",
+        nowMs: freshAt,
+      }),
+    ));
+    expect(namedHtml).toContain("Ana · ");
+    expect(namedHtml).not.toContain(tail);
+    const namedDetail = renderedStrings(renderToStaticMarkup(
+      createElement(OrderDetail, {
+        order: stripFenced.orders[0]!,
+        columns: DEFAULT_PREFS.columns,
+        t: NEXT_COPY.es,
+        locale: "es",
+        today: day,
+        surface: "board",
+      }),
+    ));
+    expect(namedDetail).toContain("Ana · ");
+    expect(namedDetail).not.toContain(tail);
   });
 });
 
