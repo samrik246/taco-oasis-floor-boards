@@ -94,15 +94,22 @@ test("D7 Pintar sorts, refuses a taken seat, and shows paint-order numbers", asy
   expect(entrada[0]).toContain("Nia");
   expect(entrada[1]).toContain("Ada");
 
-  await page.getByTestId("paint-sort-name").click();
-  const byName = await rowNames();
-  expect(byName[0]).toContain("Ada");
-  expect(byName[1]).toContain("Nia");
-
+  await expect(page.getByTestId("paint-sort-name")).toHaveCount(0);
   await page.getByTestId("paint-sort-position").click();
   const byStation = await rowNames();
   expect(byStation[0]).toContain("Ada");
   expect(byStation.at(-1)).toContain("Nia");
+  const pintarPeople = byStation
+    .filter((name) => /Nia Moss|Ada Moss/.test(name))
+    .map((name) => (name.includes("Ada") ? "Ada" : "Nia"));
+  await page.getByTestId("compact-view").selectOption("schedule");
+  await page.getByTestId("schedule-sort-position").click();
+  const horarioPeople = (await page.locator("[data-testid^='schedule-row-']").allTextContents())
+    .map((text) => text.trim())
+    .filter((text) => /Nia Moss|Ada Moss/.test(text))
+    .map((text) => (text.includes("Ada") ? "Ada" : "Nia"));
+  expect(pintarPeople).toEqual(horarioPeople);
+  await page.getByTestId("compact-view").selectOption("timeline");
 
   const niaCell = await page.getByRole("button", { name: /Nia Moss, 12:00 pm/ }).getAttribute("data-testid");
   const adaCell = await page.getByRole("button", { name: /Ada Moss, 12:00 pm/ }).getAttribute("data-testid");

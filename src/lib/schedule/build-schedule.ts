@@ -6,7 +6,6 @@ import {
   hourGridHours,
 } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
-import { groupedStationRank } from "@/lib/assignments/paint-families";
 import { stationShortCode } from "./station-codes";
 
 export type ScheduleShiftLike = {
@@ -190,7 +189,8 @@ function seatNumberAtHour(
   return typeof n === "number" && n >= 1 ? n : null;
 }
 
-function primaryStationId(
+/** Most assigned hours in the day. The earliest station stays on a tie. */
+export function primaryStationId(
   sh: ScheduleShiftLike,
   date: string,
   allHours: number[],
@@ -295,10 +295,24 @@ export function stationAtSelectedHour(
 }
 
 /**
- * Pintar row order. Entrada and Nombre reuse the schedule comparator.
- * Puesto uses the selected hour's station. A complete paint family sits
- * together, in number order, where member 1 sits in the board order.
- * Unassigned sorts last. This is not the schedule grid's most-hours station.
+ * Index in Horario's station order: sortOrder, then the map's own order
+ * when two stations share a sortOrder. Unassigned is not in this map.
+ */
+function horarioStationRank(stationOrder: ReadonlyMap<string, number>): Map<string, number> {
+  const ranked = [...stationOrder.entries()]
+    .map(([id, sortOrder], index) => ({ id, sortOrder, index }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.index - b.index);
+  return new Map(ranked.map((entry, index) => [entry.id, index]));
+}
+
+/**
+ * Pintar row order. Entrada reuses the schedule comparator. Nombre is not
+ * a Pintar sort.
+ * Puesto matches Horario with no group header rows: `stationId` is the
+ * person's main station of the day from `primaryStationId` (most assigned
+ * hours; the earliest station stays on a tie). Rows follow that station
+ * order. Unassigned is last. This is not the selected hour, and paint
+ * families are not pulled together.
  */
 export function comparePintarRows(
   a: RowOrderKey & { stationId: string | null },
@@ -307,9 +321,9 @@ export function comparePintarRows(
   stationOrder: ReadonlyMap<string, number>,
 ): number {
   if (sort === "position") {
-    const grouped = groupedStationRank(stationOrder);
+    const ranks = horarioStationRank(stationOrder);
     const rank = (id: string | null) =>
-      id == null ? Number.MAX_SAFE_INTEGER : (grouped.get(id) ?? Number.MAX_SAFE_INTEGER - 1);
+      id == null ? Number.MAX_SAFE_INTEGER : (ranks.get(id) ?? Number.MAX_SAFE_INTEGER - 1);
     const delta = rank(a.stationId) - rank(b.stationId);
     if (delta !== 0) return delta;
     return compareScheduleRows(a, b, "name");

@@ -206,7 +206,9 @@ test.describe("condensed staff board and manager color editor", () => {
 
   test("staff sees a compact schedule; painted cells publish only on Guardar", async ({ page }) => {
     await page.goto("/");
+    await expect(page).toHaveURL(/\/(?!.*kiosk=1)/);
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+    await expect(page.getByTestId("open-descansos")).toBeVisible();
     await expect(page.getByTestId("schedule-panel")).toBeVisible();
     await expect(page.getByTestId("compact-toolbar")).toBeVisible();
     await expect(page.getByTestId("manager-color-editor")).toHaveCount(0);
@@ -216,6 +218,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await page.getByTestId("toolbar-more").click();
 
     await loadSample(page);
+    await expect(page.getByTestId("open-descansos")).toHaveCount(0);
     await page.setViewportSize({ width: 390, height: 844 });
     const firstPosition = page.getByTestId("paint-palette").locator("button").first();
     const paletteGeometry = await firstPosition.evaluate((element) => ({
@@ -283,8 +286,8 @@ test.describe("condensed staff board and manager color editor", () => {
     await unlock(page);
     await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-restored")).toBeVisible();
-    await page.getByTestId("paint-discard").click();
-    await expect(page.getByTestId("paint-pending")).toContainText(/0 cambios pendientes|0 pending changes/i);
+    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+    await expect(page.getByTestId("paint-undo")).toBeDisabled();
   });
 
   test("automatic date and offline-cache changes retain a private draft without writing", async ({ page }) => {
@@ -395,7 +398,6 @@ test.describe("condensed staff board and manager color editor", () => {
     await unlock(page);
     await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
-    await page.getByTestId("paint-discard").click();
   });
 
   test("local draft storage failure stays honest through a board conflict", async ({ page }) => {

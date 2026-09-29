@@ -108,6 +108,12 @@ test("C6 a mandatory gap lights at 12 and a pending paint clears it, and 10 stay
   const box = page.getByTestId("mandatory-gap-pdf_tq1r-12");
   await expect(box).toHaveText("TQ1R");
   await expect(box).toHaveClass(/bg-red-300/);
+  const gapBeforeHour = await page.getByTestId("mandatory-gaps").evaluate((row) => {
+    const hour = row.parentElement?.querySelector("button[aria-label='12:00 pm']");
+    if (!hour) return false;
+    return (row.compareDocumentPosition(hour) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  });
+  expect(gapBeforeHour).toBe(true);
 
   await page.getByTestId("paint-matrix").getByRole("button", { name: "10:00 am", exact: true }).click();
   await expect(page.getByTestId("paint-palette-pdf_tq1r")).not.toContainText("Falta");
@@ -141,32 +147,28 @@ test.describe("coarse pointer", () => {
     await expect(page.getByTestId("mandatory-toggle-pdf_tq1r")).toHaveCount(0);
 
     await page.getByTestId("mandatory-toggle-pdf_pstl").click();
-    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
-    const pill = await page.getByTestId("mandatory-toggle-pdf_pstl").boundingBox();
-    const card = await page.getByTestId("paint-palette-pdf_pstl").boundingBox();
-    expect(pill && card && pill.width < card.width).toBeTruthy();
-    const hit = await page.getByTestId("mandatory-toggle-pdf_pstl").evaluate((button) => {
-      const rect = button.getBoundingClientRect();
-      const face = button.querySelector("[data-mandatory-face]")!.getBoundingClientRect();
-      const top = document.elementFromPoint(rect.left + 6, rect.top + 4);
-      return {
-        coarse: window.matchMedia("(pointer: coarse)").matches,
-        hitHeight: rect.height,
-        hitWidth: rect.width,
-        faceHeight: face.height,
-        cardWidth: button.parentElement?.getBoundingClientRect().width ?? 0,
-        topIsButton: top === button,
-      };
-    });
-    expect(hit.coarse).toBe(true);
-    expect(hit.hitHeight).toBeGreaterThanOrEqual(48);
-    expect(hit.hitWidth).toBeGreaterThanOrEqual(48);
-    expect(hit.hitWidth).toBeLessThan(hit.cardWidth);
-    expect(hit.faceHeight).toBeLessThan(hit.hitHeight);
-    expect(hit.topIsButton).toBe(true);
-    await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+    const confirm = page.getByTestId("mandatory-confirm");
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText(/¿Obligatorio hoy\?|Mandatory today\?/);
+    await page.getByTestId("mandatory-confirm-cancel").click();
+    await expect(confirm).toHaveCount(0);
     await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
-    await page.getByTestId("mandatory-toggle-pdf_pstl").click({ position: { x: 6, y: 4 } });
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click();
+    await page.getByTestId("mandatory-confirm-yes").click();
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
+    const tagBox = await page.getByTestId("mandatory-toggle-pdf_pstl").boundingBox();
+    const paintBox = await page.getByTestId("paint-palette-pdf_pstl").boundingBox();
+    expect(tagBox && paintBox).toBeTruthy();
+    const overlaps = Boolean(tagBox && paintBox &&
+      tagBox.x < paintBox.x + paintBox.width &&
+      tagBox.x + tagBox.width > paintBox.x &&
+      tagBox.y < paintBox.y + paintBox.height &&
+      tagBox.y + tagBox.height > paintBox.y);
+    expect(overlaps).toBe(false);
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click();
+    await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
+    await page.getByTestId("mandatory-toggle-pdf_pstl").click();
+    await page.getByTestId("mandatory-confirm-yes").click();
     await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
     const extra = page.getByTestId("mandatory-gap-pdf_pstl-12");

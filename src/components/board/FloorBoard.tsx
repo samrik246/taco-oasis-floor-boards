@@ -1174,7 +1174,7 @@ export function FloorBoard() {
         })
       : null;
 
-  const staffBreakLink = kiosk && !isManager ? (
+  const staffBreakLink = !isManager ? (
     <Link
       href={staffBreakHref(board)}
       className="touch-target inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-neutral-950 px-3 text-sm font-bold text-white"
@@ -1219,12 +1219,15 @@ export function FloorBoard() {
       <KioskLock active={kiosk} />
       <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-2 sm:px-4">
         {toolbarHidden ? (
-          <div className="flex min-h-11 items-center justify-between gap-2 text-sm font-bold">
-            <span>{boardName} · {date || t.noDates}</span>
-            {staffBreakLink}
-            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3" onClick={() => setToolbarHidden(false)} data-testid="toolbar-show">
-              {t.toolbarShow}
-            </button>
+          <div className="flex min-h-11 flex-wrap items-center gap-2 text-sm font-bold">
+            <span className="shrink-0">{boardName} · {date || t.noDates}</span>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {staffBreakLink}
+              <div id="paint-controls-slot" data-testid="paint-controls-slot" className="flex flex-wrap items-center gap-2" />
+              <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3" onClick={() => setToolbarHidden(false)} data-testid="toolbar-show">
+                {t.toolbarShow}
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -1671,6 +1674,7 @@ export function FloorBoard() {
             managerId={manager.id}
             readonly={editsLocked}
             showLevels={showLevels}
+            foldControls={toolbarHidden}
             onDraftChange={refreshDraftDates}
             onSaved={async () => { await refreshBoard(); bumpLedger(); }}
           /></> : <TimelinePanel

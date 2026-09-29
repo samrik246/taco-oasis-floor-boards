@@ -79,10 +79,24 @@ test("H4 erase sits left of undo, selects, and clears a saved cell", async ({ pa
   await keepDesk(page);
   await page.goto("/");
   await loadSample(page);
-  await expect(page.getByTestId("manager-color-editor")).toContainText(
-    /Elige un puesto o Borrar; luego toca una hora\.|Pick a position or Erase, then tap an hour\./,
-  );
+  await expect(page.getByTestId("manager-color-editor")).not.toContainText("Elige un puesto o Borrar; luego toca una hora.");
+  await expect(page.getByTestId("manager-color-editor")).not.toContainText("Pick a position or Erase, then tap an hour.");
+  await expect(page.getByTestId("paint-discard")).toHaveCount(0);
+  await expect(page.getByTestId("paint-sort-name")).toHaveCount(0);
   await expect(page.locator("[data-testid^='paint-palette-family:']")).toHaveCount(0);
+  await expect(page.getByTestId("paint-undo")).toHaveClass(/bg-amber-400/);
+  await expect(page.getByTestId("paint-undo")).toHaveClass(/text-neutral-950/);
+  await expect(page.getByTestId("paint-palette-erase")).toHaveClass(/border-red-700/);
+  await expect(page.getByTestId("paint-palette-erase")).toHaveClass(/bg-white/);
+  await expect(page.getByTestId("paint-palette-erase")).toHaveClass(/text-red-800/);
+  await expect(page.getByTestId("paint-save")).toHaveClass(/bg-emerald-600/);
+  await expect(page.getByTestId("paint-save")).toHaveClass(/text-white/);
+  await page.getByTestId("toolbar-hide").click();
+  await expect(page.getByTestId("paint-controls-slot").getByTestId("paint-controls")).toHaveAttribute("data-folded", "1");
+  await expect(page.getByTestId("toolbar-show")).toBeVisible();
+  await page.getByTestId("toolbar-show").click();
+  await expect(page.getByTestId("paint-controls")).toHaveAttribute("data-folded", "0");
+  await expect(page.getByTestId("paint-controls-slot")).toHaveCount(0);
 
   const before = await paletteIds(page);
   expect(before.some((id) => id.startsWith("paint-palette-family:"))).toBe(false);
@@ -112,6 +126,10 @@ test("H4 erase sits left of undo, selects, and clears a saved cell", async ({ pa
   );
   expect(station).toBeDefined();
   await page.getByTestId(`paint-palette-${station!.id}`).click();
+  const picked = page.getByTestId(`paint-palette-${station!.id}`);
+  await expect(picked).toHaveAttribute("data-selected-top", "white");
+  await expect(picked).toHaveClass(/ring-2/);
+  await expect(picked.locator("span.bg-white")).toBeVisible();
   await cell.click();
   expect(await paletteIds(page)).toEqual(before);
   await page.getByTestId("paint-save").click();
@@ -120,7 +138,8 @@ test("H4 erase sits left of undo, selects, and clears a saved cell", async ({ pa
   const erase = page.getByTestId("paint-palette-erase");
   const undo = page.getByTestId("paint-undo");
   await expect(page.getByTestId("paint-palette").locator("[data-testid='paint-palette-erase']")).toHaveCount(0);
-  expect(await erase.evaluate((element) => element.nextElementSibling?.getAttribute("data-testid"))).toBe("paint-undo");
+  expect(await undo.evaluate((element) => element.nextElementSibling?.getAttribute("data-testid"))).toBe("paint-palette-erase");
+  expect(await erase.evaluate((element) => element.nextElementSibling?.getAttribute("data-testid"))).toBe("paint-save");
   await expect(undo).toBeVisible();
   await erase.click();
   await expect(erase).toHaveAttribute("aria-pressed", "true");

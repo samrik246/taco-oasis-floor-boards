@@ -62,6 +62,7 @@ test("L1 rows alternate, headers use the station colour, and hide comes back fad
   await expect(page.getByTestId("abilities-grid")).toBeVisible();
 
   const rows = page.locator("[data-testid^='ability-person-']");
+  await expect(rows.nth(1)).toBeVisible();
   const rowCount = await rows.count();
   expect(rowCount).toBeGreaterThan(1);
   for (let index = 0; index < Math.min(rowCount, 8); index += 1) {

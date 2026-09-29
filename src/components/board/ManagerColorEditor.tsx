@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
@@ -18,7 +19,7 @@ import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
 import { markForStation, openCellOutlineClass, selectionMark } from "@/lib/selection-mark";
-import { chicagoYmd, comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
+import { chicagoYmd, comparePintarRows, primaryStationId, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
 import { SelectionMarkDot } from "./SelectionMarkDot";
@@ -39,6 +40,8 @@ type Props = {
   showLevels: boolean;
   onSaved: () => Promise<void>;
   onDraftChange: () => void;
+  /** When Ocultar is on, the control row moves into the top bar. */
+  foldControls?: boolean;
 };
 
 type Draft = Record<string, PaintEdit>;
@@ -125,6 +128,7 @@ function editStillMatches(day: DayBoardDto, date: string, edit: PaintEdit): bool
 export function ManagerColorEditor({
   day, board, date, locale, t, selectedHour, onSelectHour,
   managerToken, managerId, readonly, showLevels, onSaved, onDraftChange,
+  foldControls = false,
 }: Props) {
   const hours = useMemo(() => hourGridHours(), []);
   const [selected, setSelected] = useState<string | "erase" | null>(null);
@@ -144,11 +148,12 @@ export function ManagerColorEditor({
   const [busy, setBusy] = useState(false);
   const [breakTarget, setBreakTarget] = useState<{ employeeId: string; name: string } | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [mandatoryAsk, setMandatoryAsk] = useState<string | null>(null);
+  const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
   const copy = locale === "es" ? {
     title: "Pintar posiciones",
     palette: "Puestos y colores",
     erase: "Borrar",
-    pick: "Elige un puesto o Borrar; luego toca una hora.",
     auto: "Auto",
     selected: "Seleccionado",
     pending: (n: number) => `${n} cambio${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}; el personal ve solo lo guardado.`,
@@ -156,7 +161,6 @@ export function ManagerColorEditor({
     saving: "Guardando…",
     save: "Guardar cambios",
     undo: "Deshacer",
-    discard: "Descartar",
     conflict: "El tablero cambió. Revisa las horas marcadas; no se pueden guardar todavía.",
     failed: "No se pudieron guardar los cambios.",
     refreshed: "El tablero cambió. Guardamos tu borrador en este dispositivo; revisa las horas marcadas antes de Guardar.",
@@ -169,8 +173,11 @@ export function ManagerColorEditor({
     taken: (seat: string, hour: string) => `${seat} ya está ocupado a las ${hour}.`,
     sortLabel: "Orden de filas",
     sortClock: "Entrada",
-    sortName: "Nombre",
     sortPosition: "Puesto",
+    mandatoryAsk: "¿Obligatorio hoy?",
+    mandatoryYes: "Sí",
+    mandatoryCancel: "Cancelar",
+    mandatoryTag: "Obl",
     needChoice: "Elige un puesto o Borrar primero.",
     markFailed: "No se pudo marcar el puesto.",
     reasonTitle: "Motivo para cambiar un puesto actual o pasado",
@@ -179,7 +186,6 @@ export function ManagerColorEditor({
     title: "Color positions",
     palette: "Positions and colors",
     erase: "Erase",
-    pick: "Pick a position or Erase, then tap an hour.",
     auto: "Auto",
     selected: "Selected",
     pending: (n: number) => `${n} pending change${n === 1 ? "" : "s"}; staff see saved assignments only.`,
@@ -187,7 +193,6 @@ export function ManagerColorEditor({
     saving: "Saving…",
     save: "Save changes",
     undo: "Undo",
-    discard: "Discard",
     conflict: "The board changed. Review the painted hours; saving is blocked for now.",
     failed: "Could not save the changes.",
     refreshed: "The board changed. Your draft is kept on this device; review the marked hours before saving.",
@@ -200,13 +205,24 @@ export function ManagerColorEditor({
     taken: (seat: string, hour: string) => `${seat} is already taken at ${hour}.`,
     sortLabel: "Row order",
     sortClock: "Clock-in",
-    sortName: "Name",
     sortPosition: "Position",
+    mandatoryAsk: "Mandatory today?",
+    mandatoryYes: "Yes",
+    mandatoryCancel: "Cancel",
+    mandatoryTag: "Obl",
     needChoice: "Pick a position or Erase first.",
     markFailed: "Could not mark the position.",
     reasonTitle: "Reason for changing a current or past position",
     noPerson: "No person",
   };
+
+  useEffect(() => {
+    if (!foldControls) {
+      setControlsSlot(null);
+      return;
+    }
+    setControlsSlot(document.getElementById("paint-controls-slot"));
+  }, [foldControls]);
 
   // The editor mounts only after manager unlock. Its keyed mount re-reads that
   // manager's local draft; staff and other managers never mount these cells.
@@ -231,36 +247,26 @@ export function ManagerColorEditor({
       stationLabelFor: (id) => displayStationLabel(locale, day.stations.find((s) => s.id === id) ?? { id, label: id, color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null }),
     });
     const stationOrder = new Map(day.stations.map((station) => [station.id, station.sortOrder]));
-    return [...built].sort((a, b) => {
-      const pendingFor = (shift: ShiftDto) => {
-        const edit = draft[draftKey(shift.id, selectedHour)];
-        if (!edit) return null;
-        const current = currentAssignment(shift, date, selectedHour)?.stationId ?? null;
-        if (edit.family && current && (PAINT_FAMILIES[edit.family] as readonly string[]).includes(current)) {
-          return { stationId: current };
-        }
-        return { stationId: edit.stationId };
-      };
-      return comparePintarRows(
-        {
-          name: personName(a.shift),
-          employeeId: a.shift.employee.id,
-          startAt: a.shift.startAt,
-          shiftId: a.shift.id,
-          stationId: stationAtSelectedHour(a.shift.assignments, date, selectedHour, pendingFor(a.shift)),
-        },
-        {
-          name: personName(b.shift),
-          employeeId: b.shift.employee.id,
-          startAt: b.shift.startAt,
-          shiftId: b.shift.id,
-          stationId: stationAtSelectedHour(b.shift.assignments, date, selectedHour, pendingFor(b.shift)),
-        },
-        rowSort,
-        stationOrder,
-      );
-    });
-  }, [day, date, hours, locale, t, draft, selectedHour, rowSort]);
+    const mainStation = (shift: ShiftDto) => primaryStationId(shift, date, hours);
+    return [...built].sort((a, b) => comparePintarRows(
+      {
+        name: personName(a.shift),
+        employeeId: a.shift.employee.id,
+        startAt: a.shift.startAt,
+        shiftId: a.shift.id,
+        stationId: mainStation(a.shift),
+      },
+      {
+        name: personName(b.shift),
+        employeeId: b.shift.employee.id,
+        startAt: b.shift.startAt,
+        shiftId: b.shift.id,
+        stationId: mainStation(b.shift),
+      },
+      rowSort,
+      stationOrder,
+    ));
+  }, [day, date, hours, locale, t, rowSort]);
   const choices = useMemo(() => paletteChoices(day), [day]);
   const gaps = useMemo(() => {
     if (!day?.mandatory) return [];
@@ -427,26 +433,49 @@ export function ManagerColorEditor({
   const paletteStation = selected && selected !== "erase"
     ? day?.stations.find((item) => item.id === selected) ?? null
     : null;
+  const paintControls = (
+    <div className="flex flex-wrap items-center gap-2" data-testid="paint-controls" data-folded={foldControls ? "1" : "0"}>
+      <span className="text-sm font-semibold" role="status" data-testid="paint-pending">{copy.pending(pendingCount)}</span>
+      <div className="inline-flex rounded-lg border-2 border-neutral-700 p-1" role="group" aria-label={copy.sortLabel} data-testid="paint-sort">
+        {([
+          ["time", copy.sortClock],
+          ["position", copy.sortPosition],
+        ] as const).map(([id, label]) => (
+          <button key={id} type="button" className={cn("touch-target min-h-11 rounded-md px-3 text-sm font-semibold", rowSort === id ? "bg-neutral-800 text-white" : "bg-white text-neutral-900")} aria-pressed={rowSort === id} onClick={() => setRowSort(id)} data-testid={`paint-sort-${id}`}>{label}</button>
+        ))}
+      </div>
+      <button type="button" className="touch-target min-h-11 rounded-md border-2 border-amber-900 bg-amber-400 px-3 text-sm font-bold text-neutral-950 disabled:opacity-50" onClick={() => {
+        const previous = undo.at(-1);
+        if (!previous) return;
+        commitDraft(previous, undo.slice(0, -1));
+      }} disabled={busy || undo.length === 0} data-testid="paint-undo">{copy.undo}</button>
+      <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-red-700 bg-white px-3 text-sm font-bold text-red-800", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
+      <button type="button" className="touch-target min-h-11 rounded-md border-2 border-emerald-900 bg-emerald-600 px-3 text-sm font-bold text-white disabled:opacity-50" onClick={() => void submit(Object.values(draftState.draft))} disabled={busy || readonly || !day || staleDraft || pendingCount === 0} data-testid="paint-save">{busy ? copy.saving : copy.save}</button>
+    </div>
+  );
+  const gapRow = day?.mandatory ? (
+    <tr data-testid="mandatory-gaps">
+      <th className="sticky left-0 bg-white" scope="row" />
+      {hours.map((hour) => {
+        const boxes = gaps.filter((gap) => gap.hour === hour);
+        return <td key={hour} className="align-top p-0.5" data-testid={`mandatory-gap-hour-${hour}`}>{boxes.map((gap) => {
+          const station = day.stations.find((item) => item.id === gap.stationId);
+          const label = mandatoryGapLabel(station ?? { label: gap.stationId });
+          return <span key={gap.stationId} className={cn("mb-0.5 block rounded px-0.5 text-center text-[10px] font-bold leading-4", station ? stationColorClass(station.color) : "bg-neutral-200")} data-testid={`mandatory-gap-${gap.stationId}-${hour}`}>{label}</span>;
+        })}</td>;
+      })}
+    </tr>
+  ) : null;
 
   return (
     <section className="min-w-0 rounded-lg border-2 border-neutral-900 bg-white p-3" data-testid="manager-color-editor">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
+      {foldControls && controlsSlot ? createPortal(paintControls, controlsSlot) : (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-bold">{copy.title}</h2>
-          <p className="text-sm text-neutral-700">{copy.pick}</p>
+          {paintControls}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold" role="status" data-testid="paint-pending">{copy.pending(pendingCount)}</span>
-          <button type="button" className={cn("touch-target min-h-11 rounded-md border-2 border-neutral-800 bg-white px-3 text-sm font-bold", selected === "erase" && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === "erase"} onClick={() => setSelected("erase")} data-testid="paint-palette-erase">{copy.erase}</button>
-          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-700 px-3 text-sm font-bold disabled:opacity-50" onClick={() => {
-            const previous = undo.at(-1);
-            if (!previous) return;
-            commitDraft(previous, undo.slice(0, -1));
-          }} disabled={busy || undo.length === 0} data-testid="paint-undo">{copy.undo}</button>
-          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-700 px-3 text-sm font-bold disabled:opacity-50" onClick={() => { commitDraft({}, []); setRestored(false); }} disabled={busy || pendingCount === 0} data-testid="paint-discard">{copy.discard}</button>
-          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 bg-neutral-900 px-3 text-sm font-bold text-white disabled:opacity-50" onClick={() => void submit(Object.values(draftState.draft))} disabled={busy || readonly || !day || staleDraft || pendingCount === 0} data-testid="paint-save">{busy ? copy.saving : copy.save}</button>
-        </div>
-      </div>
+      )}
+      {foldControls && controlsSlot ? <h2 className="mb-3 text-lg font-bold">{copy.title}</h2> : null}
       {(feedback || staleDraft) && <p className={cn("mb-3 rounded-md border-2 px-3 py-2 text-sm font-bold", !staleDraft && feedback?.kind === "ok" ? "border-emerald-800 bg-emerald-50 text-emerald-950" : "border-red-800 bg-red-50 text-red-950")} role={staleDraft || feedback?.kind === "err" ? "alert" : "status"} data-testid="paint-feedback">{staleDraft ? storageError === "retain" ? copy.conflict : copy.refreshed : feedback?.text}</p>}
       {restored && pendingCount > 0 && !staleDraft && <p className="mb-3 rounded-md border-2 border-blue-800 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-950" role="status" data-testid="paint-restored">{copy.restored}</p>}
       {storageError && <p className="mb-3 rounded-md border-2 border-red-800 bg-red-50 px-3 py-2 text-sm font-bold text-red-950" role="alert" data-testid="paint-storage-error">{storageError === "retain" ? copy.storageError : copy.storageClearError}</p>}
@@ -473,30 +502,22 @@ export function ManagerColorEditor({
               const missing = gaps.some((gap) => gap.stationId === stationId && gap.hour === selectedHour);
               const marked = day?.mandatory?.extraStationIds.includes(stationId) ?? false;
               const canToggle = day?.mandatory?.canMark === true && !isDefaultMandatory(stationId);
-              return <div key={choice.id} className="relative w-48 shrink-0 md:w-full">
-                <button type="button" className={cn("touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", canToggle && "pb-7", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"}>
+              return <div key={choice.id} className="flex w-48 shrink-0 flex-col-reverse items-end md:w-full">
+                <button type="button" className={cn("relative touch-target min-h-11 w-full rounded-md border-2 px-2 py-2 text-left text-sm font-bold", choice.color ? (missing ? stationSolidClass(choice.color) : stationColorClass(choice.color)) : "border-neutral-800 bg-neutral-100 text-neutral-950", missing && "ring-4 ring-neutral-950", !missing && selected === choice.id && "ring-2 ring-neutral-900 ring-offset-2")} aria-pressed={selected === choice.id} onClick={() => setSelected(choice.id)} data-testid={`paint-palette-${choice.id}`} data-falta={missing ? "1" : "0"} data-selected-top={selected === choice.id ? "white" : undefined}>
+                  {selected === choice.id && <span className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1 bg-white shadow-[0_1px_0_0_#171717]" aria-hidden="true" />}
                   <span className="block">{station ? displayStationLabel(locale, station) : choice.label}</span>
                   <span className="block text-xs font-medium">{formatCompactHour(selectedHour)} · {people.join(", ") || copy.noPerson}</span>
                   {missing && <span className="block text-xs font-bold uppercase">Falta</span>}
                 </button>
-                {canToggle && <button type="button" className="touch-target absolute bottom-1 left-1 z-10 flex items-end justify-start border-0 bg-transparent p-0" aria-pressed={marked} disabled={busy || readonly} onClick={() => void toggleMandatory(stationId, !marked)} data-testid={`mandatory-toggle-${stationId}`}><span data-mandatory-face className={cn("pointer-events-none self-end whitespace-nowrap rounded-full border border-neutral-900 px-2 py-0.5 text-[11px] font-bold leading-tight", marked ? "bg-neutral-900 text-white" : "bg-white text-neutral-950")}>Obligatorio hoy</span></button>}
+                {canToggle && <button type="button" className={cn("mb-0.5 rounded border border-neutral-900 px-1 py-px text-[10px] font-bold leading-none", marked ? "bg-neutral-900 text-white" : "bg-white text-neutral-950")} aria-pressed={marked} aria-label={copy.mandatoryAsk} disabled={busy || readonly} onClick={() => { if (marked) { void toggleMandatory(stationId, false); return; } setMandatoryAsk(stationId); }} data-testid={`mandatory-toggle-${stationId}`}><span data-mandatory-face>{copy.mandatoryTag}</span></button>}
               </div>;
             })}
           </div>
           <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedChoice?.label ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>
         <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix" data-sort={rowSort}>
-          <div className="mb-2 inline-flex rounded-lg border-2 border-neutral-700 p-1" role="group" aria-label={copy.sortLabel} data-testid="paint-sort">
-            {([
-              ["time", copy.sortClock],
-              ["name", copy.sortName],
-              ["position", copy.sortPosition],
-            ] as const).map(([id, label]) => (
-              <button key={id} type="button" className={cn("touch-target min-h-11 rounded-md px-3 text-sm font-semibold", rowSort === id ? "bg-neutral-800 text-white" : "bg-white text-neutral-900")} aria-pressed={rowSort === id} onClick={() => setRowSort(id)} data-testid={`paint-sort-${id}`}>{label}</button>
-            ))}
-          </div>
           <table className="min-w-full border-collapse text-left text-xs">
-            <thead><tr>
+            <thead>{gapRow}<tr>
               <th className="sticky left-0 z-20 min-w-[10rem] border-b-2 border-r-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" scope="col">{t.person}</th>
               {hours.map((hour) => <th key={hour} className={cn("min-w-[5rem] border-b-2 border-neutral-900 px-1 text-center", selectedHour === hour && "bg-neutral-900 text-white")} scope="col"><button type="button" className="touch-target min-h-11 w-full font-bold" onClick={() => onSelectHour(hour)} aria-label={formatHourLabel(hour)}>{formatCompactHour(hour)}</button></th>)}
             </tr></thead>
@@ -561,17 +582,6 @@ export function ManagerColorEditor({
                 </td>;
               })}
             </tr>)}</tbody>
-            {day?.mandatory && <tfoot><tr data-testid="mandatory-gaps">
-              <th className="sticky left-0 bg-white" scope="row" />
-              {hours.map((hour) => {
-                const boxes = gaps.filter((gap) => gap.hour === hour);
-                return <td key={hour} className="align-top p-0.5" data-testid={`mandatory-gap-hour-${hour}`}>{boxes.map((gap) => {
-                  const station = day.stations.find((item) => item.id === gap.stationId);
-                  const label = mandatoryGapLabel(station ?? { label: gap.stationId });
-                  return <span key={gap.stationId} className={cn("mb-0.5 block rounded px-0.5 text-center text-[10px] font-bold leading-4", station ? stationColorClass(station.color) : "bg-neutral-200")} data-testid={`mandatory-gap-${gap.stationId}-${hour}`}>{label}</span>;
-                })}</td>;
-              })}
-            </tr></tfoot>}
           </table>
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
@@ -586,6 +596,15 @@ export function ManagerColorEditor({
           onSaved={onSaved}
         />
       )}
+      {mandatoryAsk && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="mandatory-confirm-title" data-testid="mandatory-confirm">
+        <div className="w-full max-w-sm rounded-lg border-2 border-neutral-900 bg-white p-4">
+          <h3 id="mandatory-confirm-title" className="text-lg font-bold">{copy.mandatoryAsk}</h3>
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" onClick={() => setMandatoryAsk(null)} data-testid="mandatory-confirm-cancel">{copy.mandatoryCancel}</button>
+            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 bg-neutral-900 px-3 font-bold text-white" onClick={() => { const id = mandatoryAsk; setMandatoryAsk(null); void toggleMandatory(id, true); }} data-testid="mandatory-confirm-yes">{copy.mandatoryYes}</button>
+          </div>
+        </div>
+      </div>}
       {activePendingReason && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="paint-reason-title" data-testid="paint-reason-dialog">
         <div className="w-full max-w-md rounded-lg border-2 border-neutral-900 bg-white p-4">
           <h3 id="paint-reason-title" className="text-lg font-bold">{copy.reasonTitle}</h3>
