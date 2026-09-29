@@ -27,9 +27,9 @@ describe("station seed dictionaries", () => {
     expect(nieves?.maxConcurrent).toBe(1);
   });
 
-  it("seeds the 19 retained Cocina seats and omits the six retired seats", () => {
+  it("seeds the 20 Cocina seats and omits the six retired seats", () => {
     expect(COCINA_STATIONS.map((s) => s.id)).toEqual([
-      "pdf_br2a", "pdf_crne", "pdf_pr3e", "pdf_rlno", "pdf_rngn",
+      "pdf_br2a", "pdf_crne", "pdf_pr3e", "pdf_rlno", "pdf_cyrl", "pdf_rngn",
       "pdf_tf1r", "pdf_tsr2", "pdf_guia", "pdf_pr1e", "pdf_tq1r",
       "pdf_tq2r", "pdf_tq3r", "pdf_pr2e", "pdf_tf2r", "pdf_pstl",
       "pdf_br1a", "pdf_tsrea", "pdf_tsr3", "pdf_tsr4",
@@ -44,9 +44,19 @@ describe("station seed dictionaries", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("seeds exactly the 32 retained owner names and codes", () => {
+  it("keeps the 32 retained owner names and adds Carne y Relleno", () => {
     const retained = ownerDecisions.decisions.filter((d) => d.action !== "remove_if_unreferenced");
-    expect(ALL_STATIONS).toHaveLength(32);
+    expect(ALL_STATIONS).toHaveLength(33);
+    const carne = ALL_STATIONS.find((s) => s.id === "pdf_cyrl");
+    expect(carne).toMatchObject({
+      board: "cocina",
+      label: "Carne y Relleno",
+      color: "dark-orange",
+      maxConcurrent: 1,
+      sortOrder: 0,
+      priority: null,
+    });
+    expect(STATION_SHORT_CODES.pdf_cyrl).toBe("CYRL");
     for (const decision of retained) {
       const station = ALL_STATIONS.find((s) => s.id === decision.station_id);
       expect(station?.board).toBe(decision.board);

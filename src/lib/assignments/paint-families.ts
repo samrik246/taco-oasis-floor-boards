@@ -8,6 +8,7 @@ export const PAINT_FAMILIES = {
   taquero: ["pdf_tq1r", "pdf_tq2r", "pdf_tq3r"],
   birria: ["pdf_br1a", "pdf_br2a"],
   trastes: ["pdf_tsrea", "pdf_tsr2", "pdf_tsr3", "pdf_tsr4"],
+  carneRelleno: ["pdf_crne", "pdf_rlno", "pdf_cyrl"],
 } as const;
 
 export type PaintFamily = keyof typeof PAINT_FAMILIES;
@@ -22,6 +23,7 @@ export const PAINT_FAMILY_LABELS: Record<PaintFamily, string> = {
   taquero: "Taquero",
   birria: "Birria",
   trastes: "Trastes",
+  carneRelleno: "Carne y Relleno",
 };
 
 export function isPaintFamily(value: unknown): value is PaintFamily {

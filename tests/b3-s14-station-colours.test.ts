@@ -22,6 +22,7 @@ const WHITE_TEXT = new Set([
   "maroon",
   "brown",
   "deep-orange",
+  "dark-orange",
   "green",
   "dark-green",
   "sky",
@@ -88,6 +89,9 @@ describe("S14 station colours", () => {
     }
     expect(ALL_STATIONS.find((station) => station.id === "pdf_crne")?.color).toBe("light-orange");
     expect(ALL_STATIONS.find((station) => station.id === "pdf_rlno")?.color).toBe("deep-orange");
+    expect(ALL_STATIONS.find((station) => station.id === "pdf_cyrl")?.color).toBe("dark-orange");
+    expect(stationColorClass("dark-orange")).toBe("bg-orange-800 border-orange-950 text-white");
+    expect(stationSolidClass("dark-orange")).toBe("bg-orange-900 text-white");
     expect(ALL_STATIONS.find((station) => station.id === "pdf_br1a")?.color).toBe("light-brown");
     expect(ALL_STATIONS.find((station) => station.id === "pdf_br2a")?.color).toBe("brown");
     expect(ALL_STATIONS.find((station) => station.id === "mesero")?.color).toBe("orange");

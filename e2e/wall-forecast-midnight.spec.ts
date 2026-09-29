@@ -29,7 +29,7 @@ const forecast = {
 async function openWall(page: Page) {
   await page.goto("/?wall=1&board=caja");
   await expect(page.getByTestId("wall-board")).toBeVisible();
-  await expect(page.getByTestId("wall-station-yellow")).toBeVisible();
+  await expect(page.getByTestId("wall-station-yellow")).toHaveCount(0);
 }
 
 test("mounted wall drops yesterday's grid and forecast through an offline lead window", async ({ page }) => {

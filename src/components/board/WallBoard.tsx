@@ -10,6 +10,7 @@ import { forecastForScreen, offlineRefreshState } from "@/lib/board/refresh-stat
 import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
+import { wallTilesForHour } from "@/lib/wall-stations";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 import {
   boardDisplayName,
@@ -105,6 +106,16 @@ export function WallBoard() {
       ? rushLeadNotice({ forecast, now, dateYmd: date, locale })
       : null;
 
+  const occupiedIds = new Set<string>();
+  if (day && onGrid) {
+    for (const station of day.stations) {
+      if (assignmentsAtStationHour(day.shifts, station.id, day.date, hour).length > 0) {
+        occupiedIds.add(station.id);
+      }
+    }
+  }
+  const tiles = wallTilesForHour(day?.stations ?? [], occupiedIds, onGrid);
+
   const clock = now.toLocaleTimeString(locale === "es" ? "es-MX" : "en-US", {
     timeZone: "America/Chicago",
     hour: "numeric",
@@ -161,11 +172,10 @@ export function WallBoard() {
       )}
 
       <div className="grid flex-1 grid-cols-2 gap-4 p-6 lg:grid-cols-3" data-testid="wall-stations">
-        {(day?.stations ?? []).map((station) => {
-          const occupied =
-            day && onGrid
-              ? assignmentsAtStationHour(day.shifts, station.id, day.date, hour)
-              : [];
+        {tiles.map((station) => {
+          const occupied = day
+            ? assignmentsAtStationHour(day.shifts, station.id, day.date, hour)
+            : [];
           const label = displayStationLabel(locale, station);
           return (
             <section

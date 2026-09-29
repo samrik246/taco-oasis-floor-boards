@@ -140,6 +140,7 @@ describe("B3 S2 abilities", () => {
       "pdf_crne",
       "preparacion",
       "pdf_rlno",
+      "pdf_cyrl",
       "pdf_rngn",
       "tortillaFreidora",
       "trastes",

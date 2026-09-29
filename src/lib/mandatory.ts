@@ -7,8 +7,8 @@ import { isHourInShift } from "@/lib/rules/shift-window";
  * List order is the board-day `stationIds` order. Palette order is separate.
  */
 export const MANDATORY_STATIONS_BY_BOARD = {
-  cocina: ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e", "pdf_br1a"],
-  caja: ["green1", "purple1", "yellow", "nieves"],
+  cocina: ["pdf_tq1r", "pdf_tf1r", "pdf_pr1e", "pdf_br1a", "pdf_guia"],
+  caja: ["green1", "purple1", "yellow", "nieves", "mana"],
 } as const;
 
 /** Cocina standing stations, in the historical board-day order. */

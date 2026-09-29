@@ -284,14 +284,14 @@ describe("B3 S3 mandatory marks", () => {
     const caja = await day(managerToken, "caja", today);
     expect(caja.status).toBe(200);
     expect(caja.body.mandatory).toEqual({
-      stationIds: ["green1", "purple1", "yellow", "nieves"],
+      stationIds: ["green1", "purple1", "yellow", "nieves", "mana"],
       extraStationIds: [],
       canMark: false,
     });
   });
 
   it("an owner marks an extra caja station for one day and cannot clear a default", async () => {
-    for (const stationId of ["green1", "purple1", "yellow", "nieves"]) {
+    for (const stationId of ["green1", "purple1", "yellow", "nieves", "mana"]) {
       expect((await put(ownerToken, { date: markDate, stationId, on: false })).status).toBe(400);
     }
 
@@ -303,20 +303,20 @@ describe("B3 S3 mandatory marks", () => {
     expect(await on.json()).toEqual({ changed: true });
     const marked = await day(ownerToken, "caja", markDate);
     expect(marked.body.mandatory.stationIds).toEqual([
-      "green1", "purple1", "yellow", "nieves", "green2",
+      "green1", "purple1", "yellow", "nieves", "mana", "green2",
     ]);
     expect(marked.body.mandatory.extraStationIds).toEqual(["green2"]);
     expect(marked.body.mandatory.canMark).toBe(true);
 
     const next = await day(ownerToken, "caja", nextDate);
-    expect(next.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves"]);
+    expect(next.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves", "mana"]);
     expect(next.body.mandatory.extraStationIds).toEqual([]);
 
     const off = await put(ownerToken, { date: markDate, stationId: "green2", on: false });
     expect(off.status).toBe(200);
     const cleared = await day(ownerToken, "caja", markDate);
     expect(cleared.body.mandatory.extraStationIds).toEqual([]);
-    expect(cleared.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves"]);
+    expect(cleared.body.mandatory.stationIds).toEqual(["green1", "purple1", "yellow", "nieves", "mana"]);
 
     const cocinaAfter = await day(ownerToken, "cocina", markDate);
     expect(cocinaAfter.body.mandatory).toEqual(cocinaBefore.body.mandatory);

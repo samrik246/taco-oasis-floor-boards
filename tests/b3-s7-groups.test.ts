@@ -46,6 +46,7 @@ describe("S7 palette groups", () => {
       "taquero",
       "birria",
       "trastes",
+      "carneRelleno",
     ] as const) {
       expectFamilyBlock(cocina, family);
     }

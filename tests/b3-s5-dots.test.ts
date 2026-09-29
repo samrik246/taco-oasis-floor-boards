@@ -43,6 +43,7 @@ describe("B3 S5 eligibility dots", () => {
       "pdf_tf1r",
       "pdf_pr1e",
       "pdf_br1a",
+      "pdf_guia",
     ]);
 
     const at = (level: string | null) => eligibilityDots({
@@ -79,6 +80,7 @@ describe("B3 S5 eligibility dots", () => {
       { stationId: "pdf_tq1r", level: "preferred" },
       { stationId: "pdf_tf1r", level: "training" },
       { stationId: "pdf_br1a", level: "ok" },
+      { stationId: "pdf_guia", level: "ok" },
     ]);
   });
 
@@ -99,6 +101,7 @@ describe("B3 S5 eligibility dots", () => {
     });
     expect(gaps.filter((gap) => gap.hour === 12).map((gap) => gap.stationId)).toEqual([
       "pdf_tf1r",
+      "pdf_guia",
       "pdf_pr1e",
       "pdf_br1a",
     ]);
@@ -115,6 +118,7 @@ describe("B3 S5 eligibility dots", () => {
     });
     expect(ordered).toEqual([
       { stationId: "pdf_tf1r", level: "training" },
+      { stationId: "pdf_guia", level: "ok" },
       { stationId: "pdf_pr1e", level: "preferred" },
       { stationId: "pdf_br1a", level: "ok" },
     ]);

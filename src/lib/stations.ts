@@ -37,6 +37,7 @@ export const COCINA_STATIONS: StationSeed[] = [
   { id: "pdf_crne", board: "cocina", label: "Carne", color: "light-orange", maxConcurrent: 1, sortOrder: 0, priority: null },
   { id: "pdf_pr3e", board: "cocina", label: "Preparación 3", color: "dark-green", maxConcurrent: 1, sortOrder: 0, priority: null },
   { id: "pdf_rlno", board: "cocina", label: "Rellenar", color: "deep-orange", maxConcurrent: 1, sortOrder: 0, priority: null },
+  { id: "pdf_cyrl", board: "cocina", label: "Carne y Relleno", color: "dark-orange", maxConcurrent: 1, sortOrder: 0, priority: null },
   { id: "pdf_rngn", board: "cocina", label: "Relleno general", color: "gray", maxConcurrent: 1, sortOrder: 0, priority: null },
   { id: "pdf_tf1r", board: "cocina", label: "Tortilla y freidora 1", color: "yellow", maxConcurrent: 1, sortOrder: 0, priority: null },
   { id: "pdf_tsr2", board: "cocina", label: "Trastes 2 + Tareas", color: "sky", maxConcurrent: 1, sortOrder: 0, priority: null },
