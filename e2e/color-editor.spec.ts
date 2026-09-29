@@ -107,17 +107,17 @@ test.describe("condensed staff board and manager color editor", () => {
     });
     const families = {
       caja: {
-        green: [["green1", "Green 1", "green"], ["green2", "Green 2 / Jolt", "lime"]],
-        purple: [["purple1", "Purple 1", "purple"], ["purple2", "Purple 2", "lavender"]],
-        nieves: [["nieves", "Nieves 1", "teal"], ["nieves2", "Nieves 2", "teal"]],
-        yellow: [["yellow", "Yellow / Outside", "yellow"], ["yellow2", "Yellow 2", "yellow"]],
+        green: [["green1", "Green 1", "light-green"], ["green2", "Green 2 / Jolt", "dark-green"]],
+        purple: [["purple1", "Purple 1", "purple"], ["purple2", "Purple 2", "violet"]],
+        nieves: [["nieves", "Nieves 1", "light-pink"], ["nieves2", "Nieves 2", "dark-pink"]],
+        yellow: [["yellow", "Yellow / Outside", "yellow"], ["yellow2", "Yellow 2", "gold"]],
       },
       cocina: {
-        preparacion: [["pdf_pr1e", "Preparación 1", "lime"], ["pdf_pr2e", "Preparación 2", "green"], ["pdf_pr3e", "Preparación 3", "green"]],
-        tortillaFreidora: [["pdf_tf1r", "Tortilla Freidora 1", "yellow"], ["pdf_tf2r", "Tortilla Freidora 2", "yellow"]],
-        taquero: [["pdf_tq1r", "Taquero 1 + Relleno", "pink"], ["pdf_tq2r", "Taquero 2 + Relleno", "red"], ["pdf_tq3r", "Taquero 3", "maroon"]],
-        birria: [["pdf_br1a", "Birria 1", "brown"], ["pdf_br2a", "Birria 2", "orange"]],
-        trastes: [["pdf_tsrea", "Trastes + Tareas 1", "gray"], ["pdf_tsr2", "Trastes 2", "gray"], ["pdf_tsr3", "Trastes + Tareas 3", "gray"], ["pdf_tsr4", "Trastes + Tareas 4", "gray"]],
+        preparacion: [["pdf_pr1e", "Preparación 1", "light-green"], ["pdf_pr2e", "Preparación 2", "green"], ["pdf_pr3e", "Preparación 3", "dark-green"]],
+        tortillaFreidora: [["pdf_tf1r", "Tortilla Freidora 1", "yellow"], ["pdf_tf2r", "Tortilla Freidora 2", "gold"]],
+        taquero: [["pdf_tq1r", "Taquero 1 + Relleno", "light-red"], ["pdf_tq2r", "Taquero 2 + Relleno", "red"], ["pdf_tq3r", "Taquero 3", "maroon"]],
+        birria: [["pdf_br1a", "Birria 1", "light-brown"], ["pdf_br2a", "Birria 2", "brown"]],
+        trastes: [["pdf_tsrea", "Trastes + Tareas 1", "light-sky"], ["pdf_tsr2", "Trastes 2", "sky"], ["pdf_tsr3", "Trastes + Tareas 3", "dark-sky"], ["pdf_tsr4", "Trastes + Tareas 4", "deep-sky"]],
       },
     } as const;
     await page.route("**/api/boards/*/days/2026-09-20", async (route) => {

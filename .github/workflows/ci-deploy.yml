@@ -175,7 +175,7 @@ jobs:
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts \
                         scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
                         scripts/seed-ability-columns.ts scripts/agent-paint.ts \
-                        scripts/import-staff-passcodes.ts; do
+                        scripts/import-staff-passcodes.ts scripts/s14-station-colours.ts; do
             /usr/bin/sed 's/^ *//' "$WORKFLOW" | /usr/bin/grep -Fx "$script" > /dev/null || {
               echo "::error::RUNTIME_PATHS must pack ${script}."
               exit 1
@@ -204,6 +204,7 @@ jobs:
             scripts/readiness-check.ts
             scripts/release-lock.sh
             scripts/remote-deploy.sh
+            scripts/s14-station-colours.ts
             scripts/seed-ability-columns.ts
             scripts/seed-position-map.ts
             scripts/set-owner.ts
@@ -242,7 +243,7 @@ jobs:
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts scripts/seed-position-map.ts \
                         scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
                         scripts/seed-ability-columns.ts scripts/agent-paint.ts \
-                        scripts/import-staff-passcodes.ts; do
+                        scripts/import-staff-passcodes.ts scripts/s14-station-colours.ts; do
             /usr/bin/grep -Fxq "./${script}" "$STAGE.files" || {
               echo "::error::Production artifact is missing ${script}."
               exit 1

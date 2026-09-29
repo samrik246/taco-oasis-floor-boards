@@ -107,7 +107,7 @@ test("C6 a mandatory gap lights at 12 and a pending paint clears it, and 10 stay
   await expect(taquero).toHaveAttribute("data-falta", "1");
   const box = page.getByTestId("mandatory-gap-pdf_tq1r-12");
   await expect(box).toHaveText("TQ1R");
-  await expect(box).toHaveClass(/pink/);
+  await expect(box).toHaveClass(/bg-red-300/);
 
   await page.getByTestId("paint-matrix").getByRole("button", { name: "10:00 am", exact: true }).click();
   await expect(page.getByTestId("paint-palette-pdf_tq1r")).not.toContainText("Falta");

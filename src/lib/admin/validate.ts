@@ -16,6 +16,22 @@ export const STATION_COLORS = [
   "red",
   "brown",
   "maroon",
+  "gold",
+  "light-red",
+  "light-brown",
+  "light-orange",
+  "deep-orange",
+  "light-green",
+  "dark-green",
+  "light-sky",
+  "sky",
+  "dark-sky",
+  "deep-sky",
+  "light-pink",
+  "dark-pink",
+  "violet",
+  "gray-blue",
+  "white",
 ] as const;
 
 export type StationColor = (typeof STATION_COLORS)[number];

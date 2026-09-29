@@ -60,7 +60,7 @@ describe("stationColorClass", () => {
     expect(stationColorClass("maroon")).toBe("bg-[#8c1a11] border-red-950 text-white");
   });
 
-  it("leaves red unchanged", () => {
-    expect(stationColorClass("red")).toBe("bg-red-200 border-red-800 text-red-950");
+  it("paints a red cell as red with white text", () => {
+    expect(stationColorClass("red")).toBe("bg-red-600 border-red-800 text-white");
   });
 });

@@ -109,8 +109,8 @@ export function filterByAbilityLevel(
 export function stationColorClass(color: string): string {
   const map: Record<string, string> = {
     pink: "bg-pink-200 border-pink-700 text-pink-950",
-    green: "bg-green-300 border-green-800 text-green-950",
-    yellow: "bg-yellow-200 border-yellow-700 text-yellow-950",
+    green: "bg-green-600 border-green-800 text-white",
+    yellow: "bg-yellow-400 border-yellow-700 text-yellow-950",
     purple: "bg-purple-200 border-purple-800 text-purple-950",
     lime: "bg-lime-300 border-lime-800 text-lime-950",
     blue: "bg-blue-200 border-blue-800 text-blue-950",
@@ -119,9 +119,25 @@ export function stationColorClass(color: string): string {
     teal: "bg-teal-200 border-teal-800 text-teal-950",
     orange: "bg-orange-200 border-orange-800 text-orange-950",
     cyan: "bg-cyan-200 border-cyan-800 text-cyan-950",
-    red: "bg-red-200 border-red-800 text-red-950",
-    brown: "bg-amber-300 border-amber-900 text-amber-950",
+    red: "bg-red-600 border-red-800 text-white",
+    brown: "bg-[#6f4e37] border-[#3e2723] text-white",
     maroon: "bg-[#8c1a11] border-red-950 text-white",
+    gold: "bg-amber-600 border-amber-800 text-white",
+    "light-red": "bg-red-300 border-red-700 text-red-950",
+    "light-brown": "bg-[#e4c49a] border-[#8a5a2b] text-[#3f2a14]",
+    "light-orange": "bg-orange-300 border-orange-700 text-orange-950",
+    "deep-orange": "bg-orange-600 border-orange-900 text-white",
+    "light-green": "bg-green-300 border-green-700 text-green-950",
+    "dark-green": "bg-green-800 border-green-950 text-white",
+    "light-sky": "bg-sky-200 border-sky-700 text-sky-950",
+    sky: "bg-sky-600 border-sky-800 text-white",
+    "dark-sky": "bg-sky-700 border-sky-900 text-white",
+    "deep-sky": "bg-sky-900 border-sky-950 text-white",
+    "light-pink": "bg-pink-200 border-pink-700 text-pink-950",
+    "dark-pink": "bg-pink-600 border-pink-900 text-white",
+    violet: "bg-violet-700 border-violet-950 text-white",
+    "gray-blue": "bg-slate-300 border-slate-600 text-slate-950",
+    white: "bg-white border-neutral-900 text-neutral-950",
   };
   return map[color] ?? "bg-neutral-100 border-neutral-600 text-neutral-900";
 }

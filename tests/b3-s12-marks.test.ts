@@ -7,6 +7,7 @@ import { GET as abilityGrid } from "@/app/api/admin/abilities/route";
 import { PUT as saveColumn } from "@/app/api/admin/ability-columns/route";
 import { ABILITY_WORD } from "@/lib/abilities/levels";
 import { stationColorClass } from "@/components/board/board-helpers";
+import { STATION_COLORS } from "@/lib/admin/validate";
 import { chicagoHourStart } from "@/lib/hour-grid";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
@@ -63,7 +64,7 @@ describe("B3 S12 selection marks", () => {
   });
 
   it("an open-cell class is not a painted fill, and a manager outline is one class", () => {
-    const colors = ["pink", "green", "yellow", "purple", "lime", "blue", "lavender", "gray", "teal", "orange", "cyan", "red", "brown", "maroon"];
+    const colors = STATION_COLORS;
     for (const color of colors) {
       for (const mark of ["none", "dashed", "solid", "filled"] as const) {
         for (const mode of ["rest", "manager", "owner"] as const) {
