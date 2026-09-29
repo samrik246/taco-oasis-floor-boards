@@ -121,6 +121,30 @@ jobs:
       - name: End-to-end tests (Playwright)
         run: pnpm test:e2e
 
+      - name: Require S14 board snapshots
+        # A green run never reaches the failure upload below, so these two
+        # images are the colour-review record for this exact head.
+        if: success()
+        run: |
+          set -euo pipefail
+          for image in test-results/s14-caja.png test-results/s14-cocina.png; do
+            [[ -f "$image" ]] || {
+              echo "::error::Missing ${image} for ${{ github.sha }}"
+              exit 1
+            }
+          done
+
+      - name: Upload S14 board snapshots
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s14-board-snapshots-${{ github.sha }}
+          path: |
+            test-results/s14-caja.png
+            test-results/s14-cocina.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload Playwright traces on failure
         if: failure()
         uses: actions/upload-artifact@v4
