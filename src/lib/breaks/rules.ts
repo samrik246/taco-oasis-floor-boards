@@ -96,8 +96,30 @@ function currentShift(shift: BreakShift): boolean {
   return !shift.supersededAt && !shift.boardRemoved;
 }
 
+/** Two booked breaks may cover one quarter. A third is refused. Pending is not booked. */
+export const BREAK_BOARD_CEILING = 2;
+const SLICE_MS = 15 * MINUTE_MS;
+
+export function breakSliceStarts(start: Date, end: Date): number[] {
+  const starts: number[] = [];
+  for (let at = start.getTime(); at + SLICE_MS <= end.getTime(); at += SLICE_MS) starts.push(at);
+  return starts;
+}
+
+export function bookedBreaksOnSlice(
+  others: readonly { board: string; startAt: Date; endAt: Date; status?: string }[],
+  board: string,
+  sliceStart: number,
+): number {
+  const sliceEnd = sliceStart + SLICE_MS;
+  return others.filter((other) => {
+    if (other.board !== board || (other.status != null && other.status !== "booked")) return false;
+    return sliceStart >= other.startAt.getTime() && sliceEnd <= other.endAt.getTime();
+  }).length;
+}
+
 /**
- * Placement, allowance, blackout and same-board overlap.
+ * Placement, allowance, blackout, and at most two booked breaks on the board.
  * Blackout windows come only from breakBlackouts.
  */
 export function assessBreak(input: {
@@ -105,7 +127,7 @@ export function assessBreak(input: {
   startAt: Date;
   endAt: Date;
   shifts: readonly BreakShift[];
-  otherBreaks: readonly { board: string; startAt: Date; endAt: Date }[];
+  otherBreaks: readonly { board: string; startAt: Date; endAt: Date; status?: string }[];
 }): { code: string } | { shiftId: string; board: string } {
   if (!isChicagoQuarterHour(input.startAt) || !isChicagoQuarterHour(input.endAt)) {
     return { code: "ALIGNMENT" };
@@ -128,9 +150,10 @@ export function assessBreak(input: {
   for (const window of breakBlackouts(input.date, held.board)) {
     if (intervalsOverlap(input.startAt, input.endAt, window.start, window.end)) return { code: "BLACKOUT" };
   }
-  for (const other of input.otherBreaks) {
-    if (other.board !== held.board) continue;
-    if (intervalsOverlap(input.startAt, input.endAt, other.startAt, other.endAt)) return { code: "OVERLAP" };
+  for (const sliceStart of breakSliceStarts(input.startAt, input.endAt)) {
+    if (bookedBreaksOnSlice(input.otherBreaks, held.board, sliceStart) >= BREAK_BOARD_CEILING) {
+      return { code: "CEILING" };
+    }
   }
   return { shiftId: held.id, board: held.board };
 }

@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   assessBreak,
+  bookedBreaksOnSlice,
+  BREAK_BOARD_CEILING,
   breakAllowanceMinutes,
   breakBlackouts,
   clearBreak,
@@ -80,7 +82,7 @@ export function blockedBreakQuarters(input: {
     const inside = windows.some((shift) => start.getTime() >= shift.startAt.getTime() && end.getTime() <= shift.endAt.getTime());
     if (!inside) continue;
     const blackout = blackouts.some((window) => intervalsOverlap(start, end, window.start, window.end));
-    const taken = input.otherBreaks.some((row) => row.board === input.board && intervalsOverlap(start, end, row.startAt, row.endAt));
+    const taken = bookedBreaksOnSlice(input.otherBreaks, input.board, start.getTime()) >= BREAK_BOARD_CEILING;
     if (blackout) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "blackout" });
     else if (taken) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "overlap" });
   }

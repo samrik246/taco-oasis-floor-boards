@@ -6,7 +6,7 @@ export const BREAK_REFUSAL_TEXT: Record<string, string> = {
   OTHER_BOARD: "Ese horario no es de esta área.",
   ALLOWANCE: "Eso pasa de tus minutos.",
   BLACKOUT: "Ese horario está bloqueado.",
-  OVERLAP: "Otro compañero ya tiene ese horario.",
+  CEILING: "Ya hay dos personas en descanso.",
   LOCK_CONFLICT: "Otro compañero acaba de tomar ese horario, elige otro.",
   NOT_FOUND: "No encontramos tu turno. Pide ayuda a un gerente.",
   BOARD_MISMATCH: "Ese descanso es de la otra área. Pide ayuda a un gerente.",

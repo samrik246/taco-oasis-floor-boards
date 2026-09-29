@@ -326,9 +326,18 @@ describe("B4 D3 manager breaks and the now page", () => {
     await shiftFor(ada.id, wednesday, "cocina", "8:00 am", "4:00 pm");
     await shiftFor(ada.id, wednesday, "caja", "5:00 pm", "9:00 pm");
     const beaShift = await shiftFor(bea.id, wednesday, "cocina", "8:00 am", "4:00 pm");
+    const gio = await person("ceiling", "Gio");
+    await shiftFor(gio.id, wednesday, "cocina", "8:00 am", "4:00 pm");
     const now = chicagoDateTime(wednesday, "10:00 am");
     await saveBreak({
       employeeId: bea.id,
+      date: wednesday,
+      startAt: chicagoDateTime(wednesday, "9:00 am"),
+      endAt: chicagoDateTime(wednesday, "9:15 am"),
+      expectedBoard: "cocina",
+    });
+    await saveBreak({
+      employeeId: gio.id,
       date: wednesday,
       startAt: chicagoDateTime(wednesday, "9:00 am"),
       endAt: chicagoDateTime(wednesday, "9:15 am"),
@@ -372,7 +381,7 @@ describe("B4 D3 manager breaks and the now page", () => {
       endAt: chicagoDateTime(wednesday, "9:15 am"),
       now,
     }).then(() => null, (error: unknown) => error);
-    expect(refusedOverlap).toMatchObject({ code: "OVERLAP" });
+    expect(refusedOverlap).toMatchObject({ code: "CEILING" });
     const refusedBoard = await saveManagedBreak({
       manager: boss.actor,
       board: "cocina",
@@ -494,13 +503,15 @@ describe("B4 D3 manager breaks and the now page", () => {
     expect(staffClearLog.summary).not.toContain("employee=");
   });
 
-  it("leaves one row when two saves overlap, and does not change paint", async () => {
+  it("leaves two rows when three saves take one quarter, and does not change paint", async () => {
     const boss = await manager();
     const ada = await person("race-a", "Ada");
     const bea = await person("race-b", "Bea");
+    const cam = await person("race-c", "Cam");
     const raceDate = chicagoDateOffset(wednesday, 35);
     const adaShift = await shiftFor(ada.id, raceDate, "cocina", "8:00 am", "4:00 pm");
     await shiftFor(bea.id, raceDate, "cocina", "8:00 am", "4:00 pm");
+    await shiftFor(cam.id, raceDate, "cocina", "8:00 am", "4:00 pm");
     const station = await prisma.station.findFirstOrThrow({ where: { board: "cocina" } });
     await prisma.assignment.create({
       data: {
@@ -530,14 +541,15 @@ describe("B4 D3 manager breaks and the now page", () => {
     const raced = await Promise.allSettled([
       saveBreak({ employeeId: ada.id, ...slot }),
       saveBreak({ employeeId: bea.id, ...slot }),
+      saveBreak({ employeeId: cam.id, ...slot }),
     ]);
     const won = raced.filter((result) => result.status === "fulfilled");
     const lost = raced.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    expect(won).toHaveLength(1);
+    expect(won).toHaveLength(2);
     expect(lost).toHaveLength(1);
     expect(lost[0]?.reason).toBeInstanceOf(BreakRefused);
-    expect(lost[0]?.reason).toMatchObject({ code: "OVERLAP" });
-    expect(await prisma.staffBreak.count({ where: { employeeId: { in: [ada.id, bea.id] }, date: raceDate } })).toBe(1);
+    expect(lost[0]?.reason).toMatchObject({ code: "CEILING" });
+    expect(await prisma.staffBreak.count({ where: { employeeId: { in: [ada.id, bea.id, cam.id] }, date: raceDate } })).toBe(2);
 
     const replaced = await Promise.allSettled([
       saveManagedBreak({
