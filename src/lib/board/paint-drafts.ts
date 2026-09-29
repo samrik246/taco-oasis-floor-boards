@@ -2,6 +2,7 @@ import type { PaintEdit } from "@/lib/assignments/paint";
 import { isPaintFamily } from "@/lib/assignments/paint-families";
 
 const PREFIX = "taco-oasis-paint-draft-v1";
+export const PAINT_DRAFT_EVENT = "taco-oasis-paint-draft";
 
 type Board = "caja" | "cocina";
 export type StoredPaintDraft = { version: 1; updatedAt: string; edits: PaintEdit[] };
@@ -72,6 +73,9 @@ export function writePaintDraft(managerId: string, board: Board, date: string, e
       window.localStorage.setItem(key, JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), edits }));
     }
     window.localStorage.setItem(index, JSON.stringify([...known].sort()));
+    if (typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new Event(PAINT_DRAFT_EVENT));
+    }
     return true;
   } catch {
     return false;

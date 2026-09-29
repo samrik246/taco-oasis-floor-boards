@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { ensureSampleLoaded } from "./load-sample-api";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -97,14 +98,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       "en",
     );
 
-    await unlockManager(page);
-    const days = await (await page.request.get("/api/days", { headers: await managerHeaders(page) })).json() as { dates: string[] };
-    if (!days.dates.includes("2026-09-20")) {
-      await page.getByTestId("load-sample").click();
-      await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
-        timeout: 60_000,
-      });
+    if (await ensureSampleLoaded(page)) {
+      await page.getByTestId("toolbar-more").click();
     }
+    await unlockManager(page);
     await lockManager(page);
 
     // Staff: the day list holds Chicago today only, and a planned day's direct URL is refused.
@@ -128,9 +125,19 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
       timeout: 15_000,
     });
 
-    // Schedule first-class view (all day)
+    // Horario opens on rest-of-day. The grid checks below use the full day.
     await page.getByTestId("view-toggle-schedule").click();
     await expect(page.getByTestId("schedule-panel")).toBeVisible();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-mode",
+      "rest-of-day",
+    );
+    await expect(page.getByTestId("schedule-sort-name")).toHaveCount(0);
+    await page.getByTestId("schedule-mode-all-day").click();
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-mode",
+      "all-day",
+    );
     await expect(page.getByTestId("schedule-grid")).toBeVisible({
       timeout: 15_000,
     });
@@ -166,14 +173,12 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     expect(shown).not.toBe((await personBlock.getAttribute("data-code")) ?? "");
     await expect(page.locator("[data-section-kind='thin']").first()).toBeVisible();
     await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
-    await page.getByTestId("schedule-sort-name").click();
     await page.getByTestId("schedule-sort-time").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
       "data-sort",
       "time",
     );
     await expect(page.getByTestId("schedule-start").first()).toBeVisible();
-    await page.getByTestId("schedule-sort-name").click();
 
     await page.getByTestId("schedule-mode-rest-of-day").click();
     await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
@@ -329,8 +334,10 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     });
     await expect(page.locator("[data-station-banner='true']")).toHaveCount(0);
     await expect(page.locator("[data-text-kind='position']").first()).toBeVisible();
-    await expect(page.getByTestId("schedule-sort-name")).toContainText(
-      /Nombre/i,
+    await expect(page.getByTestId("schedule-sort-name")).toHaveCount(0);
+    await expect(page.getByTestId("schedule-panel")).toHaveAttribute(
+      "data-mode",
+      "rest-of-day",
     );
     await expect(page.getByTestId("schedule-sort-position")).toContainText(
       /Puesto/i,
@@ -381,7 +388,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await page.goto("/?readonly=1");
     await page.getByTestId("toolbar-more").click();
     await expect(page.getByTestId("readonly-badge")).toBeVisible();
-    await expect(page.getByTestId("load-sample")).toBeDisabled();
+    await expect(page.getByTestId("load-sample")).toHaveCount(0);
     await expect(page.getByTestId("compact-manager")).toHaveCount(0);
 
     // Planner G Back office: the position -> station map editor sets and
@@ -395,7 +402,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await page.getByTestId("position-select-Caja Manager").selectOption("green1");
     await page.getByTestId("position-save-Caja Manager").click();
     await expect(page.getByTestId("back-office-toast")).toContainText(
-      /Saved "Caja Manager"/i,
+      /Guardado "Caja Manager"/i,
     );
 
     await page.reload();

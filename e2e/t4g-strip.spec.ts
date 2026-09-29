@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
+import { ensureSampleLoaded } from "./load-sample-api";
 
 /**
  * Horario T4G strip. The host env stays unset. This spec serves the strip
@@ -40,13 +41,6 @@ async function unlock(page: Page) {
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
 
-async function managerHeaders(page: Page) {
-  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
-  expect(res.ok()).toBe(true);
-  const { sessionToken } = (await res.json()) as { sessionToken: string };
-  return { "x-manager-session": sessionToken };
-}
-
 async function selectDate(page: Page, targetYmd: string) {
   const bar = page.getByTestId("date-bar");
   for (let i = 0; i < 60; i++) {
@@ -74,14 +68,9 @@ test("Horario opens on Hora and the strip follows the day on screen", async ({ p
   await page.getByTestId("toolbar-more").click();
   await unlock(page);
 
-  const days = (await (
-    await page.request.get("/api/days", { headers: await managerHeaders(page) })
-  ).json()) as { dates: string[] };
-  if (!days.dates.includes(DAY)) {
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
-      timeout: 60_000,
-    });
+  if (await ensureSampleLoaded(page, DAY)) {
+    await page.getByTestId("toolbar-more").click();
+    await unlock(page);
   }
   await selectDate(page, DAY);
 
@@ -105,6 +94,8 @@ test("Horario opens on Hora and the strip follows the day on screen", async ({ p
   await page.getByTestId("view-toggle-schedule").click();
   await expect(page.getByTestId("schedule-sort-time")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("schedule-panel")).toHaveAttribute("data-sort", "time");
+  await expect(page.getByTestId("schedule-panel")).toHaveAttribute("data-mode", "rest-of-day");
+  await expect(page.getByTestId("schedule-sort-name")).toHaveCount(0);
   await expect(page.getByTestId("date-bar")).toHaveAttribute("data-date", DAY);
 
   const cells = page.locator("[data-testid='t4g-order']");
@@ -183,14 +174,9 @@ test("the strip leads with the first name on cocina and caja, and Próximos stay
   await page.getByTestId("toolbar-more").click();
   await unlock(page);
 
-  const days = (await (
-    await page.request.get("/api/days", { headers: await managerHeaders(page) })
-  ).json()) as { dates: string[] };
-  if (!days.dates.includes(DAY)) {
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, {
-      timeout: 60_000,
-    });
+  if (await ensureSampleLoaded(page, DAY)) {
+    await page.getByTestId("toolbar-more").click();
+    await unlock(page);
   }
   await selectDate(page, DAY);
   await page.getByTestId("view-toggle-schedule").click();

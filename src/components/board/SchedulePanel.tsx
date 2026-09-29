@@ -33,7 +33,7 @@ const SHIFT_COL = "left-[10.5rem] w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem]";
  * No full-width station banner rows.
  */
 export function SchedulePanel({ day, date, locale, t, now }: Props) {
-  const [mode, setMode] = useState<ScheduleMode>("all-day");
+  const [mode, setMode] = useState<ScheduleMode>("rest-of-day");
   const [sort, setSort] = useState<ScheduleSort>("time");
 
   const grid = useMemo(() => {
@@ -98,7 +98,6 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
           >
             {(
               [
-                ["name", t.scheduleSortName],
                 ["time", t.scheduleSortTime],
                 ["position", t.scheduleSortPosition],
               ] as const

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
 import { isFutureHour } from "@/lib/rules/live-hour";
-import { chicagoDateOffset } from "@/lib/date-math";
+import { formatWeekdayDateLabel } from "@/lib/date-format";
 import { findBoardViolations } from "@/lib/violations";
 import type { AbilityLevel } from "@/lib/rules/types";
 import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
@@ -35,7 +35,6 @@ import {
   type TareaTemplateDto,
 } from "./TareasPanel";
 import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
-import { ImportPreviewModal, type ImportPreviewData } from "./ImportPreviewModal";
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
@@ -75,7 +74,7 @@ import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { KioskLock, kioskRequested, releaseKioskLock } from "./KioskLock";
 import { staffBreakHref } from "@/lib/breaks/picker-steps";
 import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
-import { paintDraftDates } from "@/lib/board/paint-drafts";
+import { PAINT_DRAFT_EVENT, paintDraftDates, readPaintDraft } from "@/lib/board/paint-drafts";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 type MainView = "board" | "timeline" | "schedule" | "tareas" | "rush";
@@ -165,10 +164,8 @@ export function FloorBoard() {
     Record<string, Toast>
   >({});
   const cardFeedbackTimers = useRef<Record<string, number>>({});
-  const [importPreview, setImportPreview] = useState<{
-    file: File;
-    preview: ImportPreviewData;
-  } | null>(null);
+  const [draftTick, setDraftTick] = useState(0);
+  const [importing, setImporting] = useState(false);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(
     null,
   );
@@ -537,6 +534,12 @@ export function FloorBoard() {
     return () => window.clearInterval(id);
   }, [refreshDates, refreshPhase1]);
 
+  useEffect(() => {
+    const bump = () => setDraftTick((n) => n + 1);
+    window.addEventListener(PAINT_DRAFT_EVENT, bump);
+    return () => window.removeEventListener(PAINT_DRAFT_EVENT, bump);
+  }, []);
+
   const dayHasAbilities = Boolean(
     day?.shifts.some((shift) => Array.isArray(shift.employee.abilities)),
   );
@@ -576,7 +579,12 @@ export function FloorBoard() {
     setLedgerEmployeeName(displayName(shift));
   }
 
-  async function loadSample() {
+  async function reloadDay() {
+    await refreshDates();
+    await refreshPhase1();
+  }
+
+  async function importNow() {
     if (readonly || offline) {
       showToast("err", offline ? t.offlineBanner : t.toastReadonly);
       return;
@@ -586,89 +594,38 @@ export function FloorBoard() {
       showToast("err", t.managerOnly);
       return;
     }
-    setLoading(true);
+    if (manager && date && readPaintDraft(manager.id, board, date)?.edits.length) return;
+    setImporting(true);
+    showToast("ok", t.importNowStarted);
     try {
-      const res = await fetch("/api/sample", {
+      const res = await fetch(`/api/imports/now?locale=${locale}`, {
+        method: "POST",
         headers: managerAuthHeaders(manager.token),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast("err", data.error ?? t.toastSampleFailed);
+      const data = (await res.json()) as { error?: string; startedAt?: string };
+      if (!res.ok || !data.startedAt) {
+        showToast("err", data.error ?? t.importNowFailed);
         return;
       }
-      showToast("ok", t.toastSample(data.rowCount));
-      await refreshDates();
-      await refreshPhase1();
-      bumpLedger();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function copyFromDay(daysBack: number) {
-    if (readonly || offline) {
-      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
-      return;
-    }
-    if (!isManager || !manager?.token || !date) {
-      setUnlockOpen(true);
-      showToast("err", t.managerOnly);
-      return;
-    }
-    const sourceDate = chicagoDateOffset(date, -daysBack);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/assignments/copy-day", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...managerAuthHeaders(manager.token),
-        },
-        body: JSON.stringify({ board, sourceDate, targetDate: date }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast("err", t.toastCopyFailed);
-        return;
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        const status = await fetch(
+          `/api/imports/now?locale=${locale}&since=${encodeURIComponent(data.startedAt)}`,
+          { headers: managerAuthHeaders(manager.token) },
+        );
+        if (!status.ok) continue;
+        const body = (await status.json()) as { line: string | null; ok: boolean; done: boolean };
+        if (body.done && body.line) {
+          showToast(body.ok ? "ok" : "err", body.line);
+          await reloadDay();
+          return;
+        }
       }
-      showToast("ok", t.copySummary(data.summary));
-      await refreshBoard();
-      bumpLedger();
+      showToast("ok", t.importNowRunning);
+      await reloadDay();
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function placeFixed() {
-    if (readonly || offline) {
-      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
-      return;
-    }
-    if (!isManager || !manager?.token || !date) {
-      setUnlockOpen(true);
-      showToast("err", t.managerOnly);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/assignments/fixed", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...managerAuthHeaders(manager.token),
-        },
-        body: JSON.stringify({ board, date }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast("err", t.toastFixedFailed);
-        return;
-      }
-      showToast("ok", t.fixedSummary(data.summary));
-      await refreshBoard();
-      bumpLedger();
-    } finally {
-      setLoading(false);
+      setImporting(false);
     }
   }
 
@@ -723,93 +680,6 @@ export function FloorBoard() {
       bumpLedger();
     } finally {
       setSavingStationId(null);
-    }
-  }
-
-  async function onUpload(file: File | null) {
-    if (readonly || offline) {
-      showToast("err", offline ? t.offlineBanner : t.toastReadonly);
-      return;
-    }
-    if (!isManager || !manager?.token) {
-      setUnlockOpen(true);
-      showToast("err", t.managerOnly);
-      return;
-    }
-    if (!file) return;
-    setLoading(true);
-    try {
-      // Preview first (C1). A file that only adds new days imports in one step.
-      const preview = await postImport(file, { mode: "preview" }, manager.token);
-      if (!preview.ok) {
-        showToast("err", preview.data.error ?? t.toastUploadFailed);
-        return;
-      }
-      const data = preview.data as ImportPreviewData;
-      if (data.refusals.length > 0 || data.needsConfirm) {
-        setImportPreview({ file, preview: data });
-        return;
-      }
-      await commitUpload(file, data, false);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function postImport(
-    file: File,
-    fields: Record<string, string>,
-    token: string,
-  ): Promise<{ ok: boolean; data: Record<string, unknown> & { error?: string } }> {
-    const form = new FormData();
-    form.set("file", file);
-    for (const [k, v] of Object.entries(fields)) form.set(k, v);
-    const res = await fetch("/api/imports", {
-      method: "POST",
-      headers: managerAuthHeaders(token),
-      body: form,
-    });
-    return { ok: res.ok, data: await res.json() };
-  }
-
-  /** Returns true when the import landed. */
-  async function commitUpload(file: File, data: ImportPreviewData, updated: boolean): Promise<boolean> {
-    if (!manager?.token) return false;
-    const res = await postImport(
-      file,
-      { mode: "commit", fingerprint: data.fingerprint, planDigest: data.planDigest },
-      manager.token,
-    );
-    if (!res.ok) {
-      showToast("err", res.data.error ?? t.toastUploadFailed);
-      if (res.data.code === "BOARD_CHANGED") {
-        // The board or the clock moved since the preview: show a fresh one.
-        const fresh = await postImport(file, { mode: "preview" }, manager.token);
-        if (fresh.ok) setImportPreview({ file, preview: fresh.data as ImportPreviewData });
-        else setImportPreview(null);
-        await refreshBoard();
-      }
-      return false;
-    }
-    showToast(
-      "ok",
-      updated ? t.toastScheduleUpdated : t.toastImported(Number(res.data.rowCount ?? 0)),
-    );
-    await refreshDates();
-    await refreshBoard();
-    await refreshPhase1();
-    bumpLedger();
-    return true;
-  }
-
-  async function confirmImportPreview() {
-    if (!importPreview) return;
-    setLoading(true);
-    try {
-      const landed = await commitUpload(importPreview.file, importPreview.preview, true);
-      if (landed) setImportPreview(null);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1163,6 +1033,12 @@ export function FloorBoard() {
   const editsLocked = readonly || offline;
   const canMutateStaff = isManager && !editsLocked;
   const showManagerPanels = isManager && !editsLocked;
+  const refreshHeld = Boolean(
+    draftTick >= 0 &&
+      manager &&
+      date &&
+      readPaintDraft(manager.id, board, date)?.edits.length,
+  );
   const leadNotice =
     isManager && !offline && rushForecast && date
       ? rushLeadNotice({
@@ -1219,7 +1095,24 @@ export function FloorBoard() {
       <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-2 sm:px-4">
         {toolbarHidden ? (
           <div className="flex min-h-11 flex-wrap items-center gap-2 text-sm font-bold">
-            <span className="shrink-0">{boardName} · {date || t.noDates}</span>
+            <span className="shrink-0">{boardName}</span>
+            <DateBar
+              dates={visibleDates}
+              date={date}
+              onChange={changeDate}
+              locale={locale}
+              t={t}
+              now={now}
+            />
+            <button
+              type="button"
+              className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => void reloadDay()}
+              disabled={refreshHeld}
+              data-testid="refresh-day"
+            >
+              {t.refresh}
+            </button>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {staffBreakLink}
               <div id="paint-controls-slot" data-testid="paint-controls-slot" className="flex flex-wrap items-center gap-2" />
@@ -1239,7 +1132,7 @@ export function FloorBoard() {
               <label className="sr-only" htmlFor="compact-date">{t.date}</label>
               <select id="compact-date" className="touch-target min-h-11 max-w-[9rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={date} onChange={(e) => changeDate(e.target.value)} disabled={visibleDates.length === 0} data-testid="compact-date">
                 {visibleDates.length === 0 && <option value="">{t.noDates}</option>}
-                {visibleDates.map((d) => <option key={d} value={d}>{d}{isManager && retainedDraftDates.includes(d) ? " · " + t.paintDraftDate : ""}</option>)}
+                {visibleDates.map((d) => <option key={d} value={d}>{formatWeekdayDateLabel(d, locale)}{isManager && retainedDraftDates.includes(d) ? " · " + t.paintDraftDate : ""}</option>)}
               </select>
               <label className="sr-only" htmlFor="compact-view">{t.viewLabel}</label>
               <select id="compact-view" className="touch-target min-h-11 max-w-[9rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={mainView} onChange={(e) => changeView(e.target.value as MainView)} data-testid="compact-view">
@@ -1267,6 +1160,15 @@ export function FloorBoard() {
                 {isManager ? t.exitManager : t.managerView}
               </button>}
               {staffBreakLink}
+              <button
+                type="button"
+                className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={() => void reloadDay()}
+                disabled={refreshHeld}
+                data-testid="refresh-day"
+              >
+                {t.refresh}
+              </button>
               <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} data-testid="toolbar-more">
                 {t.toolbarMore}
               </button>
@@ -1460,7 +1362,7 @@ export function FloorBoard() {
             className="text-sm font-bold underline"
             data-testid="open-back-office"
           >
-            Back office
+            {t.backOffice}
           </a>
           {nextOn && (
             <a
@@ -1480,86 +1382,17 @@ export function FloorBoard() {
             {clock} CT
           </span>
 
-          <Button
-            type="button"
-            size="lg"
-            className="min-h-11 border-2 border-neutral-900"
-            onClick={() => void loadSample()}
-            disabled={loading || editsLocked || !isManager}
-            title={!isManager ? t.managerOnly : undefined}
-            data-testid="load-sample"
-          >
-            {t.loadSample}
-          </Button>
-
-          <label
-            className={cn(
-              "inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-white px-4 text-sm font-semibold",
-              editsLocked || !isManager
-                ? "cursor-not-allowed opacity-50"
-                : "cursor-pointer active:bg-neutral-200",
-            )}
-          >
-            {t.upload}
-            <input
-              type="file"
-              accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-              className="sr-only"
-              disabled={editsLocked || !isManager}
-              onChange={(e) => {
-                void onUpload(e.target.files?.[0] ?? null);
-                e.target.value = "";
-              }}
-            />
-          </label>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="min-h-11 border-2"
-            disabled
-            title="Auto-fill coming later (NoOp stub)"
-          >
-            {t.autofillSoon}
-          </Button>
-
           {showManagerPanels && (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="min-h-11 border-2"
-                onClick={() => void copyFromDay(1)}
-                disabled={loading || !date}
-                data-testid="copy-yesterday"
-              >
-                {t.copyYesterday}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="min-h-11 border-2"
-                onClick={() => void copyFromDay(7)}
-                disabled={loading || !date}
-                data-testid="copy-last-week"
-              >
-                {t.copyLastWeek}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="min-h-11 border-2"
-                onClick={() => void placeFixed()}
-                disabled={loading || !date}
-                data-testid="place-fixed"
-              >
-                {t.placeFixed}
-              </Button>
-            </>
+            <Button
+              type="button"
+              size="lg"
+              className="min-h-11 border-2 border-neutral-900"
+              onClick={() => void importNow()}
+              disabled={importing || refreshHeld}
+              data-testid="import-now"
+            >
+              {t.importNow}
+            </Button>
           )}
         </div>
 
@@ -2071,14 +1904,6 @@ export function FloorBoard() {
         </div>
       )}
 
-      <ImportPreviewModal
-        preview={importPreview?.preview ?? null}
-        busy={loading}
-        onCancel={() => setImportPreview(null)}
-        onConfirm={() => void confirmImportPreview()}
-        locale={locale}
-        t={t}
-      />
       <MoveReasonModal
         pending={pendingMove}
         onCancel={() => setPendingMove(null)}

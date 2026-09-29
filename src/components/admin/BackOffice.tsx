@@ -3,9 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AbilitiesGrid } from "@/components/admin/AbilitiesGrid";
+import { ScheduleFileUpload } from "@/components/admin/ScheduleFileUpload";
 import { TurnosTab } from "@/components/admin/TurnosTab";
+import {
+  BackOfficeCopyProvider,
+  backOfficeCopy,
+  presentBackOfficeError,
+  useBackOfficeCopy,
+} from "@/components/admin/back-office-copy";
 import { STATION_COLORS } from "@/lib/admin/validate";
 import { hourGridHours } from "@/lib/hour-grid";
+import type { Locale } from "@/lib/i18n";
+import { readLocalePreference, saveLocalePreference } from "@/lib/locale-preference";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { useManagerIdle } from "@/components/board/useManagerSession";
 
@@ -64,14 +73,37 @@ type PositionMapRow = {
 
 type StationOption = { id: string; board: string; label: string };
 
-const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
 async function readError(res: Response): Promise<string> {
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   return data.error || `Request failed (${res.status})`;
 }
 
 export function BackOffice() {
+  const [locale, setLocale] = useState<Locale>("es");
+  useEffect(() => {
+    setLocale(readLocalePreference());
+  }, []);
+  return (
+    <BackOfficeCopyProvider copy={backOfficeCopy(locale)}>
+      <BackOfficeScreen
+        locale={locale}
+        onLocale={(next) => {
+          saveLocalePreference(next);
+          setLocale(next);
+        }}
+      />
+    </BackOfficeCopyProvider>
+  );
+}
+
+function BackOfficeScreen({
+  locale,
+  onLocale,
+}: {
+  locale: Locale;
+  onLocale: (locale: Locale) => void;
+}) {
+  const copy = useBackOfficeCopy();
   const [token, setToken] = useState<string | null>(null);
   const [deskRole, setDeskRole] = useState<DeskRole>("unknown");
   const [idleMs, setIdleMs] = useState(15_000);
@@ -142,7 +174,7 @@ export function BackOffice() {
       idleMs?: number;
     };
     if (!res.ok || !data.sessionToken || !data.manager) {
-      setError(data.error || "Wrong manager code");
+      setError(presentBackOfficeError(data.error || copy.wrongCode, copy));
       return;
     }
     const nextRole: DeskRole = data.manager.role === "owner" ? "owner" : "manager";
@@ -159,19 +191,18 @@ export function BackOffice() {
   }
 
   if (!ready) {
-    return <p className="p-8 font-semibold">Loading back office…</p>;
+    return <p className="p-8 font-semibold">{copy.loading}</p>;
   }
 
   if (!token) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-6">
-        <h1 className="text-2xl font-black">Back office</h1>
+        <h1 className="text-2xl font-black">{copy.title}</h1>
         <p className="text-sm text-neutral-700">
-          Desk editor for stations, people, tareas, the seat plan, and sales-by-hour
-          percents. Floor tablets stay on the board.
+          {copy.intro}
         </p>
         <label className="flex flex-col gap-1 text-sm font-bold">
-          Manager code
+          {copy.managerCode}
           <input
             type="password"
             autoComplete="off"
@@ -192,10 +223,10 @@ export function BackOffice() {
           onClick={() => void login()}
           data-testid="back-office-submit"
         >
-          Enter
+          {copy.enter}
         </button>
         <Link href="/" className="text-sm font-semibold underline">
-          Floor board
+          {copy.floorBoard}
         </Link>
       </main>
     );
@@ -205,34 +236,41 @@ export function BackOffice() {
     <main className="mx-auto flex min-h-dvh max-w-5xl flex-col gap-4 p-6" data-testid="back-office-app">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black">Back office</h1>
+          <h1 className="text-2xl font-black">{copy.title}</h1>
           <p className="text-sm font-semibold text-neutral-700" data-testid="back-office-manager">
-            {managerName || "Manager"} · desk session · codes stay hidden
+            {copy.session(managerName || copy.manager)}
           </p>
         </div>
-        <div className="flex gap-3 text-sm font-bold">
+        <div className="flex items-center gap-3 text-sm font-bold">
+          <ScheduleFileUpload token={token} locale={locale} />
+          <button
+            type="button"
+            className="underline"
+            onClick={() => onLocale(locale === "es" ? "en" : "es")}
+            data-testid="back-office-locale"
+          >
+            {locale === "es" ? "EN" : "ES"}
+          </button>
           <Link href="/" className="underline">
-            Floor board
+            {copy.floorBoard}
           </Link>
           <button type="button" className="underline" onClick={clearDesk} data-testid="back-office-logout">
-            Log out
+            {copy.logOut}
           </button>
         </div>
       </header>
 
       <nav className="flex flex-wrap gap-2" data-testid="back-office-tabs">
         {([
-            ["stations", "Stations"],
-            ["people", "People"],
-            ["tareas", "Tareas"],
-            ["seats", "Seat plan"],
-            ["sales", "Sales %"],
-            ...(deskRole === "owner"
-              ? ([["habilidades", "Habilidades"], ["managers", "Managers"], ["cambios", "Cambios"]] as [Tab, string][])
-              : []),
-            ["positions", "Positions"],
-            ["turnos", "Turnos"],
-          ] as [Tab, string][]).map(([id, label]) => (
+            "stations",
+            "people",
+            "tareas",
+            "seats",
+            "sales",
+            ...(deskRole === "owner" ? (["habilidades", "managers", "cambios"] as Tab[]) : []),
+            "positions",
+            "turnos",
+          ] as Tab[]).map((id) => (
           <button
             key={id}
             type="button"
@@ -246,7 +284,7 @@ export function BackOffice() {
             }}
             data-testid={`back-office-tab-${id}`}
           >
-            {label}
+            {copy.tabs[id]}
           </button>
         ))}
       </nav>
@@ -263,30 +301,30 @@ export function BackOffice() {
       )}
 
       {tab === "stations" && (
-        <StationsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <StationsTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "people" && (
-        <PeopleTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <PeopleTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "tareas" && (
-        <TareasTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <TareasTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "seats" && (
-        <SeatsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <SeatsTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "sales" && (
-        <SalesTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <SalesTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {(tab === "habilidades" || tab === "managers" || tab === "cambios") && deskRole !== "owner" && (
         <p className="text-sm font-semibold text-red-900" data-testid="owner-code-required">
-          Owner code required
+          {copy.ownerRequired}
         </p>
       )}
       {tab === "habilidades" && deskRole === "owner" && token && <AbilitiesGrid token={token} />}
-      {tab === "managers" && deskRole === "owner" && <ManagersTab auth={auth} onError={setError} />}
-      {tab === "cambios" && deskRole === "owner" && <CambiosTab auth={auth} onError={setError} />}
+      {tab === "managers" && deskRole === "owner" && <ManagersTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} />}
+      {tab === "cambios" && deskRole === "owner" && <CambiosTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} />}
       {tab === "positions" && (
-        <PositionsTab auth={auth} onError={setError} onSaved={(msg) => { setError(null); setNotice(msg); }} />
+        <PositionsTab auth={auth} onError={(msg) => setError(presentBackOfficeError(msg, copy))} onSaved={(msg) => { setError(null); setNotice(msg); }} />
       )}
       {tab === "turnos" && token && <TurnosTab token={token} />}
     </main>
@@ -302,6 +340,7 @@ function StationsTab({
   onError: (msg: string) => void;
   onSaved: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [rows, setRows] = useState<StationRow[]>([]);
   const [draft, setDraft] = useState({
     id: "",
@@ -342,7 +381,7 @@ function StationsTab({
       onError(await readError(res));
       return;
     }
-    onSaved(`Saved ${row.id}`);
+    onSaved(copy.savedStation(row.id));
     await load();
   }
 
@@ -356,7 +395,7 @@ function StationsTab({
       onError(await readError(res));
       return;
     }
-    onSaved(`Created ${draft.id}`);
+    onSaved(copy.createdStation(draft.id));
     setDraft({ id: "", label: "", color: "gray", shortCode: "", board: "caja", sortOrder: 20 });
     await load();
   }
@@ -364,7 +403,7 @@ function StationsTab({
   return (
     <section className="flex flex-col gap-4">
       <p className="text-sm text-neutral-700">
-        Labels, colors, short codes, and board. One person per station stays on (max 1).
+        {copy.stationsHelp}
       </p>
       {rows.map((row) => (
         <div key={row.id} className="grid gap-2 rounded-md border-2 border-neutral-300 p-3 md:grid-cols-6">
@@ -414,14 +453,14 @@ function StationsTab({
             onClick={() => void save(row)}
             data-testid={`station-save-${row.id}`}
           >
-            Save
+            {copy.save}
           </button>
         </div>
       ))}
       <div className="grid gap-2 rounded-md border-2 border-dashed border-neutral-500 p-3 md:grid-cols-6">
         <input className="min-h-10 rounded border-2 px-2" placeholder="id" value={draft.id} data-testid="station-new-id" onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
-        <input className="min-h-10 rounded border-2 px-2" placeholder="Label" value={draft.label} data-testid="station-new-label" onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
-        <input className="min-h-10 rounded border-2 px-2" placeholder="Code" value={draft.shortCode} onChange={(e) => setDraft({ ...draft, shortCode: e.target.value })} />
+        <input className="min-h-10 rounded border-2 px-2" placeholder={copy.labelPh} value={draft.label} data-testid="station-new-label" onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+        <input className="min-h-10 rounded border-2 px-2" placeholder={copy.codePh} value={draft.shortCode} onChange={(e) => setDraft({ ...draft, shortCode: e.target.value })} />
         <select className="min-h-10 rounded border-2 px-2" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })}>
           {STATION_COLORS.map((color) => (
             <option key={color} value={color}>{color}</option>
@@ -432,7 +471,7 @@ function StationsTab({
           <option value="cocina">cocina</option>
         </select>
         <button type="button" className="min-h-10 rounded border-2 border-neutral-900 font-bold" onClick={() => void create()} data-testid="station-create">
-          Add station
+          {copy.addStation}
         </button>
       </div>
     </section>
@@ -449,6 +488,7 @@ function PeopleTab({
   onSaved: (msg: string) => void;
 }) {
   const [people, setPeople] = useState<Person[]>([]);
+  const copy = useBackOfficeCopy();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
 
@@ -478,17 +518,17 @@ function PeopleTab({
     }
     setFirstName("");
     setLastName("");
-    onSaved("Person added");
+    onSaved(copy.personAdded);
     await load();
   }
 
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
-        <input className="min-h-11 rounded border-2 px-2" placeholder="First" value={firstName} data-testid="back-office-first" onChange={(e) => setFirstName(e.target.value)} />
-        <input className="min-h-11 rounded border-2 px-2" placeholder="Last" value={lastName} data-testid="back-office-last" onChange={(e) => setLastName(e.target.value)} />
+        <input className="min-h-11 rounded border-2 px-2" placeholder={copy.firstPh} value={firstName} data-testid="back-office-first" onChange={(e) => setFirstName(e.target.value)} />
+        <input className="min-h-11 rounded border-2 px-2" placeholder={copy.lastPh} value={lastName} data-testid="back-office-last" onChange={(e) => setLastName(e.target.value)} />
         <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" onClick={() => void create()} data-testid="back-office-add-person">
-          Add person
+          {copy.addPerson}
         </button>
       </div>
       <ul className="text-sm">
@@ -511,6 +551,7 @@ function TareasTab({
   onError: (msg: string) => void;
   onSaved: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [rows, setRows] = useState<TareaRow[]>([]);
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/tareas", { headers: auth });
@@ -541,7 +582,7 @@ function TareasTab({
       onError(await readError(res));
       return;
     }
-    onSaved(`Saved tarea ${row.id}`);
+    onSaved(copy.savedTarea(row.id));
     await load();
   }
 
@@ -559,7 +600,7 @@ function TareasTab({
             }
           />
           <button type="button" className="min-h-10 rounded bg-neutral-900 px-3 font-bold text-white" onClick={() => void save(row)} data-testid={`tarea-save-${row.id}`}>
-            Save
+            {copy.save}
           </button>
         </div>
       ))}
@@ -576,6 +617,7 @@ function SeatsTab({
   onError: (msg: string) => void;
   onSaved: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [board, setBoard] = useState<"caja" | "cocina">("caja");
   const [date, setDate] = useState("2026-09-20");
   const [hour, setHour] = useState(12);
@@ -617,14 +659,14 @@ function SeatsTab({
       onError(await readError(res));
       return;
     }
-    onSaved("Seated");
+    onSaved(copy.seated);
     await load();
   }
 
   return (
     <section className="flex flex-col gap-3">
       <p className="text-sm text-neutral-700">
-        Same rules as the floor: one person per station, and only during their shift.
+        {copy.seatsHelp}
       </p>
       <div className="flex flex-wrap gap-2">
         <select className="min-h-11 rounded border-2 px-2" value={board} onChange={(e) => setBoard(e.target.value as "caja" | "cocina")}>
@@ -652,7 +694,7 @@ function SeatsTab({
           ))}
         </select>
         <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" onClick={() => void seat()} data-testid="seat-save">
-          Seat
+          {copy.seat}
         </button>
       </div>
     </section>
@@ -668,6 +710,7 @@ function SalesTab({
   onError: (msg: string) => void;
   onSaved: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [board, setBoard] = useState<"caja" | "cocina">("caja");
   const [dow, setDow] = useState(1);
   const [percents, setPercents] = useState<{ hour: number; percent: number }[]>([]);
@@ -700,14 +743,14 @@ function SalesTab({
       onError(await readError(res));
       return;
     }
-    onSaved("Sales percents saved");
+    onSaved(copy.salesSaved);
     await load();
   }
 
   return (
     <section className="flex flex-col gap-3">
       <p className="text-sm text-neutral-700">
-        Each number is that hour’s share of the day’s sales, not an order count. The day must add up to about 100%.
+        {copy.salesHelp}
       </p>
       <div className="flex flex-wrap gap-2">
         <select className="min-h-11 rounded border-2 px-2" value={board} onChange={(e) => setBoard(e.target.value as "caja" | "cocina")}>
@@ -715,15 +758,15 @@ function SalesTab({
           <option value="cocina">cocina</option>
         </select>
         <select className="min-h-11 rounded border-2 px-2" value={dow} onChange={(e) => setDow(Number(e.target.value))} data-testid="sales-dow">
-          {DOW.map((name, index) => (
+          {copy.weekdays.map((name, index) => (
             <option key={name} value={index}>{name}</option>
           ))}
         </select>
         <span className="self-center text-sm font-bold" data-testid="sales-sum">
-          Sum {sum.toFixed(1)}%
+          {copy.sum(sum.toFixed(1))}
         </span>
         <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" onClick={() => void save()} data-testid="sales-save">
-          Save percents
+          {copy.savePercents}
         </button>
       </div>
       <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
@@ -760,6 +803,7 @@ function ManagersTab({
   auth: Record<string, string>;
   onError: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [rows, setRows] = useState<ManagerRow[]>([]);
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
@@ -815,13 +859,12 @@ function ManagersTab({
   return (
     <section className="flex flex-col gap-3">
       <p className="mb-3 text-sm text-neutral-700">
-        Add a manager, rotate a code, or deactivate old access here. Codes are sent only to
-        create or rotate access; stored hashes are never loaded into this page.
+        {copy.managersHelp}
       </p>
       <div className="flex flex-wrap gap-2 rounded border-2 border-neutral-300 p-3">
         <input
           className="min-h-11 rounded border-2 px-2"
-          placeholder="Manager name"
+          placeholder={copy.managerNamePh}
           value={newName}
           onChange={(event) => setNewName(event.target.value)}
           data-testid="manager-new-name"
@@ -830,7 +873,7 @@ function ManagersTab({
           className="min-h-11 rounded border-2 px-2"
           type="password"
           autoComplete="new-password"
-          placeholder="New code"
+          placeholder={copy.newCodePh}
           value={newCode}
           onChange={(event) => setNewCode(event.target.value)}
           data-testid="manager-new-code"
@@ -843,7 +886,7 @@ function ManagersTab({
             onChange={(event) => setNewLongIdle(event.target.checked)}
             data-testid="manager-new-long-idle"
           />
-          Stays unlocked 10 minutes (planning)
+          {copy.longIdle}
         </label>
         <button
           type="button"
@@ -852,21 +895,21 @@ function ManagersTab({
           onClick={() => void createManager()}
           data-testid="manager-create"
         >
-          Add manager
+          {copy.addManager}
         </button>
       </div>
       <ul className="flex flex-col gap-1" data-testid="manager-list">
         {rows.map((row) => (
           <li key={row.id} className="flex flex-wrap items-center gap-2 rounded border p-2" data-testid={`manager-${row.name}`}>
             <span className="font-semibold">
-              {row.name} · {row.role === "owner" ? "owner" : "manager"} · {row.active ? "active" : "inactive"}
-              {row.longIdle ? " · 10 min unlock" : ""}
+              {row.name} · {row.role === "owner" ? copy.owner : copy.manager} · {row.active ? copy.active : copy.inactive}
+              {row.longIdle ? ` · ${copy.longUnlock}` : ""}
             </span>
             <input
               className="min-h-10 rounded border px-2"
               type="password"
               autoComplete="new-password"
-              placeholder="Replacement code"
+              placeholder={copy.replacementCode}
               value={replacementCodes[row.id] ?? ""}
               onChange={(event) =>
                 setReplacementCodes((current) => ({ ...current, [row.id]: event.target.value }))
@@ -880,7 +923,7 @@ function ManagersTab({
               onClick={() => void updateManager(row.id, { code: replacementCodes[row.id] })}
               data-testid={`manager-rotate-${row.id}`}
             >
-              Rotate code
+              {copy.rotateCode}
             </button>
             <button
               type="button"
@@ -888,7 +931,7 @@ function ManagersTab({
               onClick={() => void updateManager(row.id, { active: !row.active })}
               data-testid={`manager-active-${row.id}`}
             >
-              {row.active ? "Deactivate" : "Activate"}
+              {row.active ? copy.deactivate : copy.activate}
             </button>
             <button
               type="button"
@@ -898,7 +941,7 @@ function ManagersTab({
               }
               data-testid={`manager-role-${row.id}`}
             >
-              {row.role === "owner" ? "Make manager" : "Make owner"}
+              {row.role === "owner" ? copy.makeManager : copy.makeOwner}
             </button>
           </li>
         ))}
@@ -914,6 +957,7 @@ function CambiosTab({
   auth: Record<string, string>;
   onError: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [date, setDate] = useState("");
   const [rows, setRows] = useState<ChangeRow[]>([]);
 
@@ -936,7 +980,7 @@ function CambiosTab({
   return (
     <section className="flex flex-col gap-3" data-testid="cambios-screen">
       <label className="flex max-w-xs flex-col gap-1 text-sm font-bold">
-        Day
+        {copy.day}
         <input
           type="date"
           className="min-h-11 rounded border-2 px-2"
@@ -975,6 +1019,7 @@ function PositionsTab({
   onError: (msg: string) => void;
   onSaved: (msg: string) => void;
 }) {
+  const copy = useBackOfficeCopy();
   const [rows, setRows] = useState<PositionMapRow[]>([]);
   const [stations, setStations] = useState<StationOption[]>([]);
 
@@ -1002,7 +1047,7 @@ function PositionsTab({
       onError(await readError(res));
       return;
     }
-    onSaved(`Saved "${position}"`);
+    onSaved(copy.savedPosition(position));
     await load();
   }
 
@@ -1020,7 +1065,7 @@ function PositionsTab({
               {row.position}
               {!row.eligible && (
                 <span className="ml-2 text-xs font-medium text-neutral-500">
-                  (not on one board — can&apos;t be mapped)
+                  {copy.notOneBoard}
                 </span>
               )}
             </span>
@@ -1053,7 +1098,7 @@ function PositionsTab({
               onClick={() => void save(row.position, row.stationId)}
               data-testid={`position-save-${row.position}`}
             >
-              Save
+              {copy.save}
             </button>
           </div>
         );

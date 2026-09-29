@@ -314,7 +314,6 @@ describe("cocina schedule i18n", () => {
     expect(es.scheduleRestOfDay).toBe("Resto");
     expect(es.scheduleHeadcount).toBe("Personas");
     expect(es.scheduleTitle).toMatch(/Horario/i);
-    expect(es.scheduleSortName).toBe("Nombre");
     expect(es.scheduleSortTime).toBe("Hora");
     expect(es.scheduleSortPosition).toBe("Puesto");
     expect(es.viewRush).toBe("Más ocupado");
@@ -327,7 +326,6 @@ describe("cocina schedule i18n", () => {
     expect(en.viewSchedule).toBe("Schedule");
     expect(en.scheduleAllDay).toBe("Day");
     expect(en.scheduleRestOfDay).toBe("Rest");
-    expect(en.scheduleSortName).toBe("Name");
     expect(en.scheduleSortTime).toBe("Time");
     expect(en.viewRush).toBe("Rush");
     expect(en.rushSummaryLead).toMatch(/Gets busier/i);

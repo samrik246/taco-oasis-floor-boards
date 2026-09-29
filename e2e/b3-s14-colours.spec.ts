@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { ensureSampleLoaded } from "./load-sample-api";
 
 async function keepDesk(page: Page) {
   await page.route("**/api/managers", async (route) => {
@@ -32,12 +33,7 @@ async function selectDate(page: Page, targetYmd: string) {
 test("both boards render the S14 station colours", async ({ page }) => {
   await keepDesk(page);
   await unlock(page);
-  const days = await (await page.request.get("/api/days")).json() as { dates: string[] };
-  if (!days.dates.includes("2026-09-20")) {
-    await page.getByTestId("toolbar-more").click();
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i, { timeout: 60_000 });
-  }
+  if (await ensureSampleLoaded(page)) await unlock(page);
   await page.getByTestId("board-toggle-caja").click();
   await selectDate(page, "2026-09-20");
   await page.getByTestId("view-toggle-board").click();

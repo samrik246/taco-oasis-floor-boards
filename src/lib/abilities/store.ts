@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { isAbilityLevel } from "@/lib/employees/service";
 import type { AbilityLevel } from "@/lib/rules/types";
-import { abilityColumn, cellLevel, cocinaAbilityColumns } from "@/lib/abilities/levels";
+import { abilityColumn, cajaAbilityColumns, cellLevel, cocinaAbilityColumns } from "@/lib/abilities/levels";
 import { defaultsByStation, loadAbilityColumnSettings } from "@/lib/abilities/column-settings";
 
 const CARNE_COLUMN = "pdf_crne";
@@ -16,12 +16,12 @@ function withUnstoredCarneDefault(
   return [...rows, { key: CARNE_COLUMN, hidden: true, defaultLevel: "ok" }];
 }
 
-export async function loadCocinaAbilityGrid() {
-  const columns = cocinaAbilityColumns();
+export async function loadAbilityGrid(board: "caja" | "cocina") {
+  const columns = board === "caja" ? cajaAbilityColumns() : cocinaAbilityColumns();
   const settings = await loadAbilityColumnSettings();
   const defaults = defaultsByStation(settings);
   const shifts = await prisma.shift.findMany({
-    where: { board: "cocina", boardRemoved: false, supersededAt: null },
+    where: { board, boardRemoved: false, supersededAt: null },
     select: {
       employee: {
         select: {
@@ -55,16 +55,21 @@ export async function loadCocinaAbilityGrid() {
         ]),
       ),
     }));
+  const settingRows = board === "cocina" ? withUnstoredCarneDefault(settings) : settings;
   return {
-    board: "cocina" as const,
+    board,
     columns: columns.map(({ key, label, kind, color }) => ({ key, label, kind, color })),
-    settings: withUnstoredCarneDefault(settings).map((row) => ({
+    settings: settingRows.map((row) => ({
       key: row.key,
       hidden: row.hidden,
       defaultLevel: row.defaultLevel,
     })),
     people,
   };
+}
+
+export async function loadCocinaAbilityGrid() {
+  return loadAbilityGrid("cocina");
 }
 
 export async function setAbilityColumn(input: {

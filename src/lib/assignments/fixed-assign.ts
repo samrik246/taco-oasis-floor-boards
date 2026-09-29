@@ -26,8 +26,9 @@ export type FixedAssignResult = { ok: true; summary: FixedAssignSummary };
  * (`PositionStationMap`), ordered by the station's own sortOrder, then shift
  * start, then shift id. Every placement goes through `createShiftAssignment`
  * — the same whole-shift rules A already enforces, so fijos can never write
- * something the ordinary assign flow would refuse. Import never calls this;
- * it only runs when a manager taps the button for the open board and date.
+ * something the ordinary assign flow would refuse. An occupied hour or a
+ * person already painted that hour is skipped. Every import commit calls
+ * `placeFixedForImportedDates` for caja and cocina; there is no button.
  */
 export async function placeFixedAssignments(
   params: FixedAssignParams,
@@ -103,4 +104,12 @@ export async function placeFixedAssignments(
     }
     return { ok: true as const, summary };
   });
+}
+
+/** After a committed import, place fixed seats on each date for both boards. */
+export async function placeFixedForImportedDates(dates: readonly string[]): Promise<void> {
+  for (const date of [...new Set(dates)]) {
+    await placeFixedAssignments({ board: "caja", date });
+    await placeFixedAssignments({ board: "cocina", date });
+  }
 }

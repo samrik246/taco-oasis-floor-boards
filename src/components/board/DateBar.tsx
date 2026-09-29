@@ -1,5 +1,5 @@
 import {
-  formatDateBarLabel,
+  formatWeekdayDateLabel,
   nextImportedDate,
   prevImportedDate,
   resolveTodayInList,
@@ -46,7 +46,7 @@ export function DateBar({ dates, date, onChange, locale, t, now }: DateBarProps)
         className="min-w-[9rem] text-center text-base font-bold"
         data-testid="date-label"
       >
-        {date ? formatDateBarLabel(date, locale) : t.noDates}
+        {date ? formatWeekdayDateLabel(date, locale) : t.noDates}
       </span>
       <button
         type="button"

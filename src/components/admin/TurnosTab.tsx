@@ -19,7 +19,7 @@ export function TurnosTab({ token }: { token: string }) {
     });
     if (!res.ok) {
       setDay(null);
-      setError("Could not load that day.");
+      setError("No se pudo abrir ese día.");
       return;
     }
     setDay((await res.json()) as DayBoardDto);
@@ -36,7 +36,7 @@ export function TurnosTab({ token }: { token: string }) {
       if (cancelled) return;
       if (!res.ok) {
         setDay(null);
-        setError("Could not load that day.");
+        setError("No se pudo abrir ese día.");
         return;
       }
       setDay((await res.json()) as DayBoardDto);
@@ -51,7 +51,7 @@ export function TurnosTab({ token }: { token: string }) {
     <section className="flex flex-col gap-3" data-testid="turnos-tab">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm font-bold">
-          Board
+          Tablero
           <select
             className="min-h-11 rounded border-2 border-neutral-900 px-2"
             value={board}
@@ -63,7 +63,7 @@ export function TurnosTab({ token }: { token: string }) {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm font-bold">
-          Date
+          Fecha
           <input
             type="date"
             className="min-h-11 rounded border-2 border-neutral-900 px-2"

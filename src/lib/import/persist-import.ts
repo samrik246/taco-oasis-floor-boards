@@ -1,3 +1,4 @@
+import { placeFixedForImportedDates } from "@/lib/assignments/fixed-assign";
 import { prisma } from "@/lib/db";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -189,7 +190,7 @@ export async function commitImport(
     );
   }
 
-  return prisma.$transaction(async (tx) => {
+  const committed = await prisma.$transaction(async (tx) => {
     const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
     if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
 
@@ -413,6 +414,8 @@ export async function commitImport(
 
     return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
   });
+  await placeFixedForImportedDates(committed.dates.map((row) => row.date));
+  return committed;
 }
 
 /**

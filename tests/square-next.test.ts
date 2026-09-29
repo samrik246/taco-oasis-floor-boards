@@ -751,7 +751,7 @@ describe("Horario T4G strip", () => {
     expect(readIsStale(false, undefined, at)).toBe(true);
   });
 
-  it("opens Horario on Hora and keeps Nombre, Hora, Puesto", () => {
+  it("opens Horario on Resto, with Hora and Puesto only", () => {
     const html = renderToStaticMarkup(
       createElement(SchedulePanel, {
         day: null,
@@ -761,16 +761,31 @@ describe("Horario T4G strip", () => {
       }),
     );
     expect(html).toContain('data-sort="time"');
-    const nameAt = html.indexOf('data-testid="schedule-sort-name"');
+    expect(html).toContain('data-mode="rest-of-day"');
+    expect(html).not.toContain('data-testid="schedule-sort-name"');
     const timeAt = html.indexOf('data-testid="schedule-sort-time"');
     const positionAt = html.indexOf('data-testid="schedule-sort-position"');
-    expect(nameAt).toBeGreaterThan(-1);
-    expect(nameAt).toBeLessThan(timeAt);
+    expect(timeAt).toBeGreaterThan(-1);
     expect(timeAt).toBeLessThan(positionAt);
-    expect(html.slice(nameAt, positionAt)).toContain('aria-pressed="true"');
-    expect(html).toContain(">Nombre<");
-    expect(html).toContain(">Hora<");
-    expect(html).toContain(">Puesto<");
+    const timeButton = html.slice(
+      html.lastIndexOf("<button", timeAt),
+      html.indexOf("</button>", timeAt) + "</button>".length,
+    );
+    expect(timeButton).toContain('aria-pressed="true"');
+    expect(timeButton).toContain(">Hora</button>");
+    const positionButton = html.slice(
+      html.lastIndexOf("<button", positionAt),
+      html.indexOf("</button>", positionAt) + "</button>".length,
+    );
+    expect(positionButton).toContain('aria-pressed="false"');
+    expect(positionButton).toContain(">Puesto</button>");
+    expect(html).not.toContain(">Nombre<");
+    const dayAt = html.indexOf('data-testid="schedule-mode-all-day"');
+    const restAt = html.indexOf('data-testid="schedule-mode-rest-of-day"');
+    expect(dayAt).toBeGreaterThan(-1);
+    expect(dayAt).toBeLessThan(restAt);
+    expect(html).toContain(">Día<");
+    expect(html).toContain(">Resto<");
   });
 
   it("keeps the day on screen, in time order, and treats off, empty, and stale reads", () => {
