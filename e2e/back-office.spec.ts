@@ -24,7 +24,7 @@ test("back office login, edit a station, and open the wall", async ({ page }) =>
   await page.getByTestId("back-office-tab-stations").click();
   await page.getByTestId("station-label-yellow").fill("Yellow Lane");
   await page.getByTestId("station-save-yellow").click();
-  await expect(page.getByTestId("back-office-toast")).toContainText(/Saved yellow/i);
+  await expect(page.getByTestId("back-office-toast")).toContainText(/Guardado yellow/i);
   await shot(page, "back-office.png");
 
   await page.getByTestId("back-office-tab-sales").click();
@@ -33,7 +33,7 @@ test("back office login, edit a station, and open the wall", async ({ page }) =>
   const original = await noon.inputValue();
   await noon.fill("1");
   await page.getByTestId("sales-save").click();
-  await expect(page.getByTestId("back-office-error")).toContainText(/about 100%/i);
+  await expect(page.getByTestId("back-office-error")).toContainText(/cerca del 100%/i);
   await noon.fill(original);
 
   await page.goto("/?wall=1");
@@ -45,5 +45,5 @@ test("back office login, edit a station, and open the wall", async ({ page }) =>
   await expect(page.getByTestId("station-label-yellow")).toBeVisible();
   await page.getByTestId("station-label-yellow").fill("Yellow / Outside");
   await page.getByTestId("station-save-yellow").click();
-  await expect(page.getByTestId("back-office-toast")).toContainText(/Saved yellow/i);
+  await expect(page.getByTestId("back-office-toast")).toContainText(/Guardado yellow/i);
 });

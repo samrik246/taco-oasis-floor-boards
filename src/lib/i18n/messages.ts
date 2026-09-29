@@ -41,7 +41,6 @@ export type Messages = {
   scheduleRestOfDay: string;
   scheduleModeLabel: string;
   scheduleSortLabel: string;
-  scheduleSortName: string;
   scheduleSortTime: string;
   scheduleSortPosition: string;
   scheduleRestRuleToday: string;
@@ -65,6 +64,14 @@ export type Messages = {
   noDates: string;
   loadSample: string;
   upload: string;
+  backOffice: string;
+  refresh: string;
+  importNow: string;
+  importNowStarted: string;
+  importNowRunning: string;
+  importNowDone: string;
+  importNowStopped: string;
+  importNowFailed: string;
   autofillSoon: string;
   readonly: string;
   largeTablet: string;
@@ -277,7 +284,6 @@ const en: Messages = {
   scheduleRestOfDay: "Rest",
   scheduleModeLabel: "Schedule range",
   scheduleSortLabel: "Sort",
-  scheduleSortName: "Name",
   scheduleSortTime: "Time",
   scheduleSortPosition: "Position",
   scheduleRestRuleToday: "Rest of day from now (Chicago).",
@@ -304,6 +310,14 @@ const en: Messages = {
   noDates: "No dates",
   loadSample: "Load sample",
   upload: "Upload",
+  backOffice: "Back office",
+  refresh: "Refresh",
+  importNow: "Import now",
+  importNowStarted: "Import started.",
+  importNowRunning: "Still running. The board updates on its own.",
+  importNowDone: "Done. The schedule is on the board.",
+  importNowStopped: "The import stopped. The board still has the last schedule.",
+  importNowFailed: "The import job is not running on this Mac.",
   autofillSoon: "Auto-fill (coming soon)",
   readonly: "Read-only",
   largeTablet: "Large tablet UI",
@@ -530,7 +544,6 @@ const es: Messages = {
   scheduleRestOfDay: "Resto",
   scheduleModeLabel: "Rango del horario",
   scheduleSortLabel: "Orden",
-  scheduleSortName: "Nombre",
   scheduleSortTime: "Hora",
   scheduleSortPosition: "Puesto",
   scheduleRestRuleToday: "Resto del día desde ahora (Chicago).",
@@ -559,6 +572,14 @@ const es: Messages = {
   noDates: "Sin fechas",
   loadSample: "Cargar muestra",
   upload: "Subir",
+  backOffice: "Oficina",
+  refresh: "Actualizar",
+  importNow: "Importar ahora",
+  importNowStarted: "Importación iniciada.",
+  importNowRunning: "Sigue en curso. El tablero se actualiza solo.",
+  importNowDone: "Listo. El horario ya está en el tablero.",
+  importNowStopped: "La importación se detuvo. El tablero sigue con el horario anterior.",
+  importNowFailed: "El trabajo de importación no está corriendo en esta Mac.",
   autofillSoon: "Auto-llenar (próximamente)",
   readonly: "Solo lectura",
   largeTablet: "UI tablet grande",

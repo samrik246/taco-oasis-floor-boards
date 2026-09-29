@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
+import { ensureSampleLoaded } from "./load-sample-api";
 import { PrismaClient } from "@prisma/client";
 
 async function managerHeaders(page: Page) {
@@ -34,14 +35,7 @@ async function unlock(page: Page) {
 
 async function loadSample(page: Page) {
   await unlock(page);
-  const daysResponse = await page.request.get("/api/days", { headers: await managerHeaders(page) });
-  const days = await daysResponse.json() as { dates: string[] };
-  if (!days.dates.includes("2026-09-20")) {
-    await page.getByTestId("toolbar-more").click();
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i);
-    await page.getByTestId("toolbar-more").click();
-  }
+  if (await ensureSampleLoaded(page)) await unlock(page);
   await page.getByTestId("compact-date").selectOption("2026-09-20");
   await expect(page.getByTestId("paint-matrix").locator("td[data-kind='open'] button").first()).toBeVisible();
 }

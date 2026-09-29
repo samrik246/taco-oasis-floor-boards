@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { loadCocinaAbilityGrid, setAbilityColumn } from "@/lib/abilities/store";
+import { loadAbilityGrid, setAbilityColumn } from "@/lib/abilities/store";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireOwnerSession } from "@/lib/managers/require-session";
 
@@ -12,15 +12,15 @@ const putSchema = z.object({
   level: z.enum(["forbidden", "training", "ok", "preferred"]),
 });
 
-/** Owner grid for cocina. A missing or other board is not a second grid. */
+/** Owner grid for cocina or caja. Any other board is refused. */
 export async function GET(req: Request) {
   const auth = await requireOwnerSession(req);
   if (!auth.ok) return auth.response;
   const board = new URL(req.url).searchParams.get("board");
-  if (board !== "cocina") {
+  if (board !== "cocina" && board !== "caja") {
     return NextResponse.json({ error: "Invalid board" }, { status: 400 });
   }
-  const grid = await loadCocinaAbilityGrid();
+  const grid = await loadAbilityGrid(board);
   return NextResponse.json(grid);
 }
 

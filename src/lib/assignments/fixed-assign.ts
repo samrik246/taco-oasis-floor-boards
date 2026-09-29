@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
-import { createShiftAssignment } from "./service";
+import { createShiftAssignment, type AssignmentTx } from "./service";
 
 export type FixedAssignParams = {
   board: string;
   date: string;
   now?: Date;
   actor?: BoardChangeActor;
+  /** When set, this write joins the caller's transaction instead of opening one. */
+  db?: AssignmentTx;
 };
 
 export type FixedAssignSummary = {
@@ -26,13 +28,16 @@ export type FixedAssignResult = { ok: true; summary: FixedAssignSummary };
  * (`PositionStationMap`), ordered by the station's own sortOrder, then shift
  * start, then shift id. Every placement goes through `createShiftAssignment`
  * — the same whole-shift rules A already enforces, so fijos can never write
- * something the ordinary assign flow would refuse. Import never calls this;
- * it only runs when a manager taps the button for the open board and date.
+ * something the ordinary assign flow would refuse. An occupied hour or a
+ * person already painted that hour is skipped. Every import commit calls
+ * `placeFixedForImportedDates` on the import transaction, for caja and
+ * cocina; there is no button. The fixed-assign route omits `db` and opens
+ * its own transaction.
  */
 export async function placeFixedAssignments(
   params: FixedAssignParams,
 ): Promise<FixedAssignResult> {
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: AssignmentTx): Promise<FixedAssignResult> => {
     const maps = await tx.positionStationMap.findMany({
       where: { stationId: { not: null } },
       include: { station: true },
@@ -102,5 +107,22 @@ export async function placeFixedAssignments(
       });
     }
     return { ok: true as const, summary };
-  });
+  };
+  if (params.db) return run(params.db);
+  return prisma.$transaction(run);
+}
+
+/**
+ * Place fixed seats on each date for both boards.
+ * Pass the import transaction so a throw rolls the schedule and fingerprint
+ * back with the seats. Without `db`, each board opens its own transaction.
+ */
+export async function placeFixedForImportedDates(
+  dates: readonly string[],
+  db?: AssignmentTx,
+): Promise<void> {
+  for (const date of [...new Set(dates)]) {
+    await placeFixedAssignments({ board: "caja", date, db });
+    await placeFixedAssignments({ board: "cocina", date, db });
+  }
 }

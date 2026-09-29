@@ -22,11 +22,16 @@ export function readLocalePreference(): Locale {
   return defaultLocalePreference();
 }
 
+export const LOCALE_EVENT = "taco-locale";
+
 export function saveLocalePreference(locale: Locale) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(KEY, locale);
   } catch {
     /* private mode / quota — the toggle still works for this session */
+  }
+  if (typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new Event(LOCALE_EVENT));
   }
 }

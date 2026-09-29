@@ -19,10 +19,11 @@ type Person = {
 
 async function readError(res: Response): Promise<string> {
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  return data.error || "Could not save";
+  return data.error || "No se pudo guardar";
 }
 
 export function AbilitiesGrid({ token }: { token: string }) {
+  const [board, setBoard] = useState<"cocina" | "caja">("cocina");
   const [columns, setColumns] = useState<Column[]>([]);
   const [settings, setSettings] = useState<Setting[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -31,7 +32,7 @@ export function AbilitiesGrid({ token }: { token: string }) {
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/abilities?board=cocina", {
+    const res = await fetch(`/api/admin/abilities?board=${board}`, {
       headers: managerAuthHeaders(token),
     });
     if (!res.ok) {
@@ -43,7 +44,7 @@ export function AbilitiesGrid({ token }: { token: string }) {
     setSettings(data.settings ?? []);
     setPeople(data.people);
     setError(null);
-  }, [token]);
+  }, [token, board]);
 
   useEffect(() => {
     void load();
@@ -117,6 +118,21 @@ export function AbilitiesGrid({ token }: { token: string }) {
           {error}
         </p>
       )}
+      <div className="flex flex-wrap gap-2" data-testid="ability-boards">
+        {(["cocina", "caja"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            className={`min-h-11 rounded-md border-2 px-3 text-sm font-black ${
+              board === id ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-400 bg-white"
+            }`}
+            onClick={() => setBoard(id)}
+            data-testid={`ability-board-${id}`}
+          >
+            {id === "cocina" ? "Cocina" : "Caja"}
+          </button>
+        ))}
+      </div>
       <div>
         <button
           type="button"
@@ -133,7 +149,7 @@ export function AbilitiesGrid({ token }: { token: string }) {
           <thead>
             <tr>
               <th className="sticky left-0 top-0 z-30 min-w-36 bg-white px-3 py-2 text-left font-black">
-                Person
+                Persona
               </th>
               {visible.map((column) => {
                 const setting = settingFor(column.key);

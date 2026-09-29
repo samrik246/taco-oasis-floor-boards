@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { ensureSampleLoaded } from "./load-sample-api";
 
 async function openTurnos(page: Page, code = "2468") {
   await page.goto("/back-office");
@@ -54,19 +55,10 @@ test("a second manager's stale removal cannot remove the same shift twice", asyn
   await page.getByTestId("compact-manager").click();
   await page.getByTestId("manager-code-input").fill("2468");
   await page.getByTestId("manager-unlock-submit").click();
-  const session = await page.request.post("/api/managers", { data: { code: "2468" } });
-  expect(session.ok()).toBe(true);
-  const { sessionToken } = await session.json() as { sessionToken: string };
-  const datesResponse = await page.request.get("/api/days", {
-    headers: { "x-manager-session": sessionToken },
-  });
-  const dates = await datesResponse.json() as { dates: string[] };
-  if (!dates.dates.includes("2026-09-20")) {
-    await page.getByTestId("toolbar-more").click();
-    await page.getByTestId("load-sample").click();
-    await expect(page.getByTestId("toast")).toContainText(/Loaded sample|Muestra cargada/i,
-      { timeout: 60_000 });
-    await page.getByTestId("toolbar-more").click();
+  if (await ensureSampleLoaded(page)) {
+    await page.getByTestId("compact-manager").click();
+    await page.getByTestId("manager-code-input").fill("2468");
+    await page.getByTestId("manager-unlock-submit").click();
   }
 
   await openTurnos(page);

@@ -1,3 +1,4 @@
+import { placeFixedForImportedDates } from "@/lib/assignments/fixed-assign";
 import { prisma } from "@/lib/db";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -167,12 +168,17 @@ export async function previewImport(
   };
 }
 
+/** Schedule rows and fixed seats share this transaction. The timeout covers a week of hourly seat writes; exceeding it rolls the fingerprint back. */
+const IMPORT_TX = { maxWait: 5_000, timeout: 60_000 } as const;
+
 /**
  * Commit. With `expected` (from the preview) the file fingerprint and the plan
  * digest must match what is recomputed inside the transaction; a tablet that
  * assigned someone since the preview changes the digest and the commit refuses.
  * Without `expected`, only a file whose dates are all new may commit.
- * Any failure changes nothing.
+ * Fixed seats are written in the same transaction. A throw or a timeout
+ * rolls the schedule and the fingerprint back, so a retry is not a duplicate
+ * and cannot leave the seats half-placed.
  */
 export async function commitImport(
   parsed: ParseResult,
@@ -189,7 +195,7 @@ export async function commitImport(
     );
   }
 
-  return prisma.$transaction(async (tx) => {
+  const committed = await prisma.$transaction(async (tx) => {
     const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
     if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
 
@@ -410,9 +416,11 @@ export async function commitImport(
     }
 
     await dropImportedBreaks(tx, { supersededShiftIds, changedShiftIds, boardRemovedShiftIds });
+    await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx);
 
     return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
-  });
+  }, IMPORT_TX);
+  return committed;
 }
 
 /**

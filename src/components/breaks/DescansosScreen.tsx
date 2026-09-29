@@ -345,6 +345,7 @@ export function DescansosScreen() {
               Quitar descanso
             </button>
           )}
+          <BackHome onBack={leave} />
         </section>
       )}
       {phase === "saved" && mine?.saved && (
@@ -361,6 +362,7 @@ export function DescansosScreen() {
           >
             Quitar
           </button>
+          <BackHome onBack={leave} />
         </section>
       )}
     </main>

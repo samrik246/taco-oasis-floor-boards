@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatDateBarLabel,
+  formatWeekdayDateLabel,
   nextImportedDate,
   prevImportedDate,
   resolveTodayInList,
@@ -31,6 +32,19 @@ describe("formatDateBarLabel", () => {
 });
 
 const WEEK = ["2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24"];
+
+describe("formatWeekdayDateLabel", () => {
+  it("reads Martes 09/29 and Tuesday 09/29", () => {
+    // 2026-09-29 is a Tuesday.
+    expect(formatWeekdayDateLabel("2026-09-29", "es")).toBe("Martes 09/29");
+    expect(formatWeekdayDateLabel("2026-09-29", "en")).toBe("Tuesday 09/29");
+  });
+
+  it("pads a single-digit month and day and stays on the calendar date", () => {
+    expect(formatWeekdayDateLabel("2026-01-01", "en")).toBe("Thursday 01/01");
+    expect(formatWeekdayDateLabel("2026-09-20", "es")).toBe("Domingo 09/20");
+  });
+});
 
 describe("prevImportedDate / nextImportedDate (D1: never leave the imported range)", () => {
   it("steps back and forward within the list", () => {

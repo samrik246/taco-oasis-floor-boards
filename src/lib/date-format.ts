@@ -29,6 +29,23 @@ export function formatDateBarLabel(dateYmd: string, locale: Locale): string {
   return `${WEEKDAYS[locale][dow]} ${d} ${MONTHS[locale][m - 1]}`;
 }
 
+const WEEKDAYS_LONG: Record<Locale, string[]> = {
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  es: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"],
+};
+
+/**
+ * "Martes 09/29" / "Tuesday 09/29" for the open bar and the folded bar.
+ * Month then day, zero-padded. Same calendar-part math as formatDateBarLabel.
+ */
+export function formatWeekdayDateLabel(dateYmd: string, locale: Locale): string {
+  const [, m, d] = dateYmd.split("-").map(Number);
+  const dow = new Date(Date.UTC(Number(dateYmd.slice(0, 4)), m - 1, d)).getUTCDay();
+  const mm = String(m).padStart(2, "0");
+  const dd = String(d).padStart(2, "0");
+  return `${WEEKDAYS_LONG[locale][dow]} ${mm}/${dd}`;
+}
+
 /** One entry back in the imported date list, or null at (or past) the start. */
 export function prevImportedDate(dates: string[], date: string): string | null {
   const idx = dates.indexOf(date);
