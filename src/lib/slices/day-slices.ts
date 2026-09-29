@@ -123,10 +123,17 @@ function windowCovers(start: Date, end: Date, sliceStartAt: Date, sliceEndAt: Da
   return sliceStartAt.getTime() >= start.getTime() && sliceEndAt.getTime() <= end.getTime();
 }
 
-function paintStationAt(paints: readonly SlicePaint[], employeeId: string, at: Date): string | null {
+/** Paint on one of these shifts for this person and hour. Superseded rows are not in the set. */
+function paintOnShifts(
+  paints: readonly SlicePaint[],
+  employeeId: string,
+  shiftIds: ReadonlySet<string>,
+  at: Date,
+): string | null {
+  if (shiftIds.size === 0) return null;
   const t = at.getTime();
   for (const paint of paints) {
-    if (paint.employeeId !== employeeId) continue;
+    if (paint.employeeId !== employeeId || !shiftIds.has(paint.shiftId)) continue;
     const start = paint.hourStart.getTime();
     if (t >= start && t < start + HOUR_MS) return paint.stationId;
   }
@@ -144,6 +151,8 @@ function liveCovering(shifts: readonly SliceShift[], start: Date, end: Date): Sl
 /**
  * One pass over the 60 slices. No database.
  * A slice counts only when the shift covers it entirely.
+ * Paint fills a seat only when that paint's shift is the live shift covering the slice.
+ * A live shift's paint still marks the rest of its hour open. A superseded shift's paint does not.
  * Booked breaks beat paint. A named cover fills that seat.
  * An overlay beats paint. A pending break places nobody.
  * `now` is accepted so a later rest-of-shift read uses the same input.
@@ -162,6 +171,14 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
   }
   for (const paint of input.paints) ids.add(paint.employeeId);
 
+  const liveShiftIds = new Map<string, Set<string>>();
+  for (const shift of input.shifts) {
+    if (shift.superseded || shift.boardRemoved) continue;
+    const held = liveShiftIds.get(shift.employeeId) ?? new Set<string>();
+    held.add(shift.id);
+    liveShiftIds.set(shift.employeeId, held);
+  }
+
   const slices: DaySlice[] = [];
   for (let index = 0; index < SLICE_COUNT; index += 1) {
     const start = sliceStart(input.date, index);
@@ -174,7 +191,10 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       const mine = live.filter((shift) => shift.employeeId === employeeId);
       const onThisBoard = mine.some((shift) => shift.board === input.board);
       const shiftCovers = mine.length > 0;
-      const paintStationId = paintStationAt(input.paints, employeeId, start);
+      const coveringIds = new Set(mine.map((shift) => shift.id));
+      const coveringPaint = paintOnShifts(input.paints, employeeId, coveringIds, start);
+      const paintStationId = coveringPaint
+        ?? paintOnShifts(input.paints, employeeId, liveShiftIds.get(employeeId) ?? coveringIds, start);
       const booked = input.breaks.find((row) => {
         return row.status === "booked"
           && row.employeeId === employeeId
@@ -219,9 +239,9 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
         stationId = overlay.stationId;
         source = "overlay";
         counts = true;
-      } else if (onThisBoard && paintStationId) {
+      } else if (onThisBoard && coveringPaint) {
         cell = "seated";
-        stationId = paintStationId;
+        stationId = coveringPaint;
         source = "paint";
         counts = true;
       } else if (onThisBoard) {
@@ -237,7 +257,10 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
     for (const row of input.breaks) {
       if (row.status !== "booked" || row.board !== input.board || !row.coverEmployeeId) continue;
       if (!windowCovers(row.startAt, row.endAt, start, end)) continue;
-      const stationId = paintStationAt(input.paints, row.employeeId, start);
+      const breakerIds = new Set(
+        live.filter((shift) => shift.employeeId === row.employeeId).map((shift) => shift.id),
+      );
+      const stationId = paintOnShifts(input.paints, row.employeeId, breakerIds, start);
       if (!stationId) continue;
       if (!live.some((shift) => shift.employeeId === row.coverEmployeeId)) continue;
       for (const [seatId, seat] of seats) {
@@ -256,7 +279,12 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
           counts: true,
           onBreak: false,
           stationId,
-          paintStationId: paintStationAt(input.paints, row.coverEmployeeId, start),
+          paintStationId: paintOnShifts(
+            input.paints,
+            row.coverEmployeeId,
+            liveShiftIds.get(row.coverEmployeeId) ?? new Set<string>(),
+            start,
+          ),
           cell: "move",
         });
       }

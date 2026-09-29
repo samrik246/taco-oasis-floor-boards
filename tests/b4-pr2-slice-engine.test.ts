@@ -117,10 +117,53 @@ describe("B4 PR 2 slice engine", () => {
       paints: [{ employeeId: "old", shiftId: "old", stationId: "pdf_tq1r", hourStart: at("3:00 pm") }],
     }));
     const slice = day.slices[32]!;
-    expect(slice.people.find((row) => row.employeeId === "old")?.cell).toBe("absent");
+    expect(slice.people.find((row) => row.employeeId === "old")).toBeUndefined();
     expect(slice.seats).toEqual([]);
     expect(slice.emptyStarStationIds).toContain("pdf_tq1r");
     expect(slice.presentNotOnBreak).toBe(0);
+  });
+
+  it("paint on a superseded shift does not fill the replacement shift", () => {
+    const shifts = [
+      shift({
+        id: "old",
+        employeeId: "ada",
+        startAt: at("11:00 am"),
+        endAt: at("7:00 pm"),
+        superseded: true,
+      }),
+      shift({
+        id: "new",
+        employeeId: "ada",
+        startAt: at("11:00 am"),
+        endAt: at("7:00 pm"),
+      }),
+    ];
+    const day = buildDaySlices(input({
+      shifts,
+      paints: [{ employeeId: "ada", shiftId: "old", stationId: "pdf_tq1r", hourStart: at("3:00 pm") }],
+    }));
+    const open = day.slices[32]!;
+    expect(open.people.find((row) => row.employeeId === "ada")).toMatchObject({
+      cell: "open",
+      paintStationId: null,
+      stationId: null,
+    });
+    expect(open.seats).toEqual([]);
+    expect(open.emptyStarStationIds).toContain("pdf_tq1r");
+
+    const replaced = buildDaySlices(input({
+      shifts,
+      paints: [
+        { employeeId: "ada", shiftId: "old", stationId: "pdf_tq1r", hourStart: at("3:00 pm") },
+        { employeeId: "ada", shiftId: "new", stationId: "pdf_tq2r", hourStart: at("3:00 pm") },
+      ],
+      starStationIds: ["pdf_tq1r"],
+    }));
+    expect(replaced.slices[32]?.seats).toEqual([
+      { stationId: "pdf_tq2r", employeeId: "ada", source: "paint" },
+    ]);
+    expect(replaced.slices[32]?.emptyStarStationIds).toContain("pdf_tq1r");
   });
 
   it("a remove overlay wins over paint and the person still counts", () => {
