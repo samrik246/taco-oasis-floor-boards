@@ -22,6 +22,7 @@ import { NEXT_POLL_MS, STALE_AFTER_MS, readIsStale } from "@/lib/upcoming/cadenc
 import { monthGrid, weekDays, addMonths } from "@/lib/upcoming/calendar";
 import { OrderDetail } from "@/components/next/OrderDetail";
 import { NEXT_COPY } from "@/components/next/next-copy";
+import { stripOrderLabel } from "@/components/next/strip-label";
 import { MonthCell } from "@/components/next/NextOrders";
 import { OrderCard } from "@/components/next/parts";
 import { dayHeading, monthTitle, relativeDay, shortDay, time12, urgency } from "@/components/next/format";
@@ -105,8 +106,10 @@ describe("SQUARE NEXT fixture source (the three real C1 kitchen records)", () =>
 
 describe("SQUARE NEXT field allow-list", () => {
   it("keeps only kitchen-record fields and drops everything else", () => {
-    const order = fenceOrder(hostile());
+    const order = fenceOrder({ ...hostile(), first_name: "Maria", last_name: "Example" });
     expect(order).not.toBeNull();
+    expect(order).not.toHaveProperty("first_name");
+    expect(order).not.toHaveProperty("last_name");
     expect(Object.keys(order!).sort()).toEqual([...ORDER_FIELDS].sort());
     for (const line of order!.lines) {
       expect(Object.keys(line).sort()).toEqual([...LINE_FIELDS].sort());
@@ -211,7 +214,7 @@ describe("SQUARE NEXT rendered page", () => {
     expect(html).toContain("<li>1 x Beef</li><li>1 x Corn</li>");
   });
 
-  it("every surface that shows the guest count carries the not-final label", () => {
+  it("the NEXT card and detail carry the not-final guest label", () => {
     const { orders } = fencePayload(REAL);
     const noop = () => {};
     for (const locale of ["es", "en"] as const) {
@@ -221,18 +224,6 @@ describe("SQUARE NEXT rendered page", () => {
         const surfaces = {
           card: createElement(OrderCard, { order, t, locale, today: TODAY, columns: DEFAULT_PREFS.columns, zebra: false, onOpen: noop }),
           detail: createElement(OrderDetail, { order, columns: DEFAULT_PREFS.columns, t, locale, today: TODAY }),
-          strip: createElement(T4gStripView, {
-            snap: {
-              kind: "on",
-              orders: [order],
-              today: order.event_date,
-              stale: false,
-              fetchedAt: `${TODAY}T15:00:00.000Z`,
-            },
-            date: order.event_date,
-            locale,
-            nowMs: Date.parse(`${TODAY}T15:00:00.000Z`),
-          }),
         };
         for (const [name, el] of Object.entries(surfaces)) {
           const text = renderToStaticMarkup(el).replace(/<[^>]*>/g, "");
@@ -248,7 +239,7 @@ describe("SQUARE NEXT rendered page", () => {
     }
   });
 
-  it("the strip shows the tail and the fulfill word, and drops private fields and kitchen lines", () => {
+  it("the strip shows ready time, people, and the fulfill word, and drops the code and private fields", () => {
     const leaky = hostile();
     leaky.id_tail = "LEAK01";
     (leaky.lines as Record<string, unknown>[])[0].modifiers =
@@ -273,7 +264,9 @@ describe("SQUARE NEXT rendered page", () => {
       }),
     );
     const strings = renderedStrings(html);
-    expect(strings).toContain(`#${order.id_tail}`);
+    expect(strings).toContain(stripOrderLabel(order, NEXT_COPY.es));
+    expect(strings).not.toContain(order.id_tail);
+    expect(strings).not.toContain(`#${order.id_tail}`);
     expect(strings).toContain(NEXT_COPY.es.fulfillType.DELIVERY);
     expect(strings).not.toContain("Maria");
     expect(strings).not.toContain("555-0100");
@@ -522,8 +515,120 @@ describe("Horario T4G strip", () => {
         nowMs: freshAt,
       }),
     );
-    expect(guestHtml).toContain(`#${noGuests.id_tail}`);
-    expect(guestHtml).not.toContain(NEXT_COPY.es.guests);
+    const guestText = renderedStrings(guestHtml);
+    expect(guestText).toContain(`Listo ${noGuests.ready_time}`);
+    expect(guestText).not.toContain(noGuests.id_tail);
+    expect(guestText).not.toContain("—");
+    expect(guestText).not.toContain("persona");
+  });
+
+  it("shows ready time and people for pickup and delivery, and never the order code", () => {
+    const { orders } = fencePayload(REAL);
+    const day = "2026-09-29";
+    const tail = "Zz9Tail";
+    const pickup = {
+      ...orders[0]!,
+      id_tail: tail,
+      fulfill_type: "PICKUP" as const,
+      event_date: day,
+      event_time: "11:30",
+      ready_time: "10:30",
+      guests: 24,
+    };
+    const delivery = {
+      ...pickup,
+      fulfill_type: "DELIVERY" as const,
+      event_time: "12:00",
+      ready_time: "11:30",
+      guests: 5,
+      lines: orders[1]!.lines,
+    };
+    const freshAt = Date.parse(`${day}T15:00:00.000Z`);
+    const snap = {
+      kind: "on" as const,
+      orders: [pickup, delivery],
+      today: day,
+      stale: false,
+      fetchedAt: `${day}T15:00:00.000Z`,
+    };
+
+    expect(stripOrderLabel(pickup, NEXT_COPY.es)).toBe("Listo 10:30 · 24 personas");
+    expect(stripOrderLabel(delivery, NEXT_COPY.es)).toBe("Listo 11:30 · 5 personas");
+    expect(stripOrderLabel(pickup, NEXT_COPY.en)).toBe("Ready 10:30 · 24 people");
+    expect(stripOrderLabel({ ...pickup, guests: 1 }, NEXT_COPY.es)).toBe("Listo 10:30 · 1 persona");
+    expect(stripOrderLabel({ ...pickup, guests: 1 }, NEXT_COPY.en)).toBe("Ready 10:30 · 1 person");
+    expect(stripOrderLabel({ ...pickup, ready_time: null }, NEXT_COPY.es)).toBe("Hora del evento 11:30 · 24 personas");
+    expect(stripOrderLabel({ ...pickup, ready_time: null }, NEXT_COPY.en)).toBe("Event time 11:30 · 24 people");
+    expect(stripOrderLabel({ ...pickup, guests: null }, NEXT_COPY.es)).toBe("Listo 10:30");
+    expect(stripOrderLabel({ ...pickup, ready_time: null, guests: null }, NEXT_COPY.en)).toBe("Event time 11:30");
+    expect(stripOrderLabel({ ...pickup, first_name: "Ana" }, NEXT_COPY.es)).toBe("Ana · Listo 10:30 · 24 personas");
+
+    for (const locale of ["es", "en"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(T4gStripView, { snap, date: day, locale, nowMs: freshAt }),
+      );
+      const text = renderedStrings(html);
+      expect(text, locale).toContain(stripOrderLabel(pickup, NEXT_COPY[locale]));
+      expect(text, locale).toContain(stripOrderLabel(delivery, NEXT_COPY[locale]));
+      expect(text, locale).toContain(NEXT_COPY[locale].fulfillType.PICKUP);
+      expect(text, locale).toContain(NEXT_COPY[locale].fulfillType.DELIVERY);
+      expect(text, locale).not.toContain(tail);
+      expect(text, locale).not.toContain("—");
+      expect(text, locale).not.toContain("Ana");
+
+      for (const order of [pickup, delivery]) {
+        const detail = renderedStrings(renderToStaticMarkup(
+          createElement(OrderDetail, {
+            order,
+            columns: DEFAULT_PREFS.columns,
+            t: NEXT_COPY[locale],
+            locale,
+            today: day,
+            surface: "board",
+          }),
+        ));
+        expect(detail, `${order.fulfill_type} ${locale}`).toContain(stripOrderLabel(order, NEXT_COPY[locale]));
+        expect(detail, `${order.fulfill_type} ${locale}`).toContain(NEXT_COPY[locale].fulfillType[order.fulfill_type]);
+        expect(detail, `${order.fulfill_type} ${locale}`).not.toContain(tail);
+        expect(detail, `${order.fulfill_type} ${locale}`).not.toContain("—");
+      }
+
+      const missingReady = { ...pickup, ready_time: null };
+      const missingPeople = { ...delivery, guests: null };
+      const missingHtml = renderedStrings(renderToStaticMarkup(
+        createElement(T4gStripView, {
+          snap: { ...snap, orders: [missingReady, missingPeople] },
+          date: day,
+          locale,
+          nowMs: freshAt,
+        }),
+      ));
+      expect(missingHtml, locale).toContain(stripOrderLabel(missingReady, NEXT_COPY[locale]));
+      expect(missingHtml, locale).toContain(stripOrderLabel(missingPeople, NEXT_COPY[locale]));
+      expect(missingHtml, locale).not.toContain("—");
+      expect(missingHtml, locale).not.toContain(tail);
+    }
+
+    const named = { ...REAL.orders[0], first_name: "Ana", id_tail: tail };
+    const fenced = fencePayload({ orders: [named] });
+    expect(fenced.orders).toHaveLength(1);
+    expect(fenced.orders[0]).not.toHaveProperty("first_name");
+    const fencedHtml = renderedStrings(renderToStaticMarkup(
+      createElement(T4gStripView, {
+        snap: {
+          kind: "on",
+          orders: fenced.orders,
+          today: fenced.orders[0]!.event_date,
+          stale: false,
+          fetchedAt: `${day}T15:00:00.000Z`,
+        },
+        date: fenced.orders[0]!.event_date,
+        locale: "es",
+        nowMs: freshAt,
+      }),
+    ));
+    expect(fencedHtml).not.toContain("Ana");
+    expect(fencedHtml).not.toContain(tail);
   });
 });
 

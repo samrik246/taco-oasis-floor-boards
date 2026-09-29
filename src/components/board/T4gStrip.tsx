@@ -4,8 +4,8 @@ import { Component, useEffect, useState, type ReactNode } from "react";
 import { NEXT_POLL_MS, readIsStale } from "@/lib/upcoming/cadence";
 import { fencePayload, type UpcomingOrder } from "@/lib/upcoming/fence";
 import type { Locale } from "@/lib/i18n";
-import { guestsText, NEXT_COPY } from "@/components/next/next-copy";
-import { time12 } from "@/components/next/format";
+import { NEXT_COPY } from "@/components/next/next-copy";
+import { stripOrderLabel } from "@/components/next/strip-label";
 import { OrderDetail } from "@/components/next/OrderDetail";
 import { FulfillWord, fulfillBar } from "@/components/next/parts";
 import { DEFAULT_PREFS } from "@/components/next/prefs";
@@ -112,18 +112,11 @@ export function T4gStripView({
               type="button"
               onClick={() => onOpen?.(order)}
               className={`flex min-h-11 shrink-0 items-center gap-2 rounded-md border-2 border-l-8 border-neutral-300 bg-white px-2 py-1 text-left text-sm font-semibold text-neutral-900 ${fulfillBar(order.fulfill_type)}`}
-              data-testid={`t4g-order-${order.id_tail}`}
+              data-testid="t4g-order"
               data-fulfill={order.fulfill_type}
             >
-              <span className="font-black tabular-nums">{time12(order.event_time)}</span>
-              <span>#{order.id_tail}</span>
+              <span data-testid="t4g-order-label">{stripOrderLabel(order, t)}</span>
               <FulfillWord type={order.fulfill_type} t={t} />
-              {order.guests != null && (
-                <span>
-                  {t.guests}{" "}
-                  <span className="font-black tabular-nums">{guestsText(order.guests, t)}</span>
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -191,6 +184,7 @@ function T4gStripLive({ date, locale }: { date: string; locale: Locale }) {
             t={t}
             locale={locale}
             today={snap.today || open.event_date}
+            surface="board"
             onClose={() => setOpen(null)}
           />
         </div>

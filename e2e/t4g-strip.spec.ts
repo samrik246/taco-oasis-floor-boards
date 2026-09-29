@@ -102,19 +102,23 @@ test("Horario opens on Hora and the strip follows the day on screen", async ({ p
   await expect(page.getByTestId("schedule-panel")).toHaveAttribute("data-sort", "time");
   await expect(page.getByTestId("date-bar")).toHaveAttribute("data-date", DAY);
 
-  const cells = page.locator("[data-testid^='t4g-order-']");
+  const cells = page.locator("[data-testid='t4g-order']");
   await expect(cells).toHaveCount(2);
-  await expect(cells.nth(0)).toHaveAttribute("data-testid", "t4g-order-AgIeZY");
-  await expect(cells.nth(0)).toContainText("9:15 am");
+  await expect(cells.nth(0)).toContainText("Listo 10:00 · 15 personas");
   await expect(cells.nth(0)).toContainText("RECOGER");
-  await expect(cells.nth(1)).toHaveAttribute("data-testid", "t4g-order-sr0GZY");
+  await expect(cells.nth(0)).not.toContainText("AgIeZY");
+  await expect(cells.nth(1)).toContainText("Listo 10:50 · 40 personas");
   await expect(cells.nth(1)).toContainText("ENTREGA");
-  await expect(page.getByTestId("t4g-order-hj35YY")).toHaveCount(0);
+  await expect(cells.nth(1)).not.toContainText("sr0GZY");
+  await expect(page.getByTestId("t4g-strip")).not.toContainText("hj35YY");
 
   const url = page.url();
   const historyLength = await page.evaluate(() => history.length);
-  await page.getByTestId("t4g-order-AgIeZY").click();
+  await cells.nth(0).click();
   await expect(page.getByTestId("t4g-detail")).toBeVisible();
+  await expect(page.getByTestId("t4g-detail")).toContainText("Listo 10:00 · 15 personas");
+  await expect(page.getByTestId("t4g-detail")).toContainText("RECOGER");
+  await expect(page.getByTestId("t4g-detail")).not.toContainText("AgIeZY");
   await expect(page.getByTestId("next-detail-close")).toContainText("Cerrar");
   await page.getByTestId("next-detail-close").click();
   await expect(page.getByTestId("t4g-detail")).toHaveCount(0);
