@@ -25,6 +25,8 @@ export type BoardChangeParts = {
   breakEnd?: string;
   /** caja or cocina. The summary then includes board= and still includes count. */
   board?: "caja" | "cocina";
+  /** Employee.id on a manager break line. Staff summaries omit it. */
+  employeeId?: string;
 };
 
 export const BOARD_CHANGE_ROUTES = {
@@ -44,9 +46,16 @@ export const BOARD_CHANGE_ROUTES = {
   agentPaint: "script agent-paint",
   breakSave: "break.save",
   breakClear: "break.clear",
+  breakManagerSave: "break.manager-save",
+  breakManagerClear: "break.manager-clear",
   breakCodeCollision: "break.code-collision",
   breakImportDrop: "break.import-drop",
 } as const;
+
+function employeeBit(employeeId: string | undefined): string | null {
+  if (employeeId && /^[A-Za-z0-9]{1,40}$/.test(employeeId)) return `employee=${employeeId}`;
+  return null;
+}
 
 /** Day, hour, station, count. Request prose never reaches this line. */
 export function boardChangeSummary(parts: BoardChangeParts): string {
@@ -81,6 +90,8 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
     /^\d{2}:\d{2}$/.test(parts.breakEnd)
   ) {
     bits.push(`start=${parts.breakStart}`, `end=${parts.breakEnd}`);
+    const employee = employeeBit(parts.employeeId);
+    if (employee) bits.push(employee);
     return bits.join(" ");
   }
   if (parts.columnHidden || parts.columnDefault) {
@@ -91,6 +102,8 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   if (parts.board === "caja" || parts.board === "cocina") {
     bits.push(`board=${parts.board}`);
   }
+  const employee = employeeBit(parts.employeeId);
+  if (employee) bits.push(employee);
   const count = Number.isInteger(parts.count) && parts.count >= 0 ? parts.count : 0;
   bits.push(`count=${count}`);
   return bits.join(" ");

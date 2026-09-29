@@ -63,6 +63,34 @@ export function boardKioskReturnHref(from: string | null, board: string | null):
   return `/?board=${board}&kiosk=1`;
 }
 
+/** Pintar shows one Descanso control on the person's first live row, today, while the editor can write. */
+export function showDescansoButton(input: {
+  readonly: boolean;
+  openDate: string;
+  today: string;
+  superseded: boolean;
+  laterShiftOfPerson: boolean;
+}): boolean {
+  return !input.readonly
+    && input.openDate === input.today
+    && !input.superseded
+    && !input.laterShiftOfPerson;
+}
+
+/** First name, then the windows, then the allowance. The staff screen keeps its own line. */
+export function managerShiftLine(
+  firstName: string,
+  shifts: readonly { startAt: string; endAt: string }[],
+  allowanceMinutes: number,
+  clock: (iso: string) => string,
+): string {
+  const ordered = [...shifts].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
+  const windows = ordered.map((shift) => `${clock(shift.startAt)} a ${clock(shift.endAt)}`).join(" y ");
+  const minutes = `Le tocan ${allowanceMinutes} minutos.`;
+  if (!windows) return `${firstName}. ${minutes}`;
+  return `${firstName}. ${windows}. ${minutes}`;
+}
+
 export function shiftAllowanceLine(
   shifts: readonly { startAt: string; endAt: string }[],
   allowanceMinutes: number,

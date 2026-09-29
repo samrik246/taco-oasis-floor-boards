@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
+import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
+import { showDescansoButton } from "@/lib/breaks/picker-steps";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
 import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
@@ -16,7 +18,7 @@ import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
 import { markForStation, openCellOutlineClass, selectionMark } from "@/lib/selection-mark";
-import { comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
+import { chicagoYmd, comparePintarRows, stationAtSelectedHour, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
 import { SelectionMarkDot } from "./SelectionMarkDot";
@@ -140,6 +142,7 @@ export function ManagerColorEditor({
   const [reason, setReason] = useState<MoveReason>("Other");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [breakTarget, setBreakTarget] = useState<{ employeeId: string; name: string } | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const copy = locale === "es" ? {
     title: "Pintar posiciones",
@@ -501,6 +504,23 @@ export function ManagerColorEditor({
               <th className="sticky left-0 z-10 border-b border-r-2 border-neutral-300 bg-white px-2 py-1.5 text-sm font-bold" scope="row">
                 <span className="block">{personName(shift)} {ended ? `· ${t.shiftEnded}` : ""}</span>
                 <span className="block text-[11px] font-medium text-neutral-600">{laterShiftOfPerson ? "↳ " : ""}{shiftTime(shift.startAt, locale)}–{shiftTime(shift.endAt, locale)}</span>
+                {showDescansoButton({
+                  readonly,
+                  openDate: date,
+                  today: chicagoYmd(new Date()),
+                  superseded: ended,
+                  laterShiftOfPerson,
+                }) && (
+                  <button
+                    type="button"
+                    className="touch-target mt-1 min-h-11 rounded-md border-2 border-neutral-900 px-2 text-xs font-bold"
+                    data-testid={`descanso-${shift.employee.id}`}
+                    disabled={busy}
+                    onClick={() => setBreakTarget({ employeeId: shift.employee.id, name: personName(shift) })}
+                  >
+                    {t.moveBreak}
+                  </button>
+                )}
               </th>
               {cells.map((cell, index) => {
                 const hour = hours[index]!;
@@ -556,6 +576,16 @@ export function ManagerColorEditor({
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
       </div>
+      {breakTarget && (
+        <ManagerBreakDialog
+          board={board}
+          employeeId={breakTarget.employeeId}
+          name={breakTarget.name}
+          managerToken={managerToken}
+          onClose={() => setBreakTarget(null)}
+          onSaved={onSaved}
+        />
+      )}
       {activePendingReason && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="paint-reason-title" data-testid="paint-reason-dialog">
         <div className="w-full max-w-md rounded-lg border-2 border-neutral-900 bg-white p-4">
           <h3 id="paint-reason-title" className="text-lg font-bold">{copy.reasonTitle}</h3>
