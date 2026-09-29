@@ -78,9 +78,14 @@ export function ManagerBreakDialog({
   }, [board, employeeId, managerToken]);
 
   async function commit(response: Response, fallback: string) {
-    const body = await response.json() as { error?: string };
+    const body = await response.json() as { error?: string; waiting?: boolean; message?: string };
     if (!response.ok) {
       setMessage(body.error ?? fallback);
+      setBusy(false);
+      return;
+    }
+    if (body.waiting) {
+      setMessage(body.message ?? "Un gerente tiene que nombrar quién te cubre.");
       setBusy(false);
       return;
     }

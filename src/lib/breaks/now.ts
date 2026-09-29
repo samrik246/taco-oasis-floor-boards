@@ -33,7 +33,7 @@ export async function listBreaksNow(
 ): Promise<BreakNowBody> {
   const date = chicagoToday(now);
   const rows = await prisma.staffBreak.findMany({
-    where: { board, date },
+    where: { board, date, status: "booked" },
     select: { employeeId: true, shiftId: true, startAt: true, endAt: true },
   });
   if (rows.length === 0) {

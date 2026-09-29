@@ -24,7 +24,7 @@ function currentOnBoard(shifts: readonly BreakShift[], board: "caja" | "cocina")
 async function liveOtherBreaks(date: string, employeeId: string) {
   const others = await prisma.staffBreak.findMany({
     where: { date, employeeId: { not: employeeId } },
-    select: { shiftId: true, board: true, startAt: true, endAt: true },
+    select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
   });
   if (others.length === 0) return [];
   const live = await prisma.shift.findMany({
@@ -38,7 +38,7 @@ async function liveOtherBreaks(date: string, employeeId: string) {
   const liveIds = new Set(live.map((shift) => shift.id));
   return others
     .filter((row) => liveIds.has(row.shiftId))
-    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
 }
 
 /** Allowance uses every shift today. The windows are the requested board only. */
@@ -71,7 +71,7 @@ export async function loadManagedBreak(input: {
     })),
     blocked: blockedBreakQuarters({ date, board: input.board, shifts, otherBreaks }),
     slots: offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }),
-    saved: row === "this" && savedRow
+    saved: row === "this" && savedRow && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
   };

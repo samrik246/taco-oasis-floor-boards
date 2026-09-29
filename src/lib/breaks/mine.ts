@@ -96,7 +96,7 @@ async function liveOtherBreaks(
 ) {
   const others = await tx.staffBreak.findMany({
     where: { date, employeeId: { not: employeeId } },
-    select: { shiftId: true, board: true, startAt: true, endAt: true },
+    select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
   });
   if (others.length === 0) return [];
   const live = await tx.shift.findMany({
@@ -110,7 +110,7 @@ async function liveOtherBreaks(
   const liveIds = new Set(live.map((shift) => shift.id));
   return others
     .filter((row) => liveIds.has(row.shiftId))
-    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
 }
 
 export async function loadMyBreak(claims: StaffSessionClaims, now: Date = new Date()) {
@@ -143,7 +143,7 @@ export async function loadMyBreak(claims: StaffSessionClaims, now: Date = new Da
     })),
     blocked: blockedBreakQuarters({ date, board: claims.board, shifts, otherBreaks }),
     slots: offeredBreakSlots({ date, board: claims.board, shifts, otherBreaks }),
-    saved: savedRow && savedLive && savedRow.board === claims.board
+    saved: savedRow && savedLive && savedRow.board === claims.board && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
   };
@@ -167,7 +167,18 @@ export async function saveMyBreak(
       endAt,
       expectedBoard: claims.board,
     });
-    return { ok: true as const, id: saved.id, replaced: saved.replaced, startAt: startAt.toISOString(), endAt: endAt.toISOString() };
+    if (saved.status === "pending") {
+      return {
+        ok: true as const,
+        waiting: true as const,
+        message: BREAK_REFUSAL_TEXT.NEEDS_COVER,
+        id: saved.id,
+        replaced: saved.replaced,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+      };
+    }
+    return { ok: true as const, waiting: false as const, id: saved.id, replaced: saved.replaced, startAt: startAt.toISOString(), endAt: endAt.toISOString() };
   } catch (error) {
     if (error instanceof BreakRefused) {
       return { ok: false as const, status: 400 as const, error: breakRefusalText(error.code) };

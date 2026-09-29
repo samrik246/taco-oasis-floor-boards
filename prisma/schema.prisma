@@ -372,6 +372,10 @@ model StaffBreak {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   actor      String
+  /// booked takes a spot. pending waits for a cover and takes none.
+  status     String   @default("booked")
+  coverEmployeeId String?
+  coverShiftId    String?
 
   @@unique([employeeId, date])
   @@index([board, date])

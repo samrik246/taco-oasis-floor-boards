@@ -1,7 +1,11 @@
+import { chicagoHourOf } from "@/lib/hour-grid";
+import { MANDATORY_GAP_START } from "@/lib/mandatory";
 import {
   buildDaySlices,
   sliceIndexesTouching,
   type SliceBoard,
+  type SliceBreak,
+  type SlicePaint,
   type SliceShift,
 } from "@/lib/slices/day-slices";
 
@@ -43,4 +47,101 @@ export function readBreakGate(input: {
     return person != null && person.cell !== "absent";
   });
   return { sliceIndexes, everyTouchedSliceInsideShift };
+}
+
+export type StarGateCode = "EMPTY_STAR" | "STAR_COUNT" | "NEEDS_COVER" | "BAD_COVER";
+
+export type StarGateDecision =
+  | { status: "booked"; coverEmployeeId: string | null; coverShiftId: string | null }
+  | { code: StarGateCode };
+
+function windowHolds(shift: SliceShift, start: Date, end: Date): boolean {
+  return !shift.superseded
+    && !shift.boardRemoved
+    && start.getTime() >= shift.startAt.getTime()
+    && end.getTime() <= shift.endAt.getTime();
+}
+
+/**
+ * Star rules from 11:00 only. An empty star on a touched slice refuses the
+ * break. A person sitting a star waits until a cover is named. The cover
+ * must be free for the whole window and must not sit another star.
+ */
+export function assessStarGate(input: {
+  date: string;
+  board: SliceBoard;
+  employeeId: string;
+  startAt: Date;
+  endAt: Date;
+  shifts: readonly SliceShift[];
+  paints: readonly SlicePaint[];
+  breaks: readonly SliceBreak[];
+  starStationIds: readonly string[];
+  coverEmployeeId?: string | null;
+}): StarGateDecision {
+  const stars = new Set(input.starStationIds);
+  const resting = input.breaks.filter((row) => row.employeeId !== input.employeeId);
+  const base = {
+    date: input.date,
+    board: input.board,
+    now: input.startAt,
+    stations: input.starStationIds.map((id) => ({ id })),
+    starStationIds: input.starStationIds,
+    shifts: input.shifts,
+    paints: input.paints,
+    overlays: [],
+  };
+  const today = buildDaySlices({ ...base, breaks: resting });
+  const indexes = sliceIndexesTouching(today, input.startAt, input.endAt);
+  const starred = indexes
+    .map((index) => today.slices[index])
+    .filter((slice) => slice != null && chicagoHourOf(slice.start) >= MANDATORY_GAP_START);
+  if (starred.length === 0) {
+    return { status: "booked", coverEmployeeId: null, coverShiftId: null };
+  }
+  if (starred.some((slice) => slice.emptyStarStationIds.length > 0)) {
+    return { code: "EMPTY_STAR" };
+  }
+
+  const askerInStar = starred.some((slice) => {
+    const person = slice.people.find((row) => row.employeeId === input.employeeId);
+    return person?.stationId != null && stars.has(person.stationId);
+  });
+  const coverId = input.coverEmployeeId ?? null;
+  if (askerInStar && !coverId) return { code: "NEEDS_COVER" };
+
+  if (coverId) {
+    if (coverId === input.employeeId) return { code: "BAD_COVER" };
+    const coverShift = input.shifts.find((shift) => {
+      return shift.employeeId === coverId && windowHolds(shift, input.startAt, input.endAt);
+    });
+    if (!coverShift) return { code: "BAD_COVER" };
+    const coverBlocked = starred.some((slice) => {
+      const cover = slice.people.find((row) => row.employeeId === coverId);
+      if (cover?.onBreak) return true;
+      return cover?.stationId != null && stars.has(cover.stationId);
+    });
+    if (coverBlocked) return { code: "BAD_COVER" };
+  }
+
+  const proposed: SliceBreak = {
+    employeeId: input.employeeId,
+    shiftId: "proposed",
+    board: input.board,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    status: "booked",
+    coverEmployeeId: coverId,
+  };
+  const after = buildDaySlices({ ...base, breaks: [...resting, proposed] });
+  for (const index of indexes) {
+    const slice = after.slices[index];
+    if (!slice || chicagoHourOf(slice.start) < MANDATORY_GAP_START) continue;
+    if (slice.emptyStarStationIds.length > 0) return { code: "EMPTY_STAR" };
+    if (slice.presentNotOnBreak < slice.starCount) return { code: "STAR_COUNT" };
+  }
+  const coverShiftId = coverId
+    ? input.shifts.find((shift) => shift.employeeId === coverId && windowHolds(shift, input.startAt, input.endAt))?.id ?? null
+    : null;
+  return { status: "booked", coverEmployeeId: coverId, coverShiftId };
 }

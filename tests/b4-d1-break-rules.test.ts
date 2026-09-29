@@ -359,16 +359,16 @@ describe("B4 D1 break rules", () => {
     const second = await saveBreak({
       employeeId: fay.id,
       date,
-      startAt: chicagoDateTime(date, "2:00 pm"),
-      endAt: chicagoDateTime(date, "3:00 pm"),
+      startAt: chicagoDateTime(date, "9:30 am"),
+      endAt: chicagoDateTime(date, "10:30 am"),
     });
     expect(second.replaced).toBe(true);
     expect(second.id).toBe(first.id);
     const rows = await prisma.staffBreak.findMany({ where: { employeeId: fay.id, date } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.endAt.toISOString()).toBe(chicagoDateTime(date, "3:00 pm").toISOString());
+    expect(rows[0]!.endAt.toISOString()).toBe(chicagoDateTime(date, "10:30 am").toISOString());
     const log = await prisma.boardChangeLog.findFirstOrThrow({
-      where: { managerId: fay.id, route: BOARD_CHANGE_ROUTES.breakSave, summary: `${date} start=14:00 end=15:00` },
+      where: { managerId: fay.id, route: BOARD_CHANGE_ROUTES.breakSave, summary: `${date} start=09:30 end=10:30` },
     });
     expect(log.managerName).toBe("Fay Moss");
     expect(log.summary).not.toContain("Fay");
@@ -377,8 +377,8 @@ describe("B4 D1 break rules", () => {
     await saveBreak({
       employeeId: fay.id,
       date,
-      startAt: chicagoDateTime(date, "3:00 pm"),
-      endAt: chicagoDateTime(date, "3:15 pm"),
+      startAt: chicagoDateTime(date, "10:00 am"),
+      endAt: chicagoDateTime(date, "10:15 am"),
     });
     expect(await prisma.positionMoveLog.count()).toBe(moves);
     const onlyOther = await person("gus", "Gus");

@@ -426,8 +426,8 @@ describe("B4 D3 manager breaks and the now page", () => {
       manager: boss.actor,
       board: "cocina",
       employeeId: ada.id,
-      startAt: chicagoDateTime(wednesday, "3:00 pm"),
-      endAt: chicagoDateTime(wednesday, "3:15 pm"),
+      startAt: chicagoDateTime(wednesday, "8:00 am"),
+      endAt: chicagoDateTime(wednesday, "8:15 am"),
       now,
     });
     const other = await clearBreak({
@@ -485,14 +485,14 @@ describe("B4 D3 manager breaks and the now page", () => {
     await saveBreak({
       employeeId: ada.id,
       date: wednesday,
-      startAt: chicagoDateTime(wednesday, "2:00 pm"),
-      endAt: chicagoDateTime(wednesday, "2:15 pm"),
+      startAt: chicagoDateTime(wednesday, "9:30 am"),
+      endAt: chicagoDateTime(wednesday, "9:45 am"),
     });
     const staffLog = await prisma.boardChangeLog.findFirstOrThrow({
       where: { route: BOARD_CHANGE_ROUTES.breakSave, managerId: ada.id, date: wednesday },
       orderBy: { createdAt: "desc" },
     });
-    expect(staffLog.summary).toBe(`${wednesday} start=14:00 end=14:15`);
+    expect(staffLog.summary).toBe(`${wednesday} start=09:30 end=09:45`);
     const staffClear = await clearBreak({ employeeId: ada.id, date: wednesday, board: "cocina" });
     expect(staffClear.cleared).toBe(true);
     const staffClearLog = await prisma.boardChangeLog.findFirstOrThrow({
@@ -556,15 +556,15 @@ describe("B4 D3 manager breaks and the now page", () => {
         manager: boss.actor,
         board: "cocina",
         employeeId: ada.id,
-        startAt: chicagoDateTime(raceDate, "2:00 pm"),
-        endAt: chicagoDateTime(raceDate, "2:15 pm"),
+        startAt: chicagoDateTime(raceDate, "9:30 am"),
+        endAt: chicagoDateTime(raceDate, "9:45 am"),
         now: chicagoDateTime(raceDate, "10:00 am"),
       }),
       saveBreak({
         employeeId: ada.id,
         date: raceDate,
-        startAt: chicagoDateTime(raceDate, "3:00 pm"),
-        endAt: chicagoDateTime(raceDate, "3:15 pm"),
+        startAt: chicagoDateTime(raceDate, "9:45 am"),
+        endAt: chicagoDateTime(raceDate, "10:00 am"),
         expectedBoard: "cocina",
       }),
     ]);
@@ -595,12 +595,12 @@ describe("B4 D3 manager breaks and the now page", () => {
     const raceDate = chicagoDateOffset(wednesday, 49);
     await shiftFor(ada.id, raceDate, "cocina", "8:00 am", "4:00 pm");
     const same = {
-      startAt: chicagoDateTime(raceDate, "3:00 pm"),
-      endAt: chicagoDateTime(raceDate, "3:15 pm"),
+      startAt: chicagoDateTime(raceDate, "9:00 am"),
+      endAt: chicagoDateTime(raceDate, "9:15 am"),
     };
     const later = {
-      startAt: chicagoDateTime(raceDate, "3:30 pm"),
-      endAt: chicagoDateTime(raceDate, "3:45 pm"),
+      startAt: chicagoDateTime(raceDate, "9:30 am"),
+      endAt: chicagoDateTime(raceDate, "9:45 am"),
     };
     await saveBreak({
       employeeId: ada.id,
@@ -707,8 +707,8 @@ describe("B4 D3 manager breaks and the now page", () => {
     const slot = {
       employeeId: ada.id,
       date: raceDate,
-      startAt: chicagoDateTime(raceDate, "3:00 pm"),
-      endAt: chicagoDateTime(raceDate, "3:15 pm"),
+      startAt: chicagoDateTime(raceDate, "9:00 am"),
+      endAt: chicagoDateTime(raceDate, "9:15 am"),
       expectedBoard: "cocina" as const,
     };
     setBreakLockBusyForTests(BREAK_LOCK_ATTEMPTS);

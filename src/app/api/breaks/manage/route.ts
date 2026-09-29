@@ -84,6 +84,8 @@ export async function POST(request: Request) {
       replaced: saved.replaced,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
+      waiting: saved.status === "pending",
+      ...(saved.status === "pending" ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER } : {}),
     }, { headers: NO_STORE });
   } catch (error) {
     return refused(error);
