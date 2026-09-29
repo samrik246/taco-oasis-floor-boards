@@ -4,10 +4,13 @@ import { useMemo } from "react";
 import { hourGridHours, formatHourLabel, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
+import { personQuarters } from "@/lib/slices/day-slices";
 import { displayStationLabel, stationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { formatStartLabel } from "@/lib/schedule/build-schedule";
 import { buildTimelineRows, personName } from "./timeline-rows";
+import { slicesForDay } from "./day-slice-input";
+import { QuarterRow } from "./QuarterRow";
 import type { DayBoardDto } from "./types";
 
 type Props = {
@@ -47,6 +50,7 @@ export function TimelinePanel({
       stationLabelFor: (id) => labels.get(id) ?? stationLabel(locale, id),
     });
   }, [day, date, hours, locale, t]);
+  const slices = useMemo(() => (day && date ? slicesForDay(day, new Date()) : null), [day, date]);
 
   return (
     <section
@@ -158,6 +162,7 @@ export function TimelinePanel({
                       <span className="block min-h-10 content-center leading-tight">
                         {cell.label}
                       </span>
+                      {slices && <QuarterRow quarters={personQuarters(slices, shift.employee.id, hour)} />}
                       <BreakStripe label={stripe} />
                     </td>
                     );

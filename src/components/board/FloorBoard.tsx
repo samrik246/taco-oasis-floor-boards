@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
+import { huecosCount } from "@/lib/mandatory";
+import { stationOpenQuarters } from "@/lib/slices/day-slices";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { formatWeekdayDateLabel } from "@/lib/date-format";
 import { findBoardViolations } from "@/lib/violations";
@@ -38,6 +40,8 @@ import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
+import { QuarterRow } from "./QuarterRow";
+import { slicesForDay } from "./day-slice-input";
 import { ManagerColorEditor } from "./ManagerColorEditor";
 import { SchedulePanel } from "./SchedulePanel";
 import { RushPanel } from "./RushPanel";
@@ -1039,6 +1043,19 @@ export function FloorBoard() {
       date &&
       readPaintDraft(manager.id, board, date)?.edits.length,
   );
+  const daySlices = useMemo(
+    () => (day && date ? slicesForDay(day, now) : null),
+    [day, date, now],
+  );
+  const huecos = daySlices ? huecosCount(daySlices) : null;
+  const huecosBadge = huecos == null || !isManager ? null : (
+    <span
+      className="rounded-md border-2 border-neutral-900 px-2 py-1 text-sm font-bold tabular-nums"
+      data-testid="huecos-count"
+    >
+      {t.huecos(huecos)}
+    </span>
+  );
   const leadNotice =
     isManager && !offline && rushForecast && date
       ? rushLeadNotice({
@@ -1104,6 +1121,7 @@ export function FloorBoard() {
               t={t}
               now={now}
             />
+            {huecosBadge}
             <button
               type="button"
               className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
@@ -1130,6 +1148,7 @@ export function FloorBoard() {
                 <option value="cocina">{t.kitchen}</option>
               </select>
               <label className="sr-only" htmlFor="compact-date">{t.date}</label>
+              {huecosBadge}
               <select id="compact-date" className="touch-target min-h-11 max-w-[9rem] rounded-md border-2 border-neutral-900 bg-white px-2 text-sm font-bold" value={date} onChange={(e) => changeDate(e.target.value)} disabled={visibleDates.length === 0} data-testid="compact-date">
                 {visibleDates.length === 0 && <option value="">{t.noDates}</option>}
                 {visibleDates.map((d) => <option key={d} value={d}>{formatWeekdayDateLabel(d, locale)}{isManager && retainedDraftDates.includes(d) ? " · " + t.paintDraftDate : ""}</option>)}
@@ -1515,7 +1534,7 @@ export function FloorBoard() {
 
       {mainView === "schedule" && (
         <div className="p-3 sm:p-4">
-          <SchedulePanel day={day} date={date} locale={locale} t={t} />
+          <SchedulePanel day={day} date={date} locale={locale} t={t} now={now} />
         </div>
       )}
 
@@ -1718,6 +1737,7 @@ export function FloorBoard() {
                   station.maxConcurrent >= 0 &&
                   occupied.length >= station.maxConcurrent;
                 const label = displayStationLabel(locale, station);
+                const openQuarters = daySlices ? stationOpenQuarters(daySlices, station.id, hour) : [];
 
                 return (
                   <div
@@ -1769,6 +1789,7 @@ export function FloorBoard() {
                     )}
 
                     <div className="mt-auto flex flex-col gap-2">
+                      <QuarterRow quarters={openQuarters} />
                       {occupied.length === 0 && (
                         <button
                           type="button"

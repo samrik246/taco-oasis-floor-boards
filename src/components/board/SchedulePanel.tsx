@@ -8,8 +8,12 @@ import {
 } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { formatCompactHour, formatHourLabel } from "@/lib/hour-grid";
+import { personQuarters, type QuarterView } from "@/lib/slices/day-slices";
 import { displayStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { AmberMark } from "./AmberMark";
+import { amberHoursForDay, slicesForDay } from "./day-slice-input";
+import { QuarterRow } from "./QuarterRow";
 import type { DayBoardDto } from "./types";
 import { T4gStrip } from "./T4gStrip";
 
@@ -36,6 +40,8 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
   const [mode, setMode] = useState<ScheduleMode>("rest-of-day");
   const [sort, setSort] = useState<ScheduleSort>("time");
 
+  const slices = useMemo(() => (day && date ? slicesForDay(day, now ?? new Date()) : null), [day, date, now]);
+  const amberByShift = useMemo(() => (day ? amberHoursForDay(day, now ?? new Date()) : new Map<string, Set<number>>()), [day, now]);
   const grid = useMemo(() => {
     if (!day || !date) return null;
     return buildScheduleGrid({
@@ -291,7 +297,10 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                       >
                         {row.shiftLabel}
                       </td>
-                      {renderRowCells(row, grid.hours, stationLabels)}
+                      {renderRowCells(row, grid.hours, stationLabels, {
+                        quartersFor: (hour) => (slices ? personQuarters(slices, row.employeeId, hour) : []),
+                        amberHours: amberByShift.get(row.shiftId) ?? new Set<number>(),
+                      })}
                     </tr>
                   ))}
                 </Fragment>
@@ -338,13 +347,19 @@ function renderRowCells(
   },
   hours: number[],
   stationLabels: ReadonlyMap<string, string>,
+  marks: {
+    quartersFor: (hour: number) => QuarterView[];
+    amberHours: Set<number>;
+  },
 ) {
+  const openAt = (hour: number) => marks.quartersFor(hour).some((quarter) => quarter.kind === "open");
   const cells: ReactNode[] = [];
   let i = 0;
   while (i < hours.length) {
     const hour = hours[i]!;
     const block = row.blocks.find((b) => b.startHour === hour);
-    if (block) {
+    const blockHasOpen = block != null && hours.slice(i, i + block.span).some((h) => openAt(h));
+    if (block && !blockHasOpen) {
       const fullLabel = stationLabels.get(block.stationId) ?? block.code;
       const visibleText = block.textKind === "position" ? fullLabel : block.text;
       cells.push(
@@ -382,12 +397,41 @@ function renderRowCells(
       i += block.span;
       continue;
     }
+    if (block && blockHasOpen) {
+      const end = hour + block.span;
+      const fullLabel = stationLabels.get(block.stationId) ?? block.code;
+      const visibleText = block.textKind === "position" ? fullLabel : block.text;
+      while (i < hours.length && hours[i]! < end) {
+        const sliceHour = hours[i]!;
+        cells.push(
+          <td
+            key={`${sliceHour}-${block.stationId}`}
+            className="border-b border-neutral-300 p-0.5"
+            data-station={block.stationId}
+            data-testid={`schedule-block-${block.stationId}-${sliceHour}`}
+          >
+            <div
+              className={cn(
+                "relative flex min-h-9 flex-col items-center justify-center rounded-sm px-1 text-center text-[11px] font-extrabold leading-tight tracking-wide",
+                stationSolidClass(block.color),
+              )}
+            >
+              <span>{visibleText}</span>
+              <QuarterRow quarters={marks.quartersFor(sliceHour)} />
+            </div>
+          </td>,
+        );
+        i += 1;
+      }
+      continue;
+    }
     const status = row.hourStations.get(hour);
+    const quarters = marks.quartersFor(hour);
     cells.push(
       <td
         key={hour}
         className={cn(
-          "border-b border-neutral-300 px-0.5 py-1 text-center font-semibold",
+          "relative border-b border-neutral-300 px-0.5 py-1 text-center font-semibold",
           status === undefined && "text-neutral-300",
           status === null && "bg-amber-50 text-amber-900",
         )}
@@ -395,9 +439,11 @@ function renderRowCells(
           status === undefined ? "off" : status === null ? "open" : "seated"
         }
       >
+        {status === null && marks.amberHours.has(hour) && <AmberMark kind="empty-hour" />}
         <span className="block min-h-9 content-center">
           {status === null ? "·" : ""}
         </span>
+        <QuarterRow quarters={quarters} />
       </td>,
     );
     i += 1;

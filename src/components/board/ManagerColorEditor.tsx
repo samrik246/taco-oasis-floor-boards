@@ -18,10 +18,14 @@ import { paletteStationIds } from "@/lib/assignments/palette-order";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
+import { personQuarters } from "@/lib/slices/day-slices";
 import { markForStation, openCellOutlineClass, selectionMark } from "@/lib/selection-mark";
 import { chicagoYmd, comparePintarRows, primaryStationId, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
+import { AmberMark } from "./AmberMark";
+import { amberHoursForDay, slicesForDay } from "./day-slice-input";
+import { QuarterRow } from "./QuarterRow";
 import { SelectionMarkDot } from "./SelectionMarkDot";
 import { buildTimelineRows, personName } from "./timeline-rows";
 import type { BoardKindUi, DayBoardDto, ShiftDto, StationDto } from "./types";
@@ -283,6 +287,19 @@ export function ManagerColorEditor({
       })),
     });
   }, [day, hours, date, draft]);
+  const sliceDrafts = useMemo(() => {
+    if (staleDraft) return [];
+    return Object.values(draftState.draft).map((edit) => ({
+      shiftId: edit.shiftId,
+      hour: edit.hour,
+      stationId: edit.stationId,
+    }));
+  }, [staleDraft, draftState.draft]);
+  const paintedSlices = useMemo(
+    () => (day ? slicesForDay(day, new Date(), sliceDrafts) : null),
+    [day, sliceDrafts],
+  );
+  const amberByShift = useMemo(() => (day ? amberHoursForDay(day, new Date()) : new Map<string, Set<number>>()), [day]);
 
   function commitDraft(next: Draft, nextUndo: Draft[]) {
     const retained = writePaintDraft(managerId, board, date, Object.values(next));
@@ -577,8 +594,10 @@ export function ManagerColorEditor({
                 const stripe = station
                   ? breakStripeLabel(day?.breaks, shift.employee.id, shift.id, chicagoHourStart(date, hour), chicagoHourEnd(date, hour))
                   : null;
+                const quarters = paintedSlices ? personQuarters(paintedSlices, shift.employee.id, hour) : [];
+                const showAmber = !station && cell.kind !== "off" && !ended && (amberByShift.get(shift.id)?.has(hour) ?? false);
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}<BreakStripe label={stripe} /></button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}<QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></button>}
                 </td>;
               })}
             </tr>)}</tbody>

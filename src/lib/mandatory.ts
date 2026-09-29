@@ -1,6 +1,6 @@
 import { markForStation } from "@/lib/selection-mark";
-import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
-import { isHourInShift } from "@/lib/rules/shift-window";
+import { chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
+import { buildDaySlices, hourSliceIndexes, type DaySlices, type SlicePaint } from "@/lib/slices/day-slices";
 
 /**
  * Stations that are mandatory every day. They cannot be unmarked.
@@ -48,25 +48,6 @@ export type MandatoryGapDraft = {
 
 export type MandatoryGap = { stationId: string; hour: number };
 
-function savedStation(shift: MandatoryGapShift, date: string, hour: number): string | null {
-  const hit = shift.assignments.find((assignment) => {
-    return shift.date === date && chicagoHourOf(new Date(assignment.hourStart)) === hour;
-  });
-  return hit?.stationId ?? null;
-}
-
-/** Same on/off rule the paint matrix uses for a cell. */
-function hourIsOnMatrix(shift: MandatoryGapShift, date: string, hour: number): boolean {
-  if (shift.date !== date) return false;
-  if (shift.supersededAt) return savedStation(shift, date, hour) != null;
-  return isHourInShift(
-    chicagoHourStart(date, hour),
-    new Date(shift.startAt),
-    new Date(shift.endAt),
-    chicagoHourEnd(date, hour),
-  );
-}
-
 /**
  * Rank mandatory stations by `day.stations` (palette order).
  * A station missing from that list keeps its place after the known ones.
@@ -81,8 +62,8 @@ function stationsInBoardOrder(stationIds: readonly string[], boardOrder: readonl
 }
 
 /**
- * Uncovered mandatory stations. Hours before 11 are never gaps.
- * A pending draft replaces the saved station on a cell the matrix shows.
+ * Empty star slices from 11:00 on. One hour is a gap when any of its quarters is.
+ * A pending draft replaces the saved station for that hour.
  * A person at Taquero 2 does not cover Taquero 1.
  * When `boardOrder` is set, gaps follow that order for every caller.
  */
@@ -95,29 +76,86 @@ export function uncoveredMandatory(input: {
   shifts: readonly MandatoryGapShift[];
   drafts?: readonly MandatoryGapDraft[];
 }): MandatoryGap[] {
+  const day = gapSlices(input);
   const gapHours = input.hours.filter((hour) => hour >= MANDATORY_GAP_START);
-  const drafts = new Map<string, string | null>(
-    (input.drafts ?? []).map((draft) => [`${draft.shiftId}|${draft.hour}`, draft.stationId]),
-  );
-  const occupied = new Set<string>();
-  for (const shift of input.shifts) {
-    for (const hour of gapHours) {
-      if (!hourIsOnMatrix(shift, input.date, hour)) continue;
-      const draftKey = `${shift.id}|${hour}`;
-      const stationId = drafts.has(draftKey) ? drafts.get(draftKey) ?? null : savedStation(shift, input.date, hour);
-      if (stationId) occupied.add(`${stationId}|${hour}`);
-    }
-  }
   const stationIds = input.boardOrder
     ? stationsInBoardOrder(input.stationIds, input.boardOrder)
     : input.stationIds;
   const gaps: MandatoryGap[] = [];
   for (const stationId of stationIds) {
     for (const hour of gapHours) {
-      if (!occupied.has(`${stationId}|${hour}`)) gaps.push({ stationId, hour });
+      const open = hourSliceIndexes(hour).some((index) => {
+        return day.slices[index]?.emptyStarStationIds.includes(stationId);
+      });
+      if (open) gaps.push({ stationId, hour });
     }
   }
   return gaps;
+}
+
+/** Quarter gaps from 11:00, one per empty star slice. Shown at any painted percent. */
+export function huecosCount(day: DaySlices): number {
+  let count = 0;
+  for (const slice of day.slices) {
+    if (chicagoHourOf(slice.start) < MANDATORY_GAP_START) continue;
+    count += slice.emptyStarStationIds.length;
+  }
+  return count;
+}
+
+function gapSlices(input: {
+  stationIds: readonly string[];
+  date: string;
+  shifts: readonly MandatoryGapShift[];
+  drafts?: readonly MandatoryGapDraft[];
+}): DaySlices {
+  const drafts = new Map<string, string | null>(
+    (input.drafts ?? []).map((draft) => [`${draft.shiftId}|${draft.hour}`, draft.stationId]),
+  );
+  const paints: SlicePaint[] = [];
+  const shifts = input.shifts.filter((shift) => shift.date === input.date);
+  for (const shift of shifts) {
+    const hours = new Map<number, string>();
+    if (!shift.supersededAt) {
+      for (const assignment of shift.assignments) {
+        hours.set(chicagoHourOf(new Date(assignment.hourStart)), assignment.stationId);
+      }
+    }
+    for (const [key, stationId] of drafts) {
+      const [shiftId, hourText] = key.split("|");
+      if (shiftId !== shift.id) continue;
+      const hour = Number(hourText);
+      if (stationId == null) hours.delete(hour);
+      else hours.set(hour, stationId);
+    }
+    for (const [hour, stationId] of hours) {
+      paints.push({
+        employeeId: shift.id,
+        shiftId: shift.id,
+        stationId,
+        hourStart: chicagoHourStart(input.date, hour),
+      });
+    }
+  }
+  return buildDaySlices({
+    date: input.date,
+    board: "cocina",
+    now: chicagoHourStart(input.date, MANDATORY_GAP_START),
+    stations: input.stationIds.map((id) => ({ id })),
+    starStationIds: input.stationIds,
+    shifts: shifts.map((shift) => ({
+      id: shift.id,
+      employeeId: shift.id,
+      board: "cocina",
+      startAt: new Date(shift.startAt),
+      endAt: new Date(shift.endAt),
+      superseded: Boolean(shift.supersededAt),
+      boardRemoved: false,
+    })),
+    paints,
+    breaks: [],
+    overlays: [],
+  });
 }
 
 export type EligibilityDot = { stationId: string; level: "training" | "ok" | "preferred" };

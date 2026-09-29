@@ -66,6 +66,7 @@ export type Messages = {
   upload: string;
   backOffice: string;
   refresh: string;
+  huecos: (count: number) => string;
   importNow: string;
   importNowStarted: string;
   importNowRunning: string;
@@ -312,6 +313,7 @@ const en: Messages = {
   upload: "Upload",
   backOffice: "Back office",
   refresh: "Refresh",
+  huecos: (count) => `Gaps ${count}`,
   importNow: "Import now",
   importNowStarted: "Import started.",
   importNowRunning: "Still running. The board updates on its own.",
@@ -574,6 +576,7 @@ const es: Messages = {
   upload: "Subir",
   backOffice: "Oficina",
   refresh: "Actualizar",
+  huecos: (count) => `Huecos ${count}`,
   importNow: "Importar ahora",
   importNowStarted: "Importación iniciada.",
   importNowRunning: "Sigue en curso. El tablero se actualiza solo.",
