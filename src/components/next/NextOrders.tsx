@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { NEXT_POLL_MS, readIsStale } from "@/lib/upcoming/cadence";
 import type { UpcomingOrder } from "@/lib/upcoming/fence";
 import type { UpcomingSnapshot } from "@/lib/upcoming/source";
 import {
@@ -26,11 +27,6 @@ import {
 } from "./prefs";
 
 type Payload = UpcomingSnapshot & { today: string };
-
-/** The page asks again every 5 minutes; the host reads C1 on the same beat. */
-const POLL_MS = 5 * 60 * 1000;
-/** No good read for this long: say so on the page. */
-const STALE_AFTER_MS = 15 * 60 * 1000;
 
 const BTN =
   "inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border-2 border-neutral-900 px-4 text-[22px] font-bold";
@@ -113,7 +109,7 @@ export function NextOrders() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefs(readPrefs());
     void load();
-    const id = window.setInterval(() => void load(), POLL_MS);
+    const id = window.setInterval(() => void load(), NEXT_POLL_MS);
     return () => window.clearInterval(id);
   }, [load]);
 
@@ -150,9 +146,7 @@ export function NextOrders() {
 
   const fetchedMs = data?.fetchedAt ? Date.parse(data.fetchedAt) : null;
   const off = data?.source === "off";
-  const showStale = Boolean(
-    data && !off && (data.stale || fetchedMs == null || clock - fetchedMs > STALE_AFTER_MS),
-  );
+  const showStale = Boolean(data && !off && readIsStale(data.stale, data.fetchedAt, clock));
 
   const step = (dir: 1 | -1) => {
     if (!focus) return;

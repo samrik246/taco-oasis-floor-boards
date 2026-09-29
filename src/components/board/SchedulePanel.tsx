@@ -11,6 +11,7 @@ import { formatCompactHour, formatHourLabel } from "@/lib/hour-grid";
 import { displayStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DayBoardDto } from "./types";
+import { T4gStrip } from "./T4gStrip";
 
 type Props = {
   day: DayBoardDto | null;
@@ -26,13 +27,14 @@ const SHIFT_COL = "left-[10.5rem] w-[4.25rem] min-w-[4.25rem] max-w-[4.25rem]";
 
 /**
  * People × hours schedule.
- * By name (default): sticky person + shift, colored blocks show the full position name.
+ * By time (default): sticky person + shift, rows follow start time,
+ * colored blocks show the full position name.
  * By position: thin section labels, colored blocks show the person’s name.
  * No full-width station banner rows.
  */
 export function SchedulePanel({ day, date, locale, t, now }: Props) {
   const [mode, setMode] = useState<ScheduleMode>("all-day");
-  const [sort, setSort] = useState<ScheduleSort>("name");
+  const [sort, setSort] = useState<ScheduleSort>("time");
 
   const grid = useMemo(() => {
     if (!day || !date) return null;
@@ -75,6 +77,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
       data-locale={locale}
       data-station-banners="false"
     >
+      <T4gStrip date={date} locale={locale} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-bold" data-testid="schedule-title">
