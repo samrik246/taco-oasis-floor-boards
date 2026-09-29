@@ -82,16 +82,9 @@ describe("S7 palette groups", () => {
 });
 
 describe("S7 puesto row groups", () => {
-  it("sorts an interleaved seed order into adjacent number order", () => {
+  it("orders rows by station sort order, not by paint family", () => {
     const order = new Map(COCINA_STATIONS.map((station) => [station.id, station.sortOrder]));
-    const row = (stationId: string) => ({
-      name: stationId,
-      employeeId: stationId,
-      startAt: "2035-04-16T14:00:00.000Z",
-      shiftId: stationId,
-      stationId,
-    });
-    const stations = [
+    const ids = [
       "pdf_pr3e",
       "pdf_tsr2",
       "pdf_crne",
@@ -100,17 +93,18 @@ describe("S7 puesto row groups", () => {
       "pdf_tsrea",
       "pdf_tsr4",
       "pdf_tsr3",
-    ].map(row).sort((a, b) => comparePintarRows(a, b, "position", order))
+    ];
+    const row = (stationId: string) => ({
+      name: stationId,
+      employeeId: stationId,
+      startAt: "2035-04-16T14:00:00.000Z",
+      shiftId: stationId,
+      stationId,
+    });
+    const stations = ids.map(row).sort((a, b) => comparePintarRows(a, b, "position", order))
       .map((item) => item.stationId);
-    const prepAt = stations.indexOf("pdf_pr1e");
-    expect(stations.slice(prepAt, prepAt + 3)).toEqual(["pdf_pr1e", "pdf_pr2e", "pdf_pr3e"]);
-    const trastesAt = stations.indexOf("pdf_tsrea");
-    expect(stations.slice(trastesAt, trastesAt + 4)).toEqual([
-      "pdf_tsrea",
-      "pdf_tsr2",
-      "pdf_tsr3",
-      "pdf_tsr4",
-    ]);
-    expect(stations.indexOf("pdf_crne")).toBeLessThan(prepAt);
+    expect(stations).toEqual(COCINA_STATIONS.map((station) => station.id).filter((id) => ids.includes(id)));
+    expect(stations.indexOf("pdf_pr1e")).toBeLessThan(stations.indexOf("pdf_pr2e"));
+    expect(stations.indexOf("pdf_pr3e")).toBeLessThan(stations.indexOf("pdf_pr1e"));
   });
 });

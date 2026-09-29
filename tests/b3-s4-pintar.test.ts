@@ -25,12 +25,14 @@ import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
 import { removeShift, restoreShift } from "@/lib/shifts/remove-restore";
 import { hashManagerCode } from "@/lib/managers/codes";
 import { signManagerSession } from "@/lib/managers/session";
-import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
+import { chicagoHourEnd, chicagoHourStart, hourGridHours } from "@/lib/hour-grid";
 import { chicagoDateTime } from "@/lib/time";
 import {
+  buildScheduleGrid,
   comparePintarRows,
   compareScheduleRows,
-  stationAtSelectedHour,
+  primaryStationId,
+  type ScheduleShiftLike,
 } from "@/lib/schedule/build-schedule";
 import { seedDemoScheduleAssignments } from "@/lib/schedule/seed-demo-assignments";
 import { syntheticCsv, type SyntheticRow } from "./helpers/synthetic-schedule";
@@ -90,7 +92,7 @@ async function seat(person: { id: string; shift: string }, stationId: string, ho
 describe("B3 S4 pintar order", () => {
   const order = new Map([["fryer", 0], ["carne", 2], ["tortilla", 5]]);
 
-  it("D1 Entrada is clock-in then name, Nombre is name, and Puesto uses the selected hour", () => {
+  it("Entrada is clock-in, and a name key still uses the schedule comparator", () => {
     const nia = { name: "Nia Moss", employeeId: "n", startAt: chicagoDateTime(date, "9:00 am").toISOString(), shiftId: "sn", stationId: null as string | null };
     const ada = { name: "Ada Moss", employeeId: "a", startAt: chicagoDateTime(date, "11:00 am").toISOString(), shiftId: "sa", stationId: "tortilla" };
     expect(compareScheduleRows(nia, ada, "time")).toBeLessThan(0);
@@ -101,15 +103,92 @@ describe("B3 S4 pintar order", () => {
       "position",
       order,
     )).toBeGreaterThan(0);
+  });
 
-    const assignments = [8, 9, 10, 11].map((hour) => ({
-      stationId: "fryer",
-      hourStart: chicagoHourStart(date, hour).toISOString(),
-    })).concat([{ stationId: "tortilla", hourStart: chicagoHourStart(date, 12).toISOString() }]);
-    expect(stationAtSelectedHour(assignments, date, 12, null)).toBe("tortilla");
-    const selected = { ...ada, stationId: stationAtSelectedHour(assignments, date, 12, null) };
-    const bea = { name: "Bea Moss", employeeId: "b", startAt: ada.startAt, shiftId: "sb", stationId: "carne" };
-    expect(comparePintarRows(bea, selected, "position", order)).toBeLessThan(0);
+  it("Puesto matches Horario: split-station tie keeps the first station, unassigned last", () => {
+    const ymd = date;
+    const start = chicagoDateTime(ymd, "9:00 am").toISOString();
+    const end = chicagoDateTime(ymd, "5:00 pm").toISOString();
+    const stations = [
+      { id: "late", label: "Late", color: "gray", sortOrder: 0 },
+      { id: "early", label: "Early", color: "gray", sortOrder: 0 },
+      { id: "zeta", label: "Zeta", color: "gray", sortOrder: 5 },
+    ];
+    const hours = (pairs: ReadonlyArray<readonly [string, number]>) =>
+      pairs.map(([stationId, hour]) => ({
+        stationId,
+        hourStart: chicagoHourStart(ymd, hour).toISOString(),
+        hourEnd: chicagoHourEnd(ymd, hour).toISOString(),
+      }));
+    const shifts: ScheduleShiftLike[] = [
+      {
+        id: "zoe",
+        date: ymd,
+        startAt: start,
+        endAt: end,
+        employee: { id: "zoe", firstName: "Zoe", lastName: "Moss" },
+        assignments: hours([["late", 9], ["early", 10], ["late", 11], ["early", 12]]),
+      },
+      {
+        id: "ada",
+        date: ymd,
+        startAt: start,
+        endAt: end,
+        employee: { id: "ada", firstName: "Ada", lastName: "Moss" },
+        assignments: hours([["early", 9], ["early", 10], ["early", 11], ["late", 12]]),
+      },
+      {
+        id: "mia",
+        date: ymd,
+        startAt: start,
+        endAt: end,
+        employee: { id: "mia", firstName: "Mia", lastName: "Moss" },
+        assignments: hours([["zeta", 9]]),
+      },
+      {
+        id: "nia",
+        date: ymd,
+        startAt: start,
+        endAt: end,
+        employee: { id: "nia", firstName: "Nia", lastName: "Moss" },
+        assignments: [],
+      },
+    ];
+    const gridHours = hourGridHours();
+    expect(primaryStationId(shifts[0]!, ymd, gridHours)).toBe("late");
+    expect(primaryStationId(shifts[1]!, ymd, gridHours)).toBe("early");
+    expect(primaryStationId(shifts[3]!, ymd, gridHours)).toBeNull();
+
+    const horario = buildScheduleGrid({
+      date: ymd,
+      shifts,
+      stations,
+      mode: "all-day",
+      sort: "position",
+      unassignedGroupLabel: "Open",
+    }).sections.flatMap((section) => section.rows.map((row) => row.shiftId));
+    const stationOrder = new Map(stations.map((station) => [station.id, station.sortOrder]));
+    const pintar = [...shifts].sort((a, b) => comparePintarRows(
+      {
+        name: `${a.employee.firstName} ${a.employee.lastName}`,
+        employeeId: a.employee.id,
+        startAt: a.startAt,
+        shiftId: a.id,
+        stationId: primaryStationId(a, ymd, gridHours),
+      },
+      {
+        name: `${b.employee.firstName} ${b.employee.lastName}`,
+        employeeId: b.employee.id,
+        startAt: b.startAt,
+        shiftId: b.id,
+        stationId: primaryStationId(b, ymd, gridHours),
+      },
+      "position",
+      stationOrder,
+    )).map((shift) => shift.id);
+
+    expect(pintar).toEqual(horario);
+    expect(pintar).toEqual(["zoe", "ada", "mia", "nia"]);
   });
 });
 
