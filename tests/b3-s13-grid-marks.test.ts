@@ -3,25 +3,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { stationColorClass } from "@/components/board/board-helpers";
+import { STATION_COLORS } from "@/lib/admin/validate";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { gridCellMarkClass, markBorderClass, markFillClass } from "@/lib/selection-mark";
 
-const COLORS = [
-  "pink",
-  "green",
-  "yellow",
-  "purple",
-  "lime",
-  "blue",
-  "lavender",
-  "gray",
-  "teal",
-  "orange",
-  "cyan",
-  "red",
-  "brown",
-  "maroon",
-];
+const COLORS = STATION_COLORS;
 
 describe("B3 S13 grid marks", () => {
   it("maps no, poco, bien, and fuerte onto the SelectionMarkDot tokens", () => {

@@ -162,21 +162,22 @@ test("K3 owner outlines follow the selected station and Libre stays in the aria-
   await expect(page.getByTestId(`paint-cell-${bea}-12`)).toHaveAttribute("data-outline", "solid");
   await expect(page.getByTestId(`paint-cell-${fia}-12`)).toHaveAttribute("data-outline", "filled");
   await expect(page.getByTestId(`paint-cell-${fia}-12`)).toHaveAttribute("data-wash", "1");
-  const paintedFill = stationColorClass("pink");
-  const solidFill = stationSolidClass("pink");
+  const paintedFill = stationColorClass("light-red");
+  const solidFill = stationSolidClass("light-red");
   for (const id of [noa, pia, bea, fia]) {
     const className = await page.getByTestId(`paint-cell-${id}-12`).getAttribute("class");
     expect(className ?? "").not.toContain(paintedFill);
     expect(className ?? "").not.toContain(solidFill);
   }
   await expect(page.getByTestId(`paint-cell-${pia}-12`)).toHaveClass(/border-dashed/);
-  await expect(page.getByTestId(`paint-cell-${pia}-12`)).toHaveClass(/border-pink-600/);
-  await expect(page.getByTestId(`paint-cell-${bea}-12`)).toHaveClass(/border-pink-600/);
+  await expect(page.getByTestId(`paint-cell-${pia}-12`)).toHaveClass(/border-red-600/);
+  await expect(page.getByTestId(`paint-cell-${bea}-12`)).toHaveClass(/border-red-600/);
   await expect(page.getByTestId(`paint-cell-${bea}-12`)).not.toHaveClass(/border-dashed/);
-  await expect(page.getByTestId(`paint-cell-${fia}-12`)).toHaveClass(/bg-pink-50/);
+  await expect(page.getByTestId(`paint-cell-${fia}-12`)).toHaveClass(/bg-red-50/);
   const painted = page.getByTestId(`paint-cell-${gil}-12`);
   await expect(painted).not.toHaveAttribute("data-outline", /.+/);
-  await expect(painted).toHaveClass(/bg-orange-200/);
+  await expect(painted).toHaveClass(/bg-white/);
+  await expect(painted).toHaveClass(/border-neutral-900/);
   const off = page.locator(`[data-testid='paint-row-${noa}'] td[data-kind='off']`).first();
   await expect(off.locator("button")).toHaveCount(0);
 
@@ -205,8 +206,8 @@ test("K4 a manager outline is the same on every open cell and the payload has no
   const classes = await outlined.evaluateAll((nodes) => nodes.map((node) => node.className));
   expect(classes.length).toBeGreaterThan(1);
   expect(new Set(classes).size).toBe(1);
-  expect(classes[0] ?? "").not.toContain(stationColorClass("pink"));
-  expect(classes[0] ?? "").not.toContain(stationSolidClass("pink"));
+  expect(classes[0] ?? "").not.toContain(stationColorClass("light-red"));
+  expect(classes[0] ?? "").not.toContain(stationSolidClass("light-red"));
   expect(classes[0] ?? "").toContain("bg-white");
   await expect.poll(() => bodies.length).toBeGreaterThan(0);
   for (const body of bodies) expect(body).not.toContain('"abilities"');
@@ -230,11 +231,12 @@ test("K5 Habilidades headers keep the station colour, cells use the S12 mark, an
   const header = page.getByTestId("ability-header-pdf_guia");
   const cell = page.getByTestId("ability-cell-b3s12-grid-moss-pdf_guia");
   await expect(cell).toHaveText("poco");
-  await expect(header).toHaveClass(/bg-orange-200/);
+  await expect(header).toHaveClass(/bg-white/);
+  await expect(header).toHaveClass(/border-neutral-900/);
   await expect(cell).toHaveAttribute("data-mark", "dashed");
   await expect(cell).toHaveClass(/border-dashed/);
-  await expect(cell).toHaveClass(/border-orange-600/);
-  await expect(cell).not.toHaveClass(/bg-orange-200/);
+  await expect(cell).toHaveClass(/border-neutral-800/);
+  await expect(cell).not.toHaveClass(/border-neutral-900/);
   const marks = await page.locator("[data-testid^='ability-cell-']").evaluateAll((nodes) =>
     nodes.map((node) => ({
       text: (node.textContent ?? "").trim(),

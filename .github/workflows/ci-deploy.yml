@@ -121,6 +121,30 @@ jobs:
       - name: End-to-end tests (Playwright)
         run: pnpm test:e2e
 
+      - name: Require S14 board snapshots
+        # A green run never reaches the failure upload below, so these two
+        # images are the colour-review record for this exact head.
+        if: success()
+        run: |
+          set -euo pipefail
+          for image in test-results/s14-caja.png test-results/s14-cocina.png; do
+            [[ -f "$image" ]] || {
+              echo "::error::Missing ${image} for ${{ github.sha }}"
+              exit 1
+            }
+          done
+
+      - name: Upload S14 board snapshots
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s14-board-snapshots-${{ github.sha }}
+          path: |
+            test-results/s14-caja.png
+            test-results/s14-cocina.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload Playwright traces on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -175,7 +199,7 @@ jobs:
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts \
                         scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
                         scripts/seed-ability-columns.ts scripts/agent-paint.ts \
-                        scripts/import-staff-passcodes.ts; do
+                        scripts/import-staff-passcodes.ts scripts/s14-station-colours.ts; do
             /usr/bin/sed 's/^ *//' "$WORKFLOW" | /usr/bin/grep -Fx "$script" > /dev/null || {
               echo "::error::RUNTIME_PATHS must pack ${script}."
               exit 1
@@ -204,6 +228,7 @@ jobs:
             scripts/readiness-check.ts
             scripts/release-lock.sh
             scripts/remote-deploy.sh
+            scripts/s14-station-colours.ts
             scripts/seed-ability-columns.ts
             scripts/seed-position-map.ts
             scripts/set-owner.ts
@@ -242,7 +267,7 @@ jobs:
           for script in scripts/wiw-export.ts scripts/import-from-folder.ts scripts/seed-position-map.ts \
                         scripts/release-lock.sh scripts/edit-board.py scripts/set-owner.ts \
                         scripts/seed-ability-columns.ts scripts/agent-paint.ts \
-                        scripts/import-staff-passcodes.ts; do
+                        scripts/import-staff-passcodes.ts scripts/s14-station-colours.ts; do
             /usr/bin/grep -Fxq "./${script}" "$STAGE.files" || {
               echo "::error::Production artifact is missing ${script}."
               exit 1

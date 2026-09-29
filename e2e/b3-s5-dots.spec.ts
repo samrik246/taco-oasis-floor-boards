@@ -136,7 +136,7 @@ test("E3 owner dots at 12 are full, dim and absent, and a pending Taquero 1 pain
   const dim = page.getByTestId(`eligibility-dot-${bea}-12-pdf_tq1r`);
   await expect(full).toHaveAttribute("data-level", "preferred");
   await expect(full).toHaveAttribute("data-mark", "filled");
-  await expect(full.locator("span")).toHaveClass(/pink/);
+  await expect(full.locator("span")).toHaveClass(/red-600/);
   await expect(full.locator("span")).toHaveClass(/ring-white/);
   await expect(dim).toHaveAttribute("data-level", "training");
   await expect(dim).toHaveAttribute("data-mark", "dashed");
