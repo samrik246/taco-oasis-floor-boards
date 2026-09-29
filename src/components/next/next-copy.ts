@@ -26,6 +26,8 @@ export const NEXT_COPY = {
     ready: "Listo a las",
     modifiers: "Detalles",
     eventTime: "Hora del evento",
+    stripReady: "Listo",
+    peopleCount: (n: number) => `${n} ${n === 1 ? "persona" : "personas"}`,
     date: "Fecha",
     lines: "Líneas de cocina",
     close: "Cerrar",
@@ -65,6 +67,8 @@ export const NEXT_COPY = {
     ready: "Ready by",
     modifiers: "Details",
     eventTime: "Event time",
+    stripReady: "Ready",
+    peopleCount: (n: number) => `${n} ${n === 1 ? "person" : "people"}`,
     date: "Date",
     lines: "Kitchen lines",
     close: "Close",
@@ -85,7 +89,7 @@ export const NEXT_COPY = {
 
 export type NextCopy = (typeof NEXT_COPY)["es"];
 
-/** Guests are C1's estimate, never final: every surface prints the label. */
+/** NEXT card and detail: guests are C1's estimate, so those surfaces print the label. */
 export function guestsText(guests: number, t: NextCopy): string {
   return `${guests} (${t.confirm})`;
 }

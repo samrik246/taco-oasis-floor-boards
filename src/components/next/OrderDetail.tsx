@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import type { Locale } from "@/lib/i18n";
 import type { UpcomingOrder } from "@/lib/upcoming/fence";
 import { guestsText, type NextCopy } from "./next-copy";
+import { stripOrderLabel } from "./strip-label";
 import { dayHeading, relativeDay, time12 } from "./format";
 import { FulfillWord, UrgencyChip, fulfillBar } from "./parts";
 import type { NextColumn } from "./prefs";
@@ -12,6 +13,8 @@ type Props = {
   t: NextCopy;
   locale: Locale;
   today: string;
+  /** Floor-board strip. Ready time and people, and no order code. */
+  surface?: "board";
   onClose?: () => void;
 };
 
@@ -27,7 +30,7 @@ function modifierList(raw: string): string[] {
  * One order's kitchen detail, filling the screen. Renders only fenced fields.
  * Big text: 22px body, 28px item names, 32px date and time.
  */
-export function OrderDetail({ order, columns, t, locale, today, onClose }: Props) {
+export function OrderDetail({ order, columns, t, locale, today, surface, onClose }: Props) {
   return (
     <section
       className="flex min-h-full flex-col gap-4 bg-white p-4 text-[22px] text-neutral-900 sm:p-6"
@@ -61,21 +64,32 @@ export function OrderDetail({ order, columns, t, locale, today, onClose }: Props
         data-testid="next-detail-band"
         data-fulfill={order.fulfill_type}
       >
-        {columns.fulfill && <FulfillWord type={order.fulfill_type} t={t} />}
-        {columns.ready && (
-          <span className="font-semibold">
-            {t.ready} <span className="font-black tabular-nums">{order.ready_time ? time12(order.ready_time) : "—"}</span>
-          </span>
-        )}
-        {columns.guests && (
-          <span className="font-semibold">
-            {t.guests}{" "}
-            <span className="font-black tabular-nums">
-              {order.guests == null ? "—" : guestsText(order.guests, t)}
+        {surface === "board" ? (
+          <>
+            <FulfillWord type={order.fulfill_type} t={t} />
+            <span className="font-semibold" data-testid="t4g-order-label">
+              {stripOrderLabel(order, t)}
             </span>
-          </span>
+          </>
+        ) : (
+          <>
+            {columns.fulfill && <FulfillWord type={order.fulfill_type} t={t} />}
+            {columns.ready && (
+              <span className="font-semibold">
+                {t.ready} <span className="font-black tabular-nums">{order.ready_time ? time12(order.ready_time) : "—"}</span>
+              </span>
+            )}
+            {columns.guests && (
+              <span className="font-semibold">
+                {t.guests}{" "}
+                <span className="font-black tabular-nums">
+                  {order.guests == null ? "—" : guestsText(order.guests, t)}
+                </span>
+              </span>
+            )}
+            <span className="ml-auto text-[20px] text-neutral-600">#{order.id_tail}</span>
+          </>
         )}
-        <span className="ml-auto text-[20px] text-neutral-600">#{order.id_tail}</span>
       </div>
 
       <h3 className="text-[26px] font-black">{t.lines}</h3>
