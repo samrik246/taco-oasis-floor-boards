@@ -1,0 +1,217 @@
+{
+  "rows": [
+    [
+      "ORDEN PARA Fixture",
+      "",
+      ""
+    ],
+    [
+      "Jueves 15 oct 2026 · PICKUP 10:00 AM · 15 PERSONAS",
+      "",
+      ""
+    ],
+    [
+      "Hecho del pedido en Square con la receta v33.",
+      "",
+      ""
+    ],
+    [
+      "",
+      "",
+      ""
+    ],
+    [
+      "LO QUE PIDIERON",
+      "",
+      "Listo"
+    ],
+    [
+      5,
+      "Taco Tray ASADA",
+      "☐"
+    ],
+    [
+      5,
+      "Taco Tray PASTOR",
+      "☐"
+    ],
+    [
+      5,
+      "Taco Tray POLLO",
+      "☐"
+    ],
+    [
+      13,
+      "Rice Tray",
+      "☐"
+    ],
+    [
+      13,
+      "Beans Tray",
+      "☐"
+    ],
+    [
+      1,
+      "Aguas Frescas Gallon MELÓN",
+      "☐"
+    ],
+    [
+      1,
+      "Aguas Frescas Gallon PIÑA",
+      "☐"
+    ],
+    [
+      14,
+      "Dips for Chips",
+      "☐"
+    ],
+    [
+      "",
+      "",
+      ""
+    ],
+    [
+      "CALIENTE · charolas con foil",
+      "",
+      "Listo"
+    ],
+    [
+      1.25,
+      "lb ASADA",
+      "☐"
+    ],
+    [
+      1.25,
+      "lb PASTOR",
+      "☐"
+    ],
+    [
+      1.25,
+      "lb POLLO",
+      "☐"
+    ],
+    [
+      30,
+      "tortillas de MAIZ",
+      "☐"
+    ],
+    [
+      3.25,
+      "lb arroz",
+      "☐"
+    ],
+    [
+      3.25,
+      "lb frijoles",
+      "☐"
+    ],
+    [
+      "",
+      "",
+      ""
+    ],
+    [
+      "FRÍO · botes 32oz",
+      "",
+      "Listo"
+    ],
+    [
+      1,
+      "galón agua de melón",
+      "☐"
+    ],
+    [
+      1,
+      "galón agua de piña",
+      "☐"
+    ],
+    [
+      3.5,
+      "bote 32oz salsa chunky",
+      "☐"
+    ],
+    [
+      0.5,
+      "bote 32oz salsa verde y roja",
+      "☐"
+    ],
+    [
+      0.25,
+      "bote 32oz cilantro, cebolla y limón",
+      "☐"
+    ],
+    [
+      "",
+      "",
+      ""
+    ],
+    [
+      "EQUIPO",
+      "",
+      "Listo"
+    ],
+    [
+      16,
+      "platos",
+      "☐"
+    ],
+    [
+      16,
+      "tenedores",
+      "☐"
+    ],
+    [
+      16,
+      "servilletas",
+      "☐"
+    ],
+    [
+      2,
+      "pinzas grandes",
+      "☐"
+    ],
+    [
+      2,
+      "cucharas grandes",
+      "☐"
+    ],
+    [
+      1,
+      "bolsas de hielo",
+      "☐"
+    ],
+    [
+      32,
+      "vasos transparentes 16oz",
+      "☐"
+    ],
+    [
+      "",
+      "",
+      ""
+    ],
+    [
+      "REVISAR / FALTA INFO",
+      "",
+      ""
+    ],
+    [
+      "",
+      "(nada)",
+      ""
+    ]
+  ],
+  "sectionRows": [
+    5,
+    15,
+    23,
+    30
+  ],
+  "reviewRow": 39,
+  "orderId": "ORDFIXTUREAgIeZY",
+  "idTail": "AgIeZY",
+  "eventDate": "2026-10-15",
+  "eventTime": "10:00",
+  "fulfillType": "PICKUP",
+  "guests": 15
+}
