@@ -245,10 +245,12 @@ async function handedBooking(
 }
 
 /**
- * A star seat handed to someone names that person on the pending break.
- * The lock is already held. Only the ceiling-and-star decision books,
- * and only by a conditional write. A full ceiling leaves the row pending,
- * cover named, and rolls one quarter when that quarter still fits.
+ * A star seat handed to someone names that person only when this overlay
+ * covers the whole break, start to end, and their shift covers it too.
+ * A partial overlap leaves the row untouched. The lock is already held.
+ * Only the ceiling-and-star decision books, and only by a conditional write.
+ * A full ceiling leaves the row pending, cover named, and rolls one quarter
+ * when that quarter still fits.
  */
 async function handStar(
   tx: Prisma.TransactionClient,
@@ -270,7 +272,7 @@ async function handStar(
   });
   for (const row of breaks) {
     if (row.employeeId === input.arrivingId) continue;
-    if (row.endAt.getTime() <= input.start.getTime() || input.end.getTime() <= row.startAt.getTime()) continue;
+    if (input.start.getTime() > row.startAt.getTime() || input.end.getTime() < row.endAt.getTime()) continue;
     const paint = await tx.assignment.findFirst({
       where: {
         employeeId: row.employeeId,

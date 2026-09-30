@@ -40,7 +40,7 @@ function day(overlays: OverlayDto[]): DayBoardDto {
       endAt: chicagoDateTime(date, "4:00 pm").toISOString(),
       sourcePosition: "Caja",
       board: "caja",
-      employee: { id: "ada", firstName: "Ada", lastName: "Moss" },
+      employee: { id: "ada", firstName: "Ada", lastName: "Moss", email: null },
       assignments: [],
     }],
     overlays,

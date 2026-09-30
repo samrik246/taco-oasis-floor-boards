@@ -335,6 +335,52 @@ describe("B4 PR 4 manager menu", () => {
     expect(pending.coverEmployeeId).toBeNull();
   });
 
+  it("leaves the cover unchanged when a full-shift partner overlays only one quarter", async () => {
+    const day = "2036-06-19";
+    const later = chicagoDateTime(day, "1:00 pm");
+    await cajaStation("green1");
+    await cajaStation("multi");
+    const ada = await person("Sue", "green1", undefined, day);
+    const cam = await person("Ted", "multi", undefined, day);
+    const bea = await person("Uma", null, undefined, day);
+    const adaShift = await prisma.shift.findFirstOrThrow({ where: { employeeId: ada.id, date: day } });
+    const beaShift = await prisma.shift.findFirstOrThrow({ where: { employeeId: bea.id, date: day } });
+    await prisma.staffBreak.create({
+      data: {
+        employeeId: ada.id,
+        shiftId: adaShift.id,
+        board: "caja",
+        date: day,
+        startAt: at("1:00 pm", day),
+        endAt: at("1:30 pm", day),
+        actor: "test",
+        status: "pending",
+        coverEmployeeId: bea.id,
+        coverShiftId: beaShift.id,
+      },
+    });
+    await saveOverlay({
+      manager,
+      board: "caja",
+      date: day,
+      kind: "switch",
+      employeeId: ada.id,
+      partnerEmployeeId: cam.id,
+      window: "quarters",
+      startAt: at("1:00 pm", day),
+      endAt: at("1:15 pm", day),
+      now: later,
+    });
+    const pending = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: day } },
+    });
+    expect(pending.status).toBe("pending");
+    expect(pending.coverEmployeeId).toBe(bea.id);
+    expect(pending.coverShiftId).toBe(beaShift.id);
+    expect(pending.startAt.getTime()).toBe(at("1:00 pm", day).getTime());
+    expect(pending.endAt.getTime()).toBe(at("1:30 pm", day).getTime());
+  });
+
   it("leaves the star empty when a booked cover is removed or switched away", () => {
     const start = at("2:00 pm");
     const end = at("2:15 pm");
