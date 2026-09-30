@@ -1,3 +1,4 @@
+import { seedTodayPeople } from "./today-fixture";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
@@ -95,7 +96,7 @@ test.beforeAll(async () => {
 
 test("C6 a mandatory gap lights at 12 and a pending paint clears it, and 10 stays dark", async ({ page }) => {
   await keepDesk(page);
-  await unlock(page, "2468");
+  await unlock(page, "8642");
   await openCocina(page, gapDate);
   const shiftId = await page.getByTestId("paint-matrix").locator("[data-testid^='paint-row-']").first().getAttribute("data-testid");
   const id = shiftId?.replace("paint-row-", "");
@@ -183,11 +184,12 @@ test.describe("coarse pointer", () => {
     await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
     await expect(page.getByTestId("mandatory-toggle-pdf_pstl")).toHaveAttribute("aria-pressed", "false");
 
+    const today = await seedTodayPeople("mandatory-today");
     await unlock(page, "2468");
-    await openCocina(page, markDate);
+    await openCocina(page, today);
     await expect(page.locator("[data-testid^='mandatory-toggle-']")).toHaveCount(0);
     await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
-    await expect(page.getByTestId("paint-palette-pdf_pstl")).toContainText("Falta");
+    await expect(page.getByTestId("paint-palette-pdf_pstl")).not.toContainText("Falta");
 
     await page.goto("/");
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");

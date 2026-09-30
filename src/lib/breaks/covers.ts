@@ -1,6 +1,7 @@
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { chicagoHourOf } from "@/lib/hour-grid";
-import { MANDATORY_GAP_START } from "@/lib/mandatory";
+import { PAINT_FAMILIES, familyForStation } from "@/lib/assignments/paint-families";
+import { isDefaultMandatory, MANDATORY_GAP_START } from "@/lib/mandatory";
 import { abilitySortRank } from "@/lib/rules/abilities";
 import { assessStarGate } from "@/lib/slices/break-gate";
 import {
@@ -265,4 +266,34 @@ function coverRank(
     worst = Math.max(worst, abilitySortRank(level));
   }
   return worst;
+}
+
+/** Seat 2 only, on the same board for the entire window, using effective paint/overlays. */
+export function numberedSeatCover(input: Parameters<typeof listBreakCovers>[0]): Extract<BreakCover, { kind: "simple" }> | null {
+  const day = buildDaySlices({
+    ...input, now: input.startAt, stations: input.starStationIds.map(id => ({ id })),
+    breaks: input.breaks.filter(b => b.employeeId !== input.employeeId), overlays: input.overlays ?? [],
+  });
+  const slices = sliceIndexesTouching(day, input.startAt, input.endAt).map(i => day.slices[i]);
+  if (!slices.length || slices.some(s => !s)) return null;
+  const candidates = listBreakCovers(input).filter((c): c is Extract<BreakCover, { kind: "simple" }> => c.kind === "simple");
+  for (const candidate of candidates) {
+    const held = input.shifts.find(s => s.id === candidate.shiftId && s.board === input.board && !s.superseded && !s.boardRemoved
+      && s.startAt <= input.startAt && s.endAt >= input.endAt);
+    if (!held) continue;
+    if (input.breaks.some(b => b.employeeId !== input.employeeId && b.status === "booked"
+      && b.startAt < input.endAt && b.endAt > input.startAt
+      && (b.employeeId === candidate.employeeId || b.coverEmployeeId === candidate.employeeId || b.shuffleEmployeeId === candidate.employeeId))) continue;
+    const matches = slices.every(slice => {
+      const asker = slice.people.find(p => p.employeeId === input.employeeId);
+      const cover = slice.people.find(p => p.employeeId === candidate.employeeId);
+      if (!asker?.stationId || !cover || cover.onBreak) return false;
+      const family = familyForStation(asker.stationId);
+      if (!family) return false;
+      const pair = PAINT_FAMILIES[family];
+      return isDefaultMandatory(pair[0]) && asker.stationId === pair[0] && cover.stationId === pair[1];
+    });
+    if (matches) return candidate;
+  }
+  return null;
 }

@@ -272,13 +272,15 @@ describe("B4 PR 3 five-minute pick", () => {
     expect(listed.rolledEnded).toEqual([]);
     expect(JSON.stringify(listed)).not.toContain(asker.id);
 
+    const owner = await prisma.manager.create({ data: { name: "Synthetic Replacement Owner", codeHash: "synthetic-unused", role: "owner" } });
     const changed = await replaceAutoCover({
-      manager: { id: "mgr", name: "Gerente", kind: "manager" },
+      manager: { id: owner.id, name: owner.name, kind: "manager" },
       board: "cocina",
       employeeId: asker.id,
       coverEmployeeId: extras[1]!.id,
       now: when,
     });
+    await prisma.manager.delete({ where: { id: owner.id } });
     expect(changed.status).toBe("booked");
     const after = await prisma.staffBreak.findUniqueOrThrow({ where: { id: row.id } });
     expect(after.auto).toBe(false);

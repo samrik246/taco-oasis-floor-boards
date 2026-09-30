@@ -1,3 +1,4 @@
+import { seedTodayPeople } from "./today-fixture";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
@@ -36,9 +37,9 @@ async function unlock(page: Page, code: string) {
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
 
-async function openCocina(page: Page) {
-  await expect(page.getByTestId("compact-date").locator(`option[value="${dotDate}"]`)).toHaveCount(1);
-  await page.getByTestId("compact-date").selectOption(dotDate);
+async function openCocina(page: Page, date = dotDate) {
+  await expect(page.getByTestId("compact-date").locator(`option[value="${date}"]`)).toHaveCount(1);
+  await page.getByTestId("compact-date").selectOption(date);
   await page.getByTestId("compact-board").selectOption("cocina");
   await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
@@ -161,11 +162,12 @@ test("E3 owner dots at 12 are full, dim and absent, and a pending Taquero 1 pain
 });
 
 test("E4 a manager payload has no dots or abilities, and an owner lock clears the dots", async ({ page }) => {
+  const today = await seedTodayPeople("dotDate-today");
   const managerBodies: string[] = [];
   let watchManager = true;
   page.on("response", async (response) => {
     if (!watchManager || !response.ok()) return;
-    if (!response.url().includes(`/api/boards/cocina/days/${dotDate}`)) return;
+    if (!response.url().includes(`/api/boards/cocina/days/${today}`)) return;
     try {
       managerBodies.push(await response.text());
     } catch {
@@ -175,7 +177,7 @@ test("E4 a manager payload has no dots or abilities, and an owner lock clears th
 
   await keepDesk(page);
   await unlock(page, "2468");
-  await openCocina(page);
+  await openCocina(page, today);
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-show-levels", "0");
   await expect(page.locator("[data-testid^='eligibility-dot-']")).toHaveCount(0);
   await expect.poll(() => managerBodies.length).toBeGreaterThan(0);

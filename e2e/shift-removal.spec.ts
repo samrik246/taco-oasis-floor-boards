@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ensureSampleLoaded } from "./load-sample-api";
 
-async function openTurnos(page: Page, code = "2468") {
+async function openTurnos(page: Page, code = "8642") {
   await page.goto("/back-office");
   await page.getByTestId("back-office-code").fill(code);
   await page.getByTestId("back-office-submit").click();
@@ -71,7 +71,7 @@ test("a second manager's stale removal cannot remove the same shift twice", asyn
 
   const secondContext = await browser.newContext();
   const second = await secondContext.newPage();
-  await openTurnos(second, "1357");
+  await openTurnos(second, "e2e-second-owner");
   await second.getByTestId("turnos-date").fill("2026-09-20");
   await second.getByTestId("shift-removal-toggle").click();
   const staleRow = second.getByTestId(rowId!);

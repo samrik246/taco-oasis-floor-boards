@@ -16,7 +16,7 @@ function chicago(clock: string): Date {
 async function unlock(page: Page) {
   await page.goto("/");
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill("8642");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }

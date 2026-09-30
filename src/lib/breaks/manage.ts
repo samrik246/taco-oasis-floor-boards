@@ -1,3 +1,5 @@
+import { approvalPreview } from "@/lib/breaks/preview";
+import { breakState } from "@/lib/breaks/status";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { prisma } from "@/lib/db";
 import {
@@ -54,8 +56,9 @@ export async function loadManagedBreak(input: {
   board: "caja" | "cocina";
   employeeId: string;
   now?: Date;
+  date?: string;
 }) {
-  const date = chicagoToday(input.now ?? breaksNow());
+  const date = input.date ?? chicagoToday(input.now ?? breaksNow());
   const employee = await prisma.employee.findUnique({
     where: { id: input.employeeId },
     select: { id: true, firstName: true },
@@ -69,6 +72,7 @@ export async function loadManagedBreak(input: {
   });
   const otherBreaks = await liveOtherBreaks(date, employee.id);
   const row: ManagedBreakRow = !savedRow ? "absent" : savedRow.board === input.board ? "this" : "other";
+  const preview = await approvalPreview(date, input.board, employee.id);
   return {
     firstName: employee.firstName,
     allowanceMinutes: breakAllowanceMinutes(scheduledMinutes(shifts)),
@@ -78,7 +82,11 @@ export async function loadManagedBreak(input: {
       endAt: shift.endAt.toISOString(),
     })),
     blocked: blockedBreakQuarters({ date, board: input.board, shifts, otherBreaks }),
-    slots: offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }),
+    slots: offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }).flatMap(slot => {
+      const approval = preview(new Date(slot.startAt), new Date(slot.endAt));
+      return approval ? [{ ...slot, board: input.board, approval }] : [];
+    }),
+    state: savedRow ? breakState(savedRow, input.now ?? breaksNow()) : "absent",
     saved: row === "this" && savedRow && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
@@ -199,6 +207,8 @@ export async function saveManagedBreak(input: {
   shuffleEmployeeId?: string | null;
   now?: Date;
 }) {
+  const now = input.now ?? breaksNow();
+  if (chicagoToday(input.startAt) !== chicagoToday(now) || chicagoToday(new Date(input.endAt.getTime() - 1)) !== chicagoToday(now)) throw new BreakRefused("NOT_TODAY");
   return saveBreak({
     employeeId: input.employeeId,
     date: chicagoToday(input.now ?? breaksNow()),
@@ -206,6 +216,7 @@ export async function saveManagedBreak(input: {
     endAt: input.endAt,
     expectedBoard: input.board,
     actor: input.manager,
+    authorityNow: input.now ?? breaksNow(),
     coverEmployeeId: input.coverEmployeeId,
     shuffleEmployeeId: input.shuffleEmployeeId,
   });
@@ -250,5 +261,6 @@ export async function clearManagedBreak(input: {
     date: chicagoToday(input.now ?? breaksNow()),
     board: input.board,
     actor: input.manager,
+    authorityNow: input.now ?? breaksNow(),
   });
 }

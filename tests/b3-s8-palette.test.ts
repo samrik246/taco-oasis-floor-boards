@@ -163,7 +163,7 @@ describe("B3 S8 station use counts", () => {
 
   it("counts saved rows in the window for that board, and the payload has no names or levels", async () => {
     const manager = await prisma.manager.create({
-      data: { name: `${stamp} Manager`, codeHash: hashManagerCode(`${stamp}-code`), role: "manager" },
+      data: { name: `${stamp} Manager`, codeHash: hashManagerCode(`${stamp}-code`), role: "owner" },
     });
     managerId = manager.id;
     token = signManagerSession({ id: manager.id, name: manager.name });

@@ -1,3 +1,4 @@
+import { seedTodayPeople } from "./today-fixture";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
@@ -87,6 +88,7 @@ test("owner taps Habilidades through the four words and a mixed family becomes b
 });
 
 test("manager and staff responses and screens carry no ability levels", async ({ page }) => {
+  await seedTodayPeople("abilities-today");
   const payloads: string[] = [];
   page.on("response", async (response) => {
     const url = response.url();

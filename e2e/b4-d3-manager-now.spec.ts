@@ -85,7 +85,7 @@ test("a manager moves a break on Pintar, the stripe moves, and the now page show
 
   await page.goto("/");
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill("8642");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
   await page.getByTestId("compact-date").selectOption(date);

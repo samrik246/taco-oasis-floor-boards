@@ -10,7 +10,7 @@ async function liveOtherBreaks(
 ): Promise<{ board: string; startAt: Date; endAt: Date }[]> {
   const others = await tx.staffBreak.findMany({
     where: { date, employeeId: { not: employeeId } },
-    select: { shiftId: true, board: true, startAt: true, endAt: true },
+    select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
   });
   if (others.length === 0) return [];
   const live = await tx.shift.findMany({
@@ -24,7 +24,7 @@ async function liveOtherBreaks(
   const liveIds = new Set(live.map((shift) => shift.id));
   return others
     .filter((row) => liveIds.has(row.shiftId))
-    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
 }
 
 async function deleteBreakCountsOnly(
@@ -45,6 +45,7 @@ async function deleteBreakCountsOnly(
 
 /** One counts-only line. A missing break is a no-op. */
 export async function dropBreakForShift(tx: Prisma.TransactionClient, shiftId: string): Promise<boolean> {
+  await invalidateCoverShifts(tx, [shiftId], new Set([shiftId]));
   const row = await tx.staffBreak.findFirst({ where: { shiftId } });
   if (!row) return false;
   await deleteBreakCountsOnly(tx, row);
@@ -76,6 +77,7 @@ export async function dropImportedBreaks(
   }
 
   const affectedIds = [...new Set([...dead, ...input.changedShiftIds])];
+  await invalidateCoverShifts(tx, affectedIds, dead);
   if (affectedIds.length === 0) return dropped;
   const touched = await tx.shift.findMany({
     where: { id: { in: affectedIds } },
@@ -114,4 +116,23 @@ export async function dropImportedBreaks(
     }
   }
   return dropped;
+}
+
+/** Losing a named cover returns a reservation to pending; it never remains permission to leave. */
+async function invalidateCoverShifts(tx: Prisma.TransactionClient, ids: readonly string[], dead: ReadonlySet<string>) {
+  if (!ids.length) return;
+  const rows = await tx.staffBreak.findMany({ where: { status: "booked", OR: [
+    { coverShiftId: { in: [...ids] } }, { shuffleShiftId: { in: [...ids] } },
+  ] } });
+  for (const row of rows) {
+    const coverIds = [row.coverShiftId, row.shuffleShiftId].filter((id): id is string => id != null);
+    const live = await tx.shift.findMany({ where: { id: { in: coverIds }, supersededAt: null, boardRemoved: false } });
+    const valid = coverIds.every(id => !dead.has(id) && live.some(s => s.id === id && s.startAt <= row.startAt && s.endAt >= row.endAt));
+    if (valid) continue;
+    await tx.staffBreak.update({ where: { id: row.id }, data: {
+      status: "pending", coverEmployeeId: null, coverShiftId: null,
+      shuffleEmployeeId: null, shuffleShiftId: null, auto: false,
+    } });
+    await writeBoardChange(tx, { ...BREAK_LOG_ACTOR, route: "breaks/cover-invalidated" }, { date: row.date, count: 1 });
+  }
 }

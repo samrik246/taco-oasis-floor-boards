@@ -1,3 +1,5 @@
+import { familyForStation, PAINT_FAMILIES } from "@/lib/assignments/paint-families";
+import { isDefaultMandatory } from "@/lib/mandatory";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import { HOUR_GRID_END, HOUR_GRID_START, TIMEZONE } from "@/lib/constants";
 
@@ -270,15 +272,31 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       const breakerIds = new Set(
         live.filter((shift) => shift.employeeId === row.employeeId).map((shift) => shift.id),
       );
-      const stationId = paintOnShifts(input.paints, row.employeeId, breakerIds, start);
+      const breakerOverlay = input.overlays.find(overlay => !overlay.cancelledAt
+        && windowCovers(overlay.startAt, overlay.endAt, start, end)
+        && (overlay.employeeId === row.employeeId || overlay.partnerEmployeeId === row.employeeId));
+      const stationId = breakerOverlay?.kind === "switch"
+        ? (breakerOverlay.employeeId === row.employeeId ? breakerOverlay.stationId : breakerOverlay.fromStationId)
+        : breakerOverlay?.kind === "add" && breakerOverlay.partnerEmployeeId === row.employeeId
+          ? breakerOverlay.stationId
+          : breakerOverlay?.kind === "remove" && breakerOverlay.employeeId === row.employeeId
+            ? null : paintOnShifts(input.paints, row.employeeId, breakerIds, start);
       if (!stationId) continue;
       if (!live.some((shift) => shift.employeeId === row.coverEmployeeId)) continue;
-      const coverOverlay = input.overlays.some((overlay) => {
+      const coverOverlay = input.overlays.find((overlay) => {
         return !overlay.cancelledAt
           && windowCovers(overlay.startAt, overlay.endAt, start, end)
           && (overlay.employeeId === row.coverEmployeeId || overlay.partnerEmployeeId === row.coverEmployeeId);
       });
-      if (coverOverlay) continue;
+      if (coverOverlay?.kind === "remove") continue;
+      const coverOverlaySeat = coverOverlay?.employeeId === row.coverEmployeeId
+        ? coverOverlay.stationId : coverOverlay?.kind === "switch" ? coverOverlay.fromStationId : coverOverlay?.stationId;
+      if (coverOverlay) {
+        const family = familyForStation(stationId);
+        const numberedSecond = family && isDefaultMandatory(stationId) && PAINT_FAMILIES[family][0] === stationId
+          && PAINT_FAMILIES[family][1] === coverOverlaySeat;
+        if (!numberedSecond) continue;
+      }
       let vacatedStation: string | null = null;
       for (const [seatId, seat] of [...seats]) {
         if (seat.employeeId !== row.coverEmployeeId) continue;

@@ -1,3 +1,4 @@
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { paintAssignments } from "@/lib/assignments/paint";
@@ -38,6 +39,8 @@ export async function PUT(request: Request) {
   if (!auth.ok) return auth.response;
   try {
     const body = bodySchema.parse(await request.json());
+    const dayAccess = await requireDayAccess(request, body.date);
+    if (!dayAccess.ok) return dayAccess.response;
     const result = await paintAssignments(body, new Date(), {
       id: auth.manager.id,
       name: auth.manager.name,

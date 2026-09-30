@@ -62,6 +62,7 @@ export default defineConfig({
   webServer: {
     command: [
       "pnpm db:setup",
+      "pnpm exec tsx scripts/e2e-owner-fixture.ts",
       // Never serve a stale .next from an earlier source edit.
       "pnpm build",
       `pnpm exec next start -H 127.0.0.1 -p ${PORT}`,

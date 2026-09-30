@@ -1,3 +1,4 @@
+import { requireDayAccess, requireAssignmentDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAssignment, deleteAssignment } from "@/lib/assignments/service";
@@ -22,6 +23,8 @@ export async function POST(req: Request) {
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = postSchema.parse(json);
+    const access = await requireDayAccess(req, body.date);
+    if (!access.ok) return access.response;
     const result = await createAssignment(body);
     if (!result.ok) {
       return NextResponse.json(
@@ -54,6 +57,8 @@ export async function DELETE(req: Request) {
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = deleteSchema.parse(json);
+    const access = await requireAssignmentDayAccess(req, [body.assignmentId]);
+    if (!access.ok) return access.response;
     const result = await deleteAssignment(body.assignmentId);
     if (!result.ok) {
       return NextResponse.json(

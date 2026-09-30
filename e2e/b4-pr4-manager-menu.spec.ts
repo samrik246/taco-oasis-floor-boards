@@ -15,10 +15,10 @@ function chicago(day: string, clock: string): Date {
   return fromZonedTime(`${day}T${clock}`, "America/Chicago");
 }
 
-async function unlock(page: Page) {
+async function unlock(page: Page, code = "2468") {
   await page.goto("/");
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill(code);
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
@@ -62,6 +62,8 @@ test("the menu is on today's caja and cocina boards and missing on a future day"
     await expect(page.locator("[data-testid^='overlay-menu-']").first()).toBeVisible();
   }
   await page.getByTestId("compact-board").selectOption("caja");
+  await expect(page.getByTestId("compact-date").locator(`option[value="${future}"]`)).toHaveCount(0);
+  await unlock(page, "8642");
   await page.getByTestId("compact-date").selectOption(future);
   await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.locator("[data-testid^='overlay-menu-']")).toHaveCount(0);

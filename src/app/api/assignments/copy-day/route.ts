@@ -1,3 +1,4 @@
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { copyDayAssignments } from "@/lib/assignments/service";
@@ -22,6 +23,10 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
+    for (const date of [body.sourceDate, body.targetDate]) {
+      const dayAccess = await requireDayAccess(request, date);
+      if (!dayAccess.ok) return dayAccess.response;
+    }
     const result = await copyDayAssignments({
       ...body,
       actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.copyDay },

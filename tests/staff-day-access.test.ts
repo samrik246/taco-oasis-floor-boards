@@ -25,8 +25,8 @@ async function managerToken() {
   const codeHash = hashManagerCode("1357");
   const existing = await prisma.manager.findFirst({ where: { name: "Day Access Manager" } });
   const manager = existing
-    ? await prisma.manager.update({ where: { id: existing.id }, data: { codeHash, active: true } })
-    : await prisma.manager.create({ data: { name: "Day Access Manager", codeHash, active: true } });
+    ? await prisma.manager.update({ where: { id: existing.id }, data: { codeHash, active: true, role: "owner" } })
+    : await prisma.manager.create({ data: { name: "Day Access Manager", codeHash, active: true, role: "owner" } });
   return signManagerSession({ id: manager.id, name: manager.name });
 }
 
@@ -40,7 +40,7 @@ function boardContext(date: string) {
   return { params: Promise.resolve({ board: "caja", date }) };
 }
 
-describe("staff see today only; a manager plans any day", () => {
+describe("staff see today only; an owner plans any day", () => {
   let token: string;
 
   beforeAll(async () => {
@@ -71,7 +71,7 @@ describe("staff see today only; a manager plans any day", () => {
     await prisma.$disconnect();
   });
 
-  it("lists only today's date to staff and every date to a manager", async () => {
+  it("lists only today's date to staff and every date to an owner", async () => {
     const staff = await listDays(request("/api/days"));
     expect(staff.headers.get("cache-control")).toBe("private, no-store");
     const staffDates = (await staff.json()).dates as string[];
@@ -104,7 +104,7 @@ describe("staff see today only; a manager plans any day", () => {
     expect(res.status).toBe(401);
   });
 
-  it("serves a planned day to a manager", async () => {
+  it("serves a planned day to an owner", async () => {
     const res = await boardDay(request(`/api/boards/caja/days/${planned}`, token), boardContext(planned));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -118,7 +118,7 @@ describe("staff see today only; a manager plans any day", () => {
   ];
 
   for (const { name, run } of dayReads) {
-    it(`opens today's ${name} to staff, planned days to a manager only`, async () => {
+    it(`opens today's ${name} to staff, planned days to an owner only`, async () => {
       const staffToday = await run(today);
       expect(staffToday.status).toBe(200);
       expect(staffToday.headers.get("cache-control")).toBe("private, no-store");

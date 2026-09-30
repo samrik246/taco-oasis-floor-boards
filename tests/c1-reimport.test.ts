@@ -262,7 +262,7 @@ describe("C1 same-day re-import (reconcile)", () => {
     await previewAndCommit(AFTERNOON);
     // D is not today, so only a manager may read its board.
     const manager = await prisma.manager.create({
-      data: { name: "C1 Reimport Manager", codeHash: hashManagerCode("8642"), active: true },
+      data: { name: "C1 Reimport Manager", codeHash: hashManagerCode("8642"), active: true, role: "owner" },
     });
     const token = signManagerSession({ id: manager.id, name: manager.name });
     const res = await getDay(new Request(`http://local/api/boards/caja/days/${D}`, {

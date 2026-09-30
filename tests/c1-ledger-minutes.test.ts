@@ -37,7 +37,7 @@ describe("A2: ledger minutes are the overlap of the assigned hour with the shift
   beforeAll(async () => {
     await resetScheduleTables(prisma);
     const manager = await prisma.manager.create({
-      data: { name: "A2 Ledger Test Manager", codeHash: hashManagerCode("a2-ledger-test"), active: true },
+      data: { name: "A2 Ledger Test Manager", codeHash: hashManagerCode("a2-ledger-test"), active: true, role: "owner" },
     });
     managerToken = signManagerSession({ id: manager.id, name: manager.name });
     const csv = syntheticCsv([

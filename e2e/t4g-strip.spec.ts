@@ -36,7 +36,7 @@ async function keepDesk(page: Page) {
 async function unlock(page: Page) {
   if ((await page.getByTestId("floor-board").getAttribute("data-role")) === "manager") return;
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill("8642");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }

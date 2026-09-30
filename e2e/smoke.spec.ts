@@ -5,7 +5,7 @@ import path from "node:path";
 
 /** Planned days are manager-only on the API too; sign in the test's own request context. */
 async function managerHeaders(page: Page) {
-  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
+  const res = await page.request.post("/api/managers", { data: { code: "8642" } });
   expect(res.ok()).toBe(true);
   const { sessionToken } = await res.json() as { sessionToken: string };
   return { "x-manager-session": sessionToken };
@@ -21,10 +21,10 @@ async function shot(page: Page, name: string) {
   });
 }
 
-async function unlockManager(page: Page) {
+async function unlockManager(page: Page, code = "8642") {
   if (await page.getByTestId("floor-board").getAttribute("data-role") === "manager") return;
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill(code);
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
@@ -267,9 +267,9 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
     await expect(page.getByTestId("manager-code-error")).toContainText(
       /Wrong code|Código incorrecto/i,
     );
-    await page.getByTestId("manager-code-input").fill("2468");
+    await page.getByTestId("manager-code-input").fill("8642");
     await page.getByTestId("manager-unlock-submit").click();
-    await expect(page.getByTestId("role-badge")).toContainText(/Ana Rivera/i, {
+    await expect(page.getByTestId("role-badge")).toContainText(/Sam Chen/i, {
       timeout: 10_000,
     });
     // Locking dropped the board back to today; the manager returns to the planned day.
@@ -415,7 +415,7 @@ test.describe("phase 1 cashiers + kitchen smoke", () => {
 
   test("idle manager session returns to the staff schedule", async ({ page }) => {
     await page.goto("/");
-    await unlockManager(page);
+    await unlockManager(page, "2468");
     await expect(page.getByTestId("manager-color-editor")).toBeVisible();
     await page.waitForTimeout(2200);
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff", { timeout: 10_000 });

@@ -1,12 +1,13 @@
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import type { Prisma } from "@prisma/client";
+import { gerenteAuthority } from "@/lib/breaks/authority";
 import { prisma } from "@/lib/db";
 import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoDateOffset } from "@/lib/date-math";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
-import { listBreakCovers, listedCover, type BreakCover } from "@/lib/breaks/covers";
+import { numberedSeatCover, listBreakCovers, listedCover, type BreakCover } from "@/lib/breaks/covers";
 import { assessStarGate, readBreakGate } from "@/lib/slices/break-gate";
 import type { SliceBoard, SliceBreak, SliceOverlay, SlicePaint, SliceShift } from "@/lib/slices/day-slices";
 import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
@@ -146,6 +147,7 @@ export function assessBreak(input: {
       && input.startAt.getTime() >= shift.startAt.getTime()
       && input.endAt.getTime() <= shift.endAt.getTime();
   });
+  if (new Set(containers.filter(s => s.board === "caja" || s.board === "cocina").map(s => s.board)).size > 1) return { code: "BOARD_MISMATCH" };
   const held = containers.find((shift) => shift.board === "caja" || shift.board === "cocina");
   if (!held) {
     return { code: containers.some((shift) => shift.board === "other") ? "OTHER_BOARD" : "OUTSIDE_SHIFT" };
@@ -228,7 +230,7 @@ async function liveBreaks(
     .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
 }
 
-async function starWorld(
+export async function starWorld(
   tx: Prisma.TransactionClient,
   date: string,
   board: "caja" | "cocina",
@@ -343,6 +345,7 @@ async function writeBreak(
     endAt: Date;
     expectedBoard?: "caja" | "cocina";
     actor?: BreakManagerActor;
+    authorityNow?: Date;
     coverEmployeeId?: string | null;
     shuffleEmployeeId?: string | null;
   },
@@ -353,6 +356,7 @@ async function writeBreak(
       create: { id: 1 },
       update: { updatedAt: new Date() },
     });
+    if (input.authorityNow && input.actor && !await gerenteAuthority(input.actor.id, input.authorityNow, tx)) throw new BreakRefused("GERENTE_REQUIRED");
     const employee = await tx.employee.findUnique({
       where: { id: input.employeeId },
       select: { id: true, firstName: true, lastName: true },
@@ -391,6 +395,9 @@ async function writeBreak(
       throw new BreakRefused("BOARD_MISMATCH");
     }
     const world = await starWorld(tx, input.date, decision.board as SliceBoard);
+    if (world.breaks.some(row => row.status === "booked" && row.employeeId !== input.employeeId
+      && row.startAt < input.endAt && row.endAt > input.startAt
+      && (row.coverEmployeeId === input.employeeId || row.shuffleEmployeeId === input.employeeId))) throw new BreakRefused("BAD_COVER");
     const namedIds = [...new Set(world.shifts.map((shift) => shift.employeeId))];
     const [abilityRows, nameRows, defaults] = await Promise.all([
       tx.employeeStationAbility.findMany({
@@ -403,7 +410,7 @@ async function writeBreak(
       }),
       loadColumnDefaults(tx),
     ]);
-    const covers = listBreakCovers({
+    const coverInput = {
       date: input.date,
       board: decision.board as SliceBoard,
       employeeId: input.employeeId,
@@ -417,8 +424,10 @@ async function writeBreak(
       abilities: abilityRows,
       defaults,
       names: new Map(nameRows.map((person) => [person.id, person.firstName])),
-    });
-    const requestedCover = input.coverEmployeeId ?? null;
+    };
+    const covers = listBreakCovers(coverInput);
+    const numbered = !input.coverEmployeeId && !input.shuffleEmployeeId ? numberedSeatCover(coverInput) : null;
+    const requestedCover = input.coverEmployeeId ?? numbered?.employeeId ?? null;
     const requestedShuffle = input.shuffleEmployeeId ?? null;
     if (requestedCover || requestedShuffle) {
       if (!requestedCover || !listedCover(covers, requestedCover, requestedShuffle)) {
@@ -525,6 +534,7 @@ export async function saveBreak(input: {
   expectedBoard?: "caja" | "cocina";
   /** Manager id and name. Absent, the row and the log stay the employee's. */
   actor?: BreakManagerActor;
+  authorityNow?: Date;
   /** Named by the manager. Absent, a star seat waits. */
   coverEmployeeId?: string | null;
   /** Second Shuffle move. Present only with the star-seat person who moves over. */
@@ -572,8 +582,9 @@ async function readClearSnapshot(input: {
 async function writeClear(input: {
   employeeId: string;
   date: string;
-  board: "caja" | "cocina";
+  board?: "caja" | "cocina";
   actor?: BreakManagerActor;
+  authorityNow?: Date;
 }): Promise<{ cleared: boolean }> {
   const snapshot = await readClearSnapshot(input);
   if (afterClearRead) await afterClearRead(snapshot);
@@ -587,8 +598,9 @@ async function writeClear(input: {
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
     });
     const manager = input.actor?.kind === "manager" ? input.actor : null;
+    if (input.authorityNow && manager && !await gerenteAuthority(manager.id, input.authorityNow, tx)) throw new BreakRefused("GERENTE_REQUIRED");
     if (manager) {
-      if (existing && existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
+      if (input.board && existing && existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
       const live = await tx.shift.findFirst({
         where: {
           employeeId: input.employeeId,
@@ -603,7 +615,7 @@ async function writeClear(input: {
       if (!existing) return { cleared: false };
     } else {
       if (!existing) return { cleared: false };
-      if (existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
+      if (input.board && existing.board !== input.board) throw new BreakRefused("BOARD_MISMATCH");
     }
     if (!snapshot || !sameClearRead(existing, snapshot)) throw new BreakRefused("LOCK_CONFLICT");
     await tx.staffBreak.delete({ where: { id: existing.id } });
@@ -615,7 +627,7 @@ async function writeClear(input: {
       }, {
         date: input.date,
         count: 1,
-        board: input.board,
+        board: (input.board ?? existing.board) as "caja" | "cocina",
         employeeId: input.employeeId,
       });
     } else {
@@ -630,7 +642,7 @@ async function writeClear(input: {
       }, {
         date: input.date,
         count: 1,
-        board: input.board,
+        board: (input.board ?? existing.board) as "caja" | "cocina",
       });
     }
     return { cleared: true };
@@ -646,8 +658,9 @@ async function writeClear(input: {
 export async function clearBreak(input: {
   employeeId: string;
   date: string;
-  board: "caja" | "cocina";
+  board?: "caja" | "cocina";
   actor?: BreakManagerActor;
+  authorityNow?: Date;
 }): Promise<{ cleared: boolean }> {
   return withBreakLock(() => writeClear(input));
 }

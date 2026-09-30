@@ -299,6 +299,8 @@ model HistoricalHourlySale {
 
 /// Floor manager identity. Access codes stored as SHA-256 hashes only.
 model Manager {
+  /// Explicit owner pairing; intentionally no relation/FK for additive SQLite migration.
+  employeeId String?
   id        String   @id @default(cuid())
   name      String
   codeHash  String

@@ -327,7 +327,7 @@ describe("B3 S4 paint numbers", () => {
   it("D5 a legacy null reads back filled and stays null until a write", async () => {
     const row = await seat(people.ada, "pdf_tq2r", 13, null);
     const manager = await prisma.manager.create({
-      data: { name: `${stamp} Manager`, codeHash: hashManagerCode(`${stamp}-code`), role: "manager" },
+      data: { name: `${stamp} Manager`, codeHash: hashManagerCode(`${stamp}-code`), role: "owner" },
     });
     const token = signManagerSession({ id: manager.id, name: manager.name });
     const response = await dayBoard(

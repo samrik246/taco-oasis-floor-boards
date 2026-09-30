@@ -1,15 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
-import {
-  managerIdleMsFor,
-  managerIdleMsFromEnv,
-  verifyManagerCodeHash,
-} from "@/lib/managers/codes";
-import {
-  managerSessionIsConfigured,
-  signManagerSession,
-} from "@/lib/managers/session";
+import { managerIdleMsFromEnv } from "@/lib/managers/codes";
+import { signInWithCode } from "@/lib/breaks/sign-in";
+import { NO_STORE } from "@/lib/managers/day-access";
 
 export const runtime = "nodejs";
 
@@ -22,48 +15,12 @@ const bodySchema = z.object({
   code: z.string().trim().min(4).max(64),
 });
 
-/** Verify a manager access code. Never returns hashes or plaintext codes. */
+/** Same collision and throttle rules as BREAK entry; floor access does not grant gerente power. */
 export async function POST(request: Request) {
-  if (!managerSessionIsConfigured()) {
-    return NextResponse.json(
-      { ok: false, error: "Manager access is not configured" },
-      { status: 503 },
-    );
-  }
-  try {
-    const json = await request.json();
-    const { code } = bodySchema.parse(json);
-
-    const managers = await prisma.manager.findMany({
-      where: { active: true },
-      select: { id: true, name: true, codeHash: true, longIdle: true, role: true },
-    });
-
-    const match = managers.find((m) =>
-      verifyManagerCodeHash(code, m.codeHash),
-    );
-
-    if (!match) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid manager code" },
-        { status: 401 },
-      );
-    }
-
-    return NextResponse.json({
-      ok: true,
-      manager: { id: match.id, name: match.name, role: match.role },
-      idleMs: managerIdleMsFor(match),
-      sessionToken: signManagerSession({ id: match.id, name: match.name }),
-    });
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid request" },
-        { status: 400 },
-      );
-    }
-    const message = err instanceof Error ? err.message : "Bad request";
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
-  }
+  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  if (!body.success) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400, headers: NO_STORE });
+  const result = await signInWithCode("caja", body.data.code, new Date(), "floor");
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status, headers: NO_STORE });
+  if (result.kind !== "manager" || !result.manager) return NextResponse.json({ ok: false, error: "Invalid manager code" }, { status: 401, headers: NO_STORE });
+  return NextResponse.json({ ok: true, manager: result.manager, idleMs: result.idleMs, sessionToken: result.token }, { headers: NO_STORE });
 }

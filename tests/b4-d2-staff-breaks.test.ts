@@ -173,7 +173,7 @@ describe("B4 D2 staff breaks", () => {
     await shiftFor(ada.id, wednesday, "cocina", "5:00 pm", "6:00 pm");
     await shiftFor(bea.id, wednesday, "caja", "8:00 am", "4:00 pm");
     await storeCode(ada.id, CODE);
-    await storeCode(bea.id, "2468");
+    await storeCode(bea.id, "7269");
 
     const spy = vi.spyOn(passcode, "passcodeMatches");
     spy.mockClear();
@@ -182,7 +182,7 @@ describe("B4 D2 staff breaks", () => {
     if (!signed.ok) return;
     expect(signed.name).toBe("Ada Moss");
     expect(signed.token.startsWith("staff:")).toBe(true);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(2);
     const claims = readStaffSession(signed.token);
     expect(claims?.employeeId).toBe(ada.id);
     expect(claims?.board).toBe("cocina");
@@ -196,11 +196,11 @@ describe("B4 D2 staff breaks", () => {
     spy.mockClear();
     const wrong = await signInWithCode("cocina", "0000", now);
     expect(wrong).toMatchObject({ ok: false, status: 401, error: "Ese código no coincide." });
-    const offBoard = await signInWithCode("cocina", "2468", now);
-    expect(offBoard).toMatchObject({ ok: false, status: 401, error: "Ese código no coincide." });
+    const offBoard = await signInWithCode("cocina", "7269", now);
+    expect(offBoard).toMatchObject({ ok: true, kind: "staff" });
     const malformed = await signInWithCode("cocina", "12", now);
     expect(malformed).toMatchObject({ ok: false, error: "Ese código no coincide." });
-    expect(spy.mock.calls.length).toBe(2);
+    expect(spy.mock.calls.length).toBe(4);
 
     await prisma.staffPasscodeAttempt.deleteMany({ where: { board: "cocina" } });
     const pausedAt = new Date(now.getTime() + 60_000);
@@ -220,7 +220,7 @@ describe("B4 D2 staff breaks", () => {
     const after = await prisma.staffPasscodeAttempt.findUnique({ where: { board: "cocina" } });
     expect(after?.failures).toBe(row?.failures);
     expect(after?.lockedUntil?.toISOString()).toBe(row?.lockedUntil?.toISOString());
-    const caja = await signInWithCode("caja", "2468", pausedAt);
+    const caja = await signInWithCode("caja", "7269", pausedAt);
     expect(caja.ok).toBe(true);
 
     await prisma.staffPasscodeAttempt.deleteMany({ where: { board: { in: ["caja", "cocina"] } } });
@@ -232,7 +232,7 @@ describe("B4 D2 staff breaks", () => {
       signInWithCode("cocina", "0000", pausedAt),
       signInWithCode("cocina", "0001", pausedAt),
     ]);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(2);
     spy.mockRestore();
   }, 90_000);
 
@@ -399,7 +399,7 @@ describe("B4 D2 staff breaks", () => {
     expect(hasSlot(slots(wednesday, "8:00 am", "6:15 pm"), wednesday, "8:00 am", "9:30 am")).toBe(true);
   });
 
-  it("saves, replaces, clears, and keeps a mismatched board still", async () => {
+  it("saves, replaces and clears independently of the tablet board", async () => {
     process.env.STAFF_PASSCODE_PEPPER = TEST_PEPPER;
     process.env.MANAGER_SESSION_SECRET = TEST_SECRET;
     const ada = await person("save", "Save");
@@ -447,7 +447,8 @@ describe("B4 D2 staff breaks", () => {
       headers: { "x-staff-session": cajaToken, "content-type": "application/json" },
       body: JSON.stringify({ startAt: second.startAt, endAt: second.endAt }),
     }));
-    expect((await mismatch.json()).error).toBe(BREAK_REFUSAL_TEXT.BOARD_MISMATCH);
+    expect(mismatch.status).toBe(200);
+    expect((await prisma.staffBreak.findFirstOrThrow({ where: { employeeId: ada.id } })).board).toBe("cocina");
     expect(await prisma.staffBreak.count({ where: { employeeId: ada.id } })).toBe(1);
 
     const managerMine = await getMine(new Request("http://local/api/breaks/mine", {

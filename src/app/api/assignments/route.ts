@@ -1,3 +1,4 @@
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAssignment } from "@/lib/assignments/service";
@@ -23,6 +24,8 @@ export async function PUT(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
+    const dayAccess = await requireDayAccess(request, body.date);
+    if (!dayAccess.ok) return dayAccess.response;
     const result = await createAssignment({
       ...body,
       actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.assign },

@@ -25,5 +25,5 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
   }
-  return NextResponse.json({ token: result.token, name: result.name }, { headers: NO_STORE });
+  return NextResponse.json({ token: result.token, name: result.name, kind: result.kind, staffToken: result.staffToken, idleMs: result.idleMs, role: result.role }, { headers: NO_STORE });
 }

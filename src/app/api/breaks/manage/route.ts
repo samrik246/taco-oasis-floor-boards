@@ -4,7 +4,9 @@ import { clearManagedBreak, loadManagedBreak, replaceAutoCover, saveManagedBreak
 import { MANAGER_BREAK_TEXT } from "@/lib/breaks/messages";
 import { BreakRefused } from "@/lib/breaks/rules";
 import { NO_STORE } from "@/lib/managers/day-access";
-import { requireManagerSession } from "@/lib/managers/require-session";
+import { requireGerenteSession } from "@/lib/breaks/authority";
+import { breaksNow } from "@/lib/breaks/now";
+import { chicagoToday } from "@/lib/upcoming/source";
 
 export const runtime = "nodejs";
 
@@ -34,9 +36,9 @@ function refused(error: unknown) {
 }
 
 async function managerOrRefuse(request: Request) {
-  const auth = await requireManagerSession(request);
+  const auth = await requireGerenteSession(request, breaksNow());
   if (!auth.ok) return auth;
-  return { ok: true as const, manager: { id: auth.manager.id, name: auth.manager.name, kind: "manager" as const } };
+  return { ok: true as const, role: auth.manager.role, manager: { id: auth.manager.id, name: auth.manager.name, kind: "manager" as const } };
 }
 
 export async function GET(request: Request) {
@@ -49,7 +51,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Esa área no tiene descansos." }, { status: 400, headers: NO_STORE });
   }
   try {
-    const body = await loadManagedBreak({ board: board.data, employeeId });
+    const date = url.searchParams.get("date") ?? chicagoToday(breaksNow());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (auth.role !== "owner" && date !== chicagoToday(breaksNow()))) {
+      return NextResponse.json({ error: "Today only" }, { status: 403, headers: NO_STORE });
+    }
+    const body = await loadManagedBreak({ board: board.data, employeeId, date });
     return NextResponse.json(body, { headers: NO_STORE });
   } catch (error) {
     return refused(error);

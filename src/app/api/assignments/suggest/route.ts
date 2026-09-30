@@ -1,3 +1,4 @@
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -35,6 +36,8 @@ export async function GET(request: Request) {
       hour: url.searchParams.get("hour"),
       stationId: url.searchParams.get("stationId") ?? undefined,
     });
+    const dayAccess = await requireDayAccess(request, params.date);
+    if (!dayAccess.ok) return dayAccess.response;
     if (!params.stationId) {
       const candidates = await freeFavoritesForHour(params);
       return NextResponse.json({ candidates });
@@ -72,6 +75,8 @@ export async function PUT(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
+    const dayAccess = await requireDayAccess(request, body.date);
+    if (!dayAccess.ok) return dayAccess.response;
     const result = await suggestAssign({
       ...body,
       actor: { id: auth.manager.id, name: auth.manager.name, route: BOARD_CHANGE_ROUTES.suggest },

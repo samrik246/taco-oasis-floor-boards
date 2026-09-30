@@ -30,6 +30,7 @@ export function readBreakGate(input: {
       && input.startAt.getTime() >= shift.startAt.getTime()
       && input.endAt.getTime() <= shift.endAt.getTime();
   });
+  if (!held) return { sliceIndexes: [], everyTouchedSliceInsideShift: false };
   const board: SliceBoard = held?.board === "caja" ? "caja" : "cocina";
   const day = buildDaySlices({
     date: input.date,

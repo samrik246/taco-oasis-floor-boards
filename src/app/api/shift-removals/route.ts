@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/db";
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagerSession } from "@/lib/managers/require-session";
@@ -35,6 +37,8 @@ export async function GET(request: Request) {
     board: url.searchParams.get("board"), date: url.searchParams.get("date"),
   });
   if (!parsed.success) return NextResponse.json({ code: "INVALID_REQUEST" }, { status: 400 });
+  const access = await requireDayAccess(request, parsed.data.date);
+  if (!access.ok) return access.response;
   const rows = await listShiftRemovals(parsed.data.board, parsed.data.date);
   return NextResponse.json({ removals: rows.map((r) => ({
     id: r.id, shiftId: r.shiftId, externalId: r.externalId,
@@ -59,6 +63,11 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ code: "INVALID_REQUEST", error: "Invalid removal request" }, { status: 400 });
   try {
     const input = parsed.data;
+    const date = input.action === "remove" ? input.date : (await prisma.shiftRemoval.findUnique({ where: { id: input.id }, select: { date: true } }))?.date;
+    if (date) {
+      const access = await requireDayAccess(request, date);
+      if (!access.ok) return access.response;
+    }
     const result = input.action === "remove"
       ? await removeShift({ ...input, manager: auth.manager })
       : input.action === "restore"

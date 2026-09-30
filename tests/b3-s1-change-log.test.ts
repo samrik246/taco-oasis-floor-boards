@@ -383,10 +383,9 @@ describe("B3 S1 board change log", () => {
         body: JSON.stringify({ shiftId: shift.id, stationId: stationB, date, hour: 16 }),
       }),
     );
-    expect(managerWrite.status).toBe(200);
+    expect(managerWrite.status).toBe(403); // Ordinary managers cannot write this future date.
     const managerLogs = await prisma.boardChangeLog.findMany({ where: { managerId: manager.id } });
-    expect(managerLogs).toHaveLength(1);
-    expect(managerLogs[0]?.managerName).toBe(manager.name);
+    expect(managerLogs).toHaveLength(0);
   }, 60_000);
 
   it("A11 a thrown log write rolls back shift, suggest, fixed, and copy-day", async () => {

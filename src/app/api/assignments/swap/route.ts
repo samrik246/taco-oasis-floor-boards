@@ -1,3 +1,4 @@
+import { requireAssignmentDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { swapAssignments } from "@/lib/assignments/service";
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);
+    const dayAccess = await requireAssignmentDayAccess(request, [body.assignmentIdA, body.assignmentIdB]);
+    if (!dayAccess.ok) return dayAccess.response;
     const result = await swapAssignments(
       body.assignmentIdA,
       body.assignmentIdB,

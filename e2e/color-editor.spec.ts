@@ -1,11 +1,14 @@
+import { ownerShortIdle } from "./owner-short-idle";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { ensureSampleLoaded } from "./load-sample-api";
 import { PrismaClient } from "@prisma/client";
 
+test.beforeEach(async ({ page }) => { await ownerShortIdle(page); });
+
 /** Planned days are manager-only on the API too; sign in the test's own request context. */
 async function managerHeaders(page: Page) {
-  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
+  const res = await page.request.post("/api/managers", { data: { code: "8642" } });
   expect(res.ok()).toBe(true);
   const { sessionToken } = await res.json() as { sessionToken: string };
   return { "x-manager-session": sessionToken };
@@ -41,7 +44,7 @@ async function forbiddenStationIds(employeeId: string): Promise<Set<string>> {
 
 async function unlock(page: Page) {
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill("8642");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
 }

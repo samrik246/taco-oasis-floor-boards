@@ -1,3 +1,4 @@
+import { seedTodayPeople } from "./today-fixture";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
@@ -34,9 +35,9 @@ async function unlock(page: Page, code: string) {
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
 }
 
-async function openCocina(page: Page) {
-  await expect(page.getByTestId("compact-date").locator(`option[value="${markDate}"]`)).toHaveCount(1);
-  await page.getByTestId("compact-date").selectOption(markDate);
+async function openCocina(page: Page, date = markDate) {
+  await expect(page.getByTestId("compact-date").locator(`option[value="${date}"]`)).toHaveCount(1);
+  await page.getByTestId("compact-date").selectOption(date);
   await page.getByTestId("compact-board").selectOption("cocina");
   await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
@@ -187,9 +188,10 @@ test("K3 owner outlines follow the selected station and Libre stays in the aria-
 });
 
 test("K4 a manager outline is the same on every open cell and the payload has no abilities", async ({ page }) => {
+  const today = await seedTodayPeople("markDate-today");
   const bodies: string[] = [];
   page.on("response", async (response) => {
-    if (!response.ok() || !response.url().includes(`/api/boards/cocina/days/${markDate}`)) return;
+    if (!response.ok() || !response.url().includes(`/api/boards/cocina/days/${today}`)) return;
     try {
       bodies.push(await response.text());
     } catch {
@@ -198,7 +200,7 @@ test("K4 a manager outline is the same on every open cell and the payload has no
   });
   await keepDesk(page);
   await unlock(page, "2468");
-  await openCocina(page);
+  await openCocina(page, today);
   await expect(page.locator("[data-testid^='eligibility-dot-']")).toHaveCount(0);
   await page.getByTestId("paint-palette-pdf_tq1r").click();
   const outlined = page.locator("[data-testid^='paint-cell-'][data-outline='manager']");

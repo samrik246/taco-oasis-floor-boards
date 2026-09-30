@@ -93,7 +93,7 @@ async function shiftFor(
 
 async function manager() {
   const row = await prisma.manager.create({
-    data: { name: `${stamp} Ana`, codeHash: hashManagerCode("1357"), active: true },
+    data: { name: `${stamp} Ana`, codeHash: hashManagerCode("1357"), active: true, role: "owner" },
   });
   return {
     row,
@@ -292,7 +292,7 @@ describe("B4 D3 manager breaks and the now page", () => {
     expect((await getNow(new Request("http://local/api/breaks/now?board=wall"))).status).toBe(400);
   });
 
-  it("offers the same slots assessBreak accepts, including a split day and each allowance", async () => {
+  it("offers only placement-valid slots that also pass the coverage gate, including split days", async () => {
     const boss = await manager();
     const cases: { date: string; board: "caja" | "cocina"; windows: [string, string, string][]; allowance: number }[] = [
       { date: wednesday, board: "cocina", windows: [["cocina", "8:00 am", "1:00 pm"]], allowance: 15 },
@@ -316,7 +316,10 @@ describe("B4 D3 manager breaks and the now page", () => {
       expect(loaded.shifts).toHaveLength(item.windows.filter((window) => window[0] === item.board).length);
       const expected = acceptedSlots(item.date, item.board, shifts, []);
       const key = (row: { startAt: string; endAt: string }) => `${row.startAt}|${row.endAt}`;
-      expect(loaded.slots.map(key).sort()).toEqual(expected.map(key).sort());
+      expect(loaded.slots.length).toBeGreaterThan(0);
+      expect(expected.map(key)).toEqual(expect.arrayContaining(loaded.slots.map(key)));
+      // This fixture has no mandatory paint after 11:00; preview refuses those windows.
+      expect(loaded.slots.every(slot => ["automatic", "gerente"].includes(slot.approval))).toBe(true);
       expect(loaded.row).toBe("absent");
       expect(JSON.stringify(loaded)).not.toContain(worker.externalId);
     }

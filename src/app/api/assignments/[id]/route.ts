@@ -1,3 +1,4 @@
+import { requireAssignmentDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { clearAssignment } from "@/lib/assignments/service";
@@ -23,6 +24,8 @@ export async function DELETE(request: Request, context: RouteContext) {
   if (!auth.ok) return auth.response;
   try {
     const { id } = await context.params;
+    const dayAccess = await requireAssignmentDayAccess(request, [id]);
+    if (!dayAccess.ok) return dayAccess.response;
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }

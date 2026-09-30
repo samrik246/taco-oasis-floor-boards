@@ -4,7 +4,7 @@ import { ensureSampleLoaded } from "./load-sample-api";
 import { PrismaClient } from "@prisma/client";
 
 async function managerHeaders(page: Page) {
-  const res = await page.request.post("/api/managers", { data: { code: "2468" } });
+  const res = await page.request.post("/api/managers", { data: { code: "8642" } });
   expect(res.ok()).toBe(true);
   const { sessionToken } = await res.json() as { sessionToken: string };
   return { "x-manager-session": sessionToken };
@@ -28,7 +28,7 @@ async function keepDesk(page: Page) {
 
 async function unlock(page: Page) {
   await page.getByTestId("compact-manager").click();
-  await page.getByTestId("manager-code-input").fill("2468");
+  await page.getByTestId("manager-code-input").fill("8642");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("manager-color-editor")).toBeVisible();
 }

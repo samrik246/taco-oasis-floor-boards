@@ -1,4 +1,6 @@
 import type { Prisma } from "@prisma/client";
+import { approvalPreview } from "@/lib/breaks/preview";
+import { breakState } from "@/lib/breaks/status";
 import { prisma } from "@/lib/db";
 import {
   assessBreak,
@@ -132,24 +134,36 @@ export async function loadMyBreak(claims: StaffSessionClaims, now: Date = new Da
     })
     : null;
   const otherBreaks = await liveOtherBreaks(prisma, date, claims.employeeId);
-  const own = currentOnBoard(shifts, claims.board);
+  const boards = ["caja", "cocina"] as const;
+  const own = shifts.filter(s => !s.supersededAt && !s.boardRemoved && boards.some(b => b === s.board));
+  const slots = (await Promise.all(boards.map(async board => {
+    const preview = await approvalPreview(date, board, claims.employeeId);
+    return offeredBreakSlots({ date, board, shifts, otherBreaks }).flatMap(slot => {
+      const approval = preview(new Date(slot.startAt), new Date(slot.endAt));
+      return approval ? [{ ...slot, board, approval }] : [];
+    });
+  }))).flat().sort((a, b) => a.startAt.localeCompare(b.startAt) || a.endAt.localeCompare(b.endAt) || a.board.localeCompare(b.board));
   return {
     name: employee ? `${employee.firstName} ${employee.lastName}`.trim() : "",
     allowanceMinutes: breakAllowanceMinutes(scheduledMinutes(shifts)),
     shifts: own.map((shift) => ({
       id: shift.id,
+      board: shift.board,
       startAt: shift.startAt.toISOString(),
       endAt: shift.endAt.toISOString(),
     })),
-    blocked: blockedBreakQuarters({ date, board: claims.board, shifts, otherBreaks }),
-    slots: offeredBreakSlots({ date, board: claims.board, shifts, otherBreaks }),
-    saved: savedRow && savedLive && savedRow.board === claims.board && savedRow.status === "booked"
-      ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
+    blocked: boards.flatMap(board => blockedBreakQuarters({ date, board, shifts, otherBreaks }).map(slot => ({ ...slot, board }))),
+    slots,
+    saved: savedRow && savedLive
+      ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString(), board: savedRow.board,
+          status: savedRow.status, state: breakState(savedRow, now), approval: savedRow.status === "ended" ? null : savedRow.status === "pending" || (savedRow.actor !== savedRow.employeeId && !savedRow.auto) ? "gerente" : "automatic" }
       : null,
   };
 }
 
 export function breakRefusalText(code: string): string {
+  if (["EMPTY_STAR", "STAR_COUNT", "BAD_COVER"].includes(code)) return "Ese horario no está disponible.";
+  if (code === "NEEDS_COVER") return "Requiere aprobación del gerente.";
   return BREAK_REFUSAL_TEXT[code] ?? BREAK_REFUSAL_TEXT.LOCK_CONFLICT;
 }
 
@@ -160,18 +174,19 @@ export async function saveMyBreak(
   now: Date = new Date(),
 ) {
   try {
+    const date = chicagoToday(now);
+    if (chicagoToday(startAt) !== date || chicagoToday(new Date(endAt.getTime() - 1)) !== date) throw new BreakRefused("OUTSIDE_SHIFT");
     const saved = await saveBreak({
       employeeId: claims.employeeId,
       date: chicagoToday(now),
       startAt,
       endAt,
-      expectedBoard: claims.board,
     });
     if (saved.status === "pending") {
       return {
         ok: true as const,
         waiting: true as const,
-        message: BREAK_REFUSAL_TEXT.NEEDS_COVER,
+        message: breakRefusalText("NEEDS_COVER"),
         id: saved.id,
         replaced: saved.replaced,
         startAt: startAt.toISOString(),
@@ -192,7 +207,6 @@ export async function clearMyBreak(claims: StaffSessionClaims, now: Date = new D
     const result = await clearBreak({
       employeeId: claims.employeeId,
       date: chicagoToday(now),
-      board: claims.board,
     });
     return { ok: true as const, cleared: result.cleared };
   } catch (error) {

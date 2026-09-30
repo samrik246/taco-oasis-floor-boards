@@ -380,7 +380,7 @@ describe("B3 S2 abilities", () => {
     expect(await ownerStar.json()).toEqual({ level: "preferred" });
   });
 
-  it("B6 a manager still cannot assign a forbidden person, and a missing row is allowed", async () => {
+  it("B6 an owner still cannot assign a forbidden person, and a missing row is allowed", async () => {
     const shift = await prisma.shift.findFirstOrThrow({
       where: { employeeId: niaId, date: future, board: "cocina" },
     });
@@ -389,7 +389,7 @@ describe("B3 S2 abilities", () => {
       create: { employeeId: niaId, stationId: "pdf_guia", level: "forbidden" },
       update: { level: "forbidden" },
     });
-    const refused = await assignHour(authed(managerToken, "http://local/api/assignments", {
+    const refused = await assignHour(authed(ownerToken, "http://local/api/assignments", {
       method: "PUT",
       body: JSON.stringify({ shiftId: shift.id, stationId: "pdf_guia", date: future, hour: 10 }),
     }));
@@ -401,7 +401,7 @@ describe("B3 S2 abilities", () => {
     expect(await prisma.employeeStationAbility.findUnique({
       where: { employeeId_stationId: { employeeId: beaId, stationId: openStation } },
     })).toBeNull();
-    const allowed = await assignHour(authed(managerToken, "http://local/api/assignments", {
+    const allowed = await assignHour(authed(ownerToken, "http://local/api/assignments", {
       method: "PUT",
       body: JSON.stringify({ shiftId: open.id, stationId: openStation, date: future, hour: 11 }),
     }));

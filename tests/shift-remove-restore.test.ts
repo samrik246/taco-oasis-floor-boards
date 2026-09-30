@@ -50,8 +50,8 @@ describe("manager shift removal and restoration on disposable data", () => {
   beforeEach(async () => {
     await resetScheduleTables(prisma);
     await prisma.manager.upsert({ where: { id: manager.id },
-      create: { id: manager.id, name: manager.name, codeHash: "test-only", active: true },
-      update: { active: true } });
+      create: { id: manager.id, name: manager.name, codeHash: "test-only", active: true, role: "owner" },
+      update: { active: true, role: "owner" } });
     await commitImport(await parse(split, "first.csv"), "first.csv", { now });
   });
   afterAll(async () => {
@@ -164,7 +164,7 @@ describe("manager shift removal and restoration on disposable data", () => {
     const tombstone = await prisma.shiftRemoval.findUniqueOrThrow({ where: { id: result.id } });
     const secondManager = { id: "second-manager", name: "Second Manager" };
     await prisma.manager.upsert({ where: { id: secondManager.id },
-      create: { ...secondManager, codeHash: "test-only", active: true }, update: { active: true } });
+      create: { ...secondManager, codeHash: "test-only", active: true, role: "owner" }, update: { active: true, role: "owner" } });
     const response = await postRemoval(new Request("http://local/api/shift-removals", {
       method: "POST", headers: { "Content-Type": "application/json",
         "x-manager-session": signManagerSession(secondManager) },
