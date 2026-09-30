@@ -435,6 +435,93 @@ describe("B4 PR 3 five-minute pick", () => {
     expect(await prisma.staffBreak.count({ where: { date: day, status: "booked" } })).toBe(2);
   });
 
+  it("books a named pending row on the next wake after a full ceiling, and ends one at the shift edge", async () => {
+    const day = chicagoDateOffset(date, 6);
+    const { asker, extras, shifts } = await seatedDay({
+      day,
+      paintAt: "1:00 pm",
+      extras: [
+        { key: "cam", firstName: "Cam", level: "preferred" },
+        { key: "bea", firstName: "Bea", level: "ok" },
+        { key: "gus", firstName: "Gus", level: "ok" },
+      ],
+    });
+    const waiting = await saveBreak({
+      employeeId: asker.id,
+      date: day,
+      startAt: at("1:15 pm", day),
+      endAt: at("1:30 pm", day),
+    });
+    expect(waiting.status).toBe("pending");
+    const coverShift = shifts.find((shift) => shift.employeeId === extras[0]!.id);
+    await prisma.staffBreak.update({
+      where: { id: waiting.id },
+      data: { coverEmployeeId: extras[0]!.id, coverShiftId: coverShift!.id },
+    });
+    for (const person of [extras[1]!, extras[2]!]) {
+      const booked = await saveBreak({
+        employeeId: person.id,
+        date: day,
+        startAt: at("1:15 pm", day),
+        endAt: at("1:30 pm", day),
+      });
+      expect(booked.status).toBe("booked");
+    }
+
+    const rolledTally = await pickDueCovers(at("1:10 pm", day));
+    expect(rolledTally).toEqual({ picked: 0, rolled: 1, ended: 0 });
+    const rolled = await prisma.staffBreak.findUniqueOrThrow({ where: { id: waiting.id } });
+    expect(rolled.status).toBe("pending");
+    expect(rolled.coverEmployeeId).toBe(extras[0]!.id);
+    expect(rolled.startAt.toISOString()).toBe(at("1:30 pm", day).toISOString());
+    expect(rolled.endAt.toISOString()).toBe(at("1:45 pm", day).toISOString());
+
+    const bookedTally = await pickDueCovers(at("1:25 pm", day));
+    expect(bookedTally).toEqual({ picked: 1, rolled: 0, ended: 0 });
+    const booked = await prisma.staffBreak.findUniqueOrThrow({ where: { id: waiting.id } });
+    expect(booked.status).toBe("booked");
+    expect(booked.auto).toBe(false);
+    expect(booked.coverEmployeeId).toBe(extras[0]!.id);
+    expect(booked.startAt.toISOString()).toBe(at("1:30 pm", day).toISOString());
+
+    const edge = chicagoDateOffset(date, 7);
+    const ending = await seatedDay({
+      day: edge,
+      end: "7:00 pm",
+      paintAt: "5:00 pm",
+      extras: [
+        { key: "cam", firstName: "Cam", level: "preferred" },
+        { key: "bea", firstName: "Bea", level: "ok" },
+        { key: "gus", firstName: "Gus", level: "ok" },
+      ],
+    });
+    const last = await saveBreak({
+      employeeId: ending.asker.id,
+      date: edge,
+      startAt: at("5:45 pm", edge),
+      endAt: at("6:00 pm", edge),
+    });
+    const endingCover = ending.shifts.find((shift) => shift.employeeId === ending.extras[0]!.id);
+    await prisma.staffBreak.update({
+      where: { id: last.id },
+      data: { coverEmployeeId: ending.extras[0]!.id, coverShiftId: endingCover!.id },
+    });
+    for (const person of [ending.extras[1]!, ending.extras[2]!]) {
+      await saveBreak({
+        employeeId: person.id,
+        date: edge,
+        startAt: at("5:45 pm", edge),
+        endAt: at("6:00 pm", edge),
+      });
+    }
+    const endedTally = await pickDueCovers(at("5:41 pm", edge));
+    expect(endedTally.ended).toBe(1);
+    const ended = await prisma.staffBreak.findUniqueOrThrow({ where: { id: last.id } });
+    expect(ended.status).toBe("ended");
+    const listed = await listBreaksNow("cocina", at("5:41 pm", edge));
+    expect(listed.rolledEnded).toEqual(["El descanso de Ada ya no cabe."]);
+  });
+
   it("starts the pick timer only from the Node runtime", () => {
     const source = readFileSync(path.join(process.cwd(), "src/instrumentation.ts"), "utf8");
     expect(source).toContain('process.env.NEXT_RUNTIME !== "nodejs"');

@@ -400,3 +400,26 @@ model StaffPasscodeAttempt {
   windowStart DateTime
   lockedUntil DateTime?
 }
+
+/// One manager Switch, Remove, or Add. It never writes Assignment. No reason column.
+model BoardOverlay {
+  id                String    @id @default(cuid())
+  date              String
+  board             String
+  /// switch | remove | add
+  kind              String
+  employeeId        String
+  partnerEmployeeId String?
+  stationId         String
+  fromStationId     String?
+  startAt           DateTime
+  endAt             DateTime
+  managerId         String
+  managerName       String
+  cancelledAt       DateTime?
+  /// cancel | import. Null while the window is live.
+  endReason         String?
+  createdAt         DateTime  @default(now())
+
+  @@index([board, date])
+}

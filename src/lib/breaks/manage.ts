@@ -19,6 +19,7 @@ import {
   type BreakShift,
 } from "@/lib/breaks/rules";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
 import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
 import { chicagoToday } from "@/lib/upcoming/source";
 
@@ -184,6 +185,7 @@ export async function loadBreakCovers(input: {
     abilities,
     defaults,
     names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+    overlays: (await loadOverlayRecords(prisma, input.board, input.date)).map(toSliceOverlay),
   });
 }
 

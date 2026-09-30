@@ -181,9 +181,6 @@ export async function paintAssignments(
         } else if (edit.stationId === current?.stationId || (edit.stationId == null && current == null)) {
           continue;
         }
-        if (current && !isFutureHour(hourStart, now) && !isValidMoveReason(edit.reason ?? "")) {
-          return invalid("MOVE_REASON_REQUIRED", "A reason is required to change a current or past position.");
-        }
         if (edit.stationId != null && byStation.get(edit.stationId)?.board !== request.board) {
           return invalid("STATION_BOARD_MISMATCH", "That position is not on this board.");
         }
@@ -320,7 +317,7 @@ export async function paintAssignments(
         await tx.assignment.deleteMany({ where: { id: { in: deleteIds } } });
       }
       for (const [index, { edit, shift, hourStart, current, stationId }] of changes.entries()) {
-        if (current && !isFutureHour(hourStart, now)) {
+        if (current && !isFutureHour(hourStart, now) && isValidMoveReason(edit.reason ?? "")) {
           await tx.positionMoveLog.create({
             data: {
               date: request.date,

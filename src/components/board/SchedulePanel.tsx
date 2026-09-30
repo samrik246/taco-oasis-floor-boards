@@ -9,6 +9,7 @@ import {
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { formatCompactHour, formatHourLabel } from "@/lib/hour-grid";
 import { personQuarters, type QuarterView } from "@/lib/slices/day-slices";
+import { removedHours } from "@/lib/overlays/read";
 import { displayStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { AmberMark } from "./AmberMark";
@@ -300,6 +301,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                       {renderRowCells(row, grid.hours, stationLabels, {
                         quartersFor: (hour) => (slices ? personQuarters(slices, row.employeeId, hour) : []),
                         amberHours: amberByShift.get(row.shiftId) ?? new Set<number>(),
+                        removedHours: removedHours(day?.overlays ?? [], row.employeeId, date, now ?? new Date()),
                       })}
                     </tr>
                   ))}
@@ -350,6 +352,7 @@ function renderRowCells(
   marks: {
     quartersFor: (hour: number) => QuarterView[];
     amberHours: Set<number>;
+    removedHours: Set<number>;
   },
 ) {
   const openAt = (hour: number) => marks.quartersFor(hour).some((quarter) => quarter.kind === "open");
@@ -406,6 +409,17 @@ function renderRowCells(
       const visibleText = block.textKind === "position" ? fullLabel : block.text;
       while (i < hours.length && hours[i]! < end) {
         const sliceHour = hours[i]!;
+        if (marks.removedHours.has(sliceHour)) {
+          cells.push(
+            <td key={`${sliceHour}-removed`} className="relative border-b border-neutral-300 bg-amber-50 p-0.5 text-center" data-kind="open" data-testid={`schedule-removed-${sliceHour}`}>
+              <AmberMark kind="removed-hour" />
+              <span className="block min-h-9 content-center">·</span>
+              <QuarterRow quarters={marks.quartersFor(sliceHour)} />
+            </td>,
+          );
+          i += 1;
+          continue;
+        }
         cells.push(
           <td
             key={`${sliceHour}-${block.stationId}`}
@@ -442,7 +456,8 @@ function renderRowCells(
           status === undefined ? "off" : status === null ? "open" : "seated"
         }
       >
-        {status === null && marks.amberHours.has(hour) && <AmberMark kind="empty-hour" />}
+        {marks.removedHours.has(hour) && <AmberMark kind="removed-hour" />}
+        {status === null && !marks.removedHours.has(hour) && marks.amberHours.has(hour) && <AmberMark kind="empty-hour" />}
         <span className="block min-h-9 content-center">
           {status === null ? "·" : ""}
         </span>

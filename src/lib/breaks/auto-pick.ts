@@ -1,6 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { firstAutoCover } from "@/lib/breaks/covers";
+import {
+  handoffBinding,
+  overlayCoversWindow,
+  paintStationAt,
+  type HandoffBinding,
+} from "@/lib/breaks/handoff-cover";
 import { breaksNow } from "@/lib/breaks/now";
 import {
   assessBreak,
@@ -8,7 +14,9 @@ import {
   withStaffBreakLock,
 } from "@/lib/breaks/rules";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
-import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
+import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
+import { assessStarGate } from "@/lib/slices/break-gate";
+import type { SliceBoard, SliceBreak, SliceShift } from "@/lib/slices/day-slices";
 
 /** Five minutes before the window. A later read does not pick. */
 export const BREAK_PICK_LEAD_MS = 5 * 60 * 1000;
@@ -50,6 +58,7 @@ function isDue(start: Date, now: Date): boolean {
 type PendingRow = {
   id: string;
   employeeId: string;
+  shiftId: string;
   date: string;
   board: string;
   startAt: Date;
@@ -57,7 +66,10 @@ type PendingRow = {
   updatedAt: Date;
   status: string;
   coverEmployeeId: string | null;
+  coverShiftId: string | null;
 };
+
+type PickWorld = Awaited<ReturnType<typeof loadPickWorld>>;
 
 async function loadPickWorld(
   tx: Prisma.TransactionClient,
@@ -141,6 +153,7 @@ async function loadPickWorld(
     abilities,
     defaults,
     names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+    overlays: (await loadOverlayRecords(tx, board, date)).map(toSliceOverlay),
   };
 }
 
@@ -195,6 +208,68 @@ async function rolledWindowFits(
   return decision.code === "CEILING";
 }
 
+function shiftCovering(
+  shifts: readonly SliceShift[],
+  employeeId: string,
+  start: Date,
+  end: Date,
+  board: string,
+): SliceShift | null {
+  return shifts.find((shift) => {
+    return shift.employeeId === employeeId
+      && shift.board === board
+      && !shift.superseded
+      && !shift.boardRemoved
+      && start.getTime() >= shift.startAt.getTime()
+      && end.getTime() <= shift.endAt.getTime();
+  }) ?? null;
+}
+
+/** Live, lost, or absent handoff for the name stored on this pending row. */
+function bindingFor(row: PendingRow, world: PickWorld): HandoffBinding {
+  if (!row.coverEmployeeId) return { state: "none" };
+  const seat = paintStationAt(world.paints, row.employeeId, row.shiftId, row.startAt);
+  return handoffBinding(world.overlays, row.coverEmployeeId, seat, world.starStationIds);
+}
+
+/**
+ * The named cover ranks first when the handoff overlay still covers this
+ * window and the star gate accepts them with that overlay left out.
+ * A cancelled or import-ended handoff drops the name. No handoff overlay
+ * keeps the shift-and-gate check for a manual name. A window the overlay
+ * does not cover drops the name.
+ */
+function namedCoverFirst(
+  row: PendingRow,
+  board: SliceBoard,
+  world: PickWorld,
+  startAt: Date,
+  endAt: Date,
+): { employeeId: string; shiftId: string } | null {
+  if (!row.coverEmployeeId) return null;
+  const binding = bindingFor(row, world);
+  if (binding.state === "lost") return null;
+  const handoff = binding.state === "live" ? binding.overlay : null;
+  if (handoff && !overlayCoversWindow(handoff, startAt, endAt)) return null;
+  const shift = shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
+  if (!shift) return null;
+  const star = assessStarGate({
+    date: row.date,
+    board,
+    employeeId: row.employeeId,
+    startAt,
+    endAt,
+    shifts: world.shifts,
+    paints: world.paints,
+    breaks: world.breaks,
+    starStationIds: world.starStationIds,
+    overlays: handoff ? world.overlays.filter((overlay) => overlay.id !== handoff.id) : world.overlays,
+    coverEmployeeId: row.coverEmployeeId,
+  });
+  if ("code" in star) return null;
+  return { employeeId: row.coverEmployeeId, shiftId: shift.id };
+}
+
 async function readDue(tx: Prisma.TransactionClient, now: Date): Promise<DueBreakRead[]> {
   const rows = await tx.staffBreak.findMany({
     where: { status: "pending" },
@@ -214,13 +289,14 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
   const tally: BreakPickTally = { picked: 0, rolled: 0, ended: 0 };
   for (const queued of queue) {
     const current = await tx.staffBreak.findUnique({ where: { id: queued.id } });
-    if (!current || current.status !== "pending" || current.coverEmployeeId) continue;
+    if (!current || current.status !== "pending") continue;
     if (!isDue(current.startAt, now)) continue;
     const board = asBoard(current.board);
     if (!board) continue;
     const row: PendingRow = current;
     const world = await loadPickWorld(tx, row.date, board);
-    const choice = firstAutoCover({
+    const named = namedCoverFirst(row, board, world, row.startAt, row.endAt);
+    const ordinary = named ? null : firstAutoCover({
       date: row.date,
       board,
       employeeId: row.employeeId,
@@ -228,6 +304,7 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
       endAt: row.endAt,
       ...world,
     });
+    const choice = named ?? ordinary;
     const held = await assessHeldWindow(tx, row, row.startAt, row.endAt);
     const ceilingFull = "code" in held && held.code === "CEILING";
     const updatedAt = nextBreakWriteStamp(row.updatedAt.getTime());
@@ -237,7 +314,7 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
           id: row.id,
           status: "pending",
           startAt: row.startAt,
-          coverEmployeeId: null,
+          coverEmployeeId: row.coverEmployeeId,
         },
         data: {
           status: "booked",
@@ -245,7 +322,7 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
           coverShiftId: choice.shiftId,
           shuffleEmployeeId: null,
           shuffleShiftId: null,
-          auto: true,
+          auto: named == null,
           updatedAt,
         },
       });
@@ -255,15 +332,24 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
     const nextStart = new Date(row.startAt.getTime() + SLICE_MS);
     const nextEnd = new Date(row.endAt.getTime() + SLICE_MS);
     const fits = await rolledWindowFits(tx, row, nextStart, nextEnd);
+    const nextNamed = namedCoverFirst(row, board, world, nextStart, nextEnd);
     const wrote = await tx.staffBreak.updateMany({
       where: {
         id: row.id,
         status: "pending",
         startAt: row.startAt,
-        coverEmployeeId: null,
+        coverEmployeeId: row.coverEmployeeId,
       },
       data: fits
-        ? { startAt: nextStart, endAt: nextEnd, auto: false, updatedAt }
+        ? {
+          startAt: nextStart,
+          endAt: nextEnd,
+          auto: false,
+          updatedAt,
+          ...(nextNamed
+            ? { coverShiftId: nextNamed.shiftId }
+            : { coverEmployeeId: null, coverShiftId: null, shuffleEmployeeId: null, shuffleShiftId: null }),
+        }
         : { status: "ended", auto: false, updatedAt },
     });
     if (wrote.count !== 1) continue;
@@ -275,11 +361,17 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
 
 /**
  * Pending breaks due in the next five minutes, earliest first.
- * One conditional write inside the lock names a simple preferred or ok cover
- * when that quarter still has a booked spot. A full ceiling is the same as
- * no cover: roll the same length one quarter, or end the break when the next
- * quarter no longer fits before a blackout or the shift end. A window already
- * under way is left as it was. Two callers cannot both win the same row.
+ * A row that already names a cover stays in this queue. That person ranks
+ * first when their shift still covers the window and the star gate accepts
+ * them. A name that came from a handoff overlay is kept only while that
+ * overlay is still live and covers the window, and the star gate runs with
+ * the overlay left out. A cancel or an import that ends it clears the name.
+ * A manual name that never had a handoff stays. Any other window clears
+ * the name and the ordinary pick decides.
+ * One conditional write inside the lock books when that quarter still has a
+ * booked spot. A full ceiling rolls the same length one quarter, or ends
+ * the break when the next quarter no longer fits. A window already under
+ * way is left as it was. Two callers cannot both win the same row.
  */
 export async function pickDueCovers(now: Date = breaksNow()): Promise<BreakPickTally> {
   const seen = await withStaffBreakLock((tx) => readDue(tx, now));

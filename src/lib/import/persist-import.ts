@@ -18,6 +18,7 @@ import {
 import { planRemovalIdentity, type RemovalDecision } from "@/lib/import/removal-identity";
 import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 import { dropImportedBreaks } from "@/lib/breaks/import-drop";
+import { endImportedOverlays } from "@/lib/overlays/write";
 
 /**
  * Persist a parse result. Never writes pay columns or staff email (they are
@@ -416,6 +417,7 @@ export async function commitImport(
     }
 
     await dropImportedBreaks(tx, { supersededShiftIds, changedShiftIds, boardRemovedShiftIds });
+    await endImportedOverlays(tx, { supersededShiftIds, boardRemovedShiftIds });
     await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx);
 
     return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };

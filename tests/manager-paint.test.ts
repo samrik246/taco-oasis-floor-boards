@@ -131,18 +131,14 @@ describe("manager color paint transaction", () => {
     expect(await prisma.assignment.count({ where: { shiftId } })).toBe(0);
   });
 
-  it("requires and logs a move reason for a current cell, but not a future erase", async () => {
+  it("saves a current cell without a move reason and leaves the log untouched", async () => {
     await putAssignment("paint-test-current", employeeId, shiftId, stationA, 8);
     const change = edit(8, stationB, { id: "paint-test-current", stationId: stationA });
     const now = chicagoDateTime(date, "8:15 am");
-    const refused = await paintAssignments({ board: "caja", date, edits: [change] }, now);
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.code).toBe("MOVE_REASON_REQUIRED");
-    expect((await prisma.assignment.findUniqueOrThrow({ where: { id: "paint-test-current" } })).stationId).toBe(stationA);
-    const changed = await paintAssignments({ board: "caja", date, edits: [{ ...change, reason: "Other" }] }, now);
+    const changed = await paintAssignments({ board: "caja", date, edits: [change] }, now);
     expect(changed).toEqual({ ok: true, saved: 1 });
     expect((await prisma.assignment.findUniqueOrThrow({ where: { id: "paint-test-current" } })).stationId).toBe(stationB);
-    expect(await prisma.positionMoveLog.count({ where: { employeeId } })).toBe(1);
+    expect(await prisma.positionMoveLog.count({ where: { employeeId } })).toBe(0);
 
     await putAssignment("paint-test-future", employeeId, shiftId, stationA, 9);
     const erased = await paintAssignments({ board: "caja", date, edits: [
@@ -150,7 +146,7 @@ describe("manager color paint transaction", () => {
     ] }, now);
     expect(erased).toEqual({ ok: true, saved: 1 });
     expect(await prisma.assignment.findUnique({ where: { id: "paint-test-future" } })).toBeNull();
-    expect(await prisma.positionMoveLog.count({ where: { employeeId } })).toBe(1);
+    expect(await prisma.positionMoveLog.count({ where: { employeeId } })).toBe(0);
   });
 
   it("keeps an existing number and chooses one free number across a painted range", async () => {

@@ -8,7 +8,8 @@ import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { listBreakCovers, listedCover, type BreakCover } from "@/lib/breaks/covers";
 import { assessStarGate, readBreakGate } from "@/lib/slices/break-gate";
-import type { SliceBoard, SliceBreak, SlicePaint, SliceShift } from "@/lib/slices/day-slices";
+import type { SliceBoard, SliceBreak, SliceOverlay, SlicePaint, SliceShift } from "@/lib/slices/day-slices";
+import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
 import { chicagoDateTime } from "@/lib/time";
 
 const MINUTE_MS = 60_000;
@@ -231,7 +232,7 @@ async function starWorld(
   tx: Prisma.TransactionClient,
   date: string,
   board: "caja" | "cocina",
-): Promise<{ shifts: SliceShift[]; paints: SlicePaint[]; breaks: SliceBreak[]; starStationIds: string[] }> {
+): Promise<{ shifts: SliceShift[]; paints: SlicePaint[]; breaks: SliceBreak[]; starStationIds: string[]; overlays: SliceOverlay[] }> {
   const shifts = await tx.shift.findMany({
     where: { date, supersededAt: null, boardRemoved: false },
   });
@@ -262,6 +263,7 @@ async function starWorld(
       auto: true,
     },
   });
+  const overlays = (await loadOverlayRecords(tx, board, date)).map(toSliceOverlay);
   return {
     shifts: shifts.map((shift) => ({
       id: shift.id,
@@ -283,19 +285,21 @@ async function starWorld(
     }),
     breaks: breaks.flatMap((row) => {
       if (row.status !== "booked" && row.status !== "pending") return [];
+      const status = row.status;
       return [{
         employeeId: row.employeeId,
         shiftId: row.shiftId,
         board: row.board,
         startAt: row.startAt,
         endAt: row.endAt,
-        status: row.status,
+        status,
         coverEmployeeId: row.coverEmployeeId,
         shuffleEmployeeId: row.shuffleEmployeeId,
         auto: row.auto,
       }];
     }),
     starStationIds: [...MANDATORY_STATIONS_BY_BOARD[board], ...extra],
+    overlays,
   };
 }
 
@@ -409,6 +413,7 @@ async function writeBreak(
       paints: world.paints,
       breaks: world.breaks,
       starStationIds: world.starStationIds,
+      overlays: world.overlays,
       abilities: abilityRows,
       defaults,
       names: new Map(nameRows.map((person) => [person.id, person.firstName])),
@@ -430,6 +435,7 @@ async function writeBreak(
       paints: world.paints,
       breaks: world.breaks,
       starStationIds: world.starStationIds,
+      overlays: world.overlays,
       coverEmployeeId: requestedCover,
       shuffleEmployeeId: requestedShuffle,
     });

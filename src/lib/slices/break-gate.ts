@@ -5,6 +5,7 @@ import {
   sliceIndexesTouching,
   type SliceBoard,
   type SliceBreak,
+  type SliceOverlay,
   type SlicePaint,
   type SliceShift,
 } from "@/lib/slices/day-slices";
@@ -93,6 +94,7 @@ export function assessStarGate(input: {
   paints: readonly SlicePaint[];
   breaks: readonly SliceBreak[];
   starStationIds: readonly string[];
+  overlays?: readonly SliceOverlay[];
   coverEmployeeId?: string | null;
   shuffleEmployeeId?: string | null;
 }): StarGateDecision {
@@ -106,7 +108,7 @@ export function assessStarGate(input: {
     starStationIds: input.starStationIds,
     shifts: input.shifts,
     paints: input.paints,
-    overlays: [],
+    overlays: input.overlays ?? [],
   };
   const today = buildDaySlices({ ...base, breaks: resting });
   const indexes = sliceIndexesTouching(today, input.startAt, input.endAt);

@@ -23,6 +23,10 @@ export type BoardChangeParts = {
   breakStart?: string;
   /** Chicago wall-clock HH:mm. */
   breakEnd?: string;
+  /** switch | remove | add. The summary names the window and this word. */
+  overlay?: "switch" | "remove" | "add";
+  /** Set when the row is cancelled or ended by import. The row stays. */
+  overlayEnd?: "cancel" | "import";
   /** caja or cocina. The summary then includes board= and still includes count. */
   board?: "caja" | "cocina";
   /** Employee.id on a manager break line. Staff summaries omit it. */
@@ -50,6 +54,9 @@ export const BOARD_CHANGE_ROUTES = {
   breakManagerClear: "break.manager-clear",
   breakCodeCollision: "break.code-collision",
   breakImportDrop: "break.import-drop",
+  overlaySave: "overlay.save",
+  overlayCancel: "overlay.cancel",
+  overlayImport: "overlay.import",
 } as const;
 
 function employeeBit(employeeId: string | undefined): string | null {
@@ -81,6 +88,22 @@ export function boardChangeSummary(parts: BoardChangeParts): string {
   }
   if (parts.mark === "on" || parts.mark === "off") {
     bits.push(parts.mark);
+    return bits.join(" ");
+  }
+  if (parts.overlay === "switch" || parts.overlay === "remove" || parts.overlay === "add") {
+    if (
+      parts.breakStart &&
+      parts.breakEnd &&
+      /^\d{2}:\d{2}$/.test(parts.breakStart) &&
+      /^\d{2}:\d{2}$/.test(parts.breakEnd)
+    ) {
+      bits.push(`start=${parts.breakStart}`, `end=${parts.breakEnd}`);
+    }
+    bits.push(`overlay=${parts.overlay}`);
+    if (parts.overlayEnd === "cancel" || parts.overlayEnd === "import") bits.push(`ended=${parts.overlayEnd}`);
+    const employee = employeeBit(parts.employeeId);
+    if (employee) bits.push(employee);
+    if (parts.board === "caja" || parts.board === "cocina") bits.push(`board=${parts.board}`);
     return bits.join(" ");
   }
   if (

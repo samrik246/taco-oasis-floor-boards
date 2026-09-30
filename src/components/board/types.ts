@@ -1,3 +1,5 @@
+import type { OverlayDto } from "@/lib/overlays/read";
+
 /** Shared board DTO types matching GET /api/boards/:board/days/:date */
 
 export type AbilityLevel = "forbidden" | "training" | "ok" | "preferred";
@@ -86,6 +88,10 @@ export type DayBoardDto = {
   mandatory?: MandatoryDto;
   /** Saved breaks on live shifts. No names and no passcode data. */
   breaks?: BreakStripeDto[];
+  /** Every overlay for this board and date, including cancelled and ended rows. */
+  overlays?: OverlayDto[];
+  /** True only for a manager session on the server's Central today. */
+  overlayMenu?: boolean;
 };
 
 export type BoardKindUi = "caja" | "cocina";
