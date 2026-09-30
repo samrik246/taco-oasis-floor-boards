@@ -32,6 +32,10 @@ export type SliceBreak = {
   endAt: Date;
   status: "booked" | "pending";
   coverEmployeeId?: string | null;
+  /** Second Shuffle move. Takes the seat the cover left. */
+  shuffleEmployeeId?: string | null;
+  /** The five-minute pick named the cover. */
+  auto?: boolean;
 };
 
 export type SliceOverlay = {
@@ -69,6 +73,8 @@ export type SlicePerson = {
   /** Hourly paint, including slices the shift does not cover. */
   paintStationId: string | null;
   cell: SliceCell;
+  /** This quarter is the seat an automatic cover moved into. */
+  autoMove?: boolean;
 };
 
 export type SliceSeat = {
@@ -98,6 +104,8 @@ export type QuarterKind = "off" | "open" | "seated" | "break";
 export type QuarterView = {
   kind: QuarterKind;
   label: string;
+  /** The moved quarter of an automatic cover. */
+  auto?: boolean;
 };
 
 /** Wall-clock start of slice `index`. Index 60 is 10:00, the end of the last slice. */
@@ -154,6 +162,7 @@ function liveCovering(shifts: readonly SliceShift[], start: Date, end: Date): Sl
  * Paint fills a seat only when that paint's shift is the live shift covering the slice.
  * A live shift's paint still marks the rest of its hour open. A superseded shift's paint does not.
  * Booked breaks beat paint. A named cover fills that seat.
+ * A Shuffle's second person fills the star seat that cover left.
  * An overlay beats paint. A pending break places nobody.
  * `now` is accepted so a later rest-of-shift read uses the same input.
  */
@@ -164,6 +173,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
   for (const row of input.breaks) {
     ids.add(row.employeeId);
     if (row.coverEmployeeId) ids.add(row.coverEmployeeId);
+    if (row.shuffleEmployeeId) ids.add(row.shuffleEmployeeId);
   }
   for (const row of input.overlays) {
     ids.add(row.employeeId);
@@ -263,8 +273,11 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       const stationId = paintOnShifts(input.paints, row.employeeId, breakerIds, start);
       if (!stationId) continue;
       if (!live.some((shift) => shift.employeeId === row.coverEmployeeId)) continue;
-      for (const [seatId, seat] of seats) {
-        if (seat.employeeId === row.coverEmployeeId) seats.delete(seatId);
+      let vacatedStation: string | null = null;
+      for (const [seatId, seat] of [...seats]) {
+        if (seat.employeeId !== row.coverEmployeeId) continue;
+        vacatedStation = seatId;
+        seats.delete(seatId);
       }
       seats.set(stationId, { stationId, employeeId: row.coverEmployeeId, source: "cover" });
       const cover = people.find((person) => person.employeeId === row.coverEmployeeId);
@@ -273,6 +286,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
         cover.stationId = stationId;
         cover.counts = true;
         cover.onBreak = false;
+        if (row.auto) cover.autoMove = true;
       } else {
         people.push({
           employeeId: row.coverEmployeeId,
@@ -283,6 +297,34 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
             input.paints,
             row.coverEmployeeId,
             liveShiftIds.get(row.coverEmployeeId) ?? new Set<string>(),
+            start,
+          ),
+          cell: "move",
+          ...(row.auto ? { autoMove: true } : {}),
+        });
+      }
+      if (!row.shuffleEmployeeId || !vacatedStation || vacatedStation === stationId) continue;
+      if (!live.some((shift) => shift.employeeId === row.shuffleEmployeeId)) continue;
+      for (const [seatId, seat] of [...seats]) {
+        if (seat.employeeId === row.shuffleEmployeeId) seats.delete(seatId);
+      }
+      seats.set(vacatedStation, { stationId: vacatedStation, employeeId: row.shuffleEmployeeId, source: "cover" });
+      const partner = people.find((person) => person.employeeId === row.shuffleEmployeeId);
+      if (partner) {
+        partner.cell = "move";
+        partner.stationId = vacatedStation;
+        partner.counts = true;
+        partner.onBreak = false;
+      } else {
+        people.push({
+          employeeId: row.shuffleEmployeeId,
+          counts: true,
+          onBreak: false,
+          stationId: vacatedStation,
+          paintStationId: paintOnShifts(
+            input.paints,
+            row.shuffleEmployeeId,
+            liveShiftIds.get(row.shuffleEmployeeId) ?? new Set<string>(),
             start,
           ),
           cell: "move",
@@ -318,7 +360,9 @@ export function personQuarters(day: DaySlices, employeeId: string, hour: number)
     const person = slice?.people.find((row) => row.employeeId === employeeId);
     if (!person) return { kind: "off", label };
     if (person.cell === "break") return { kind: "break", label };
-    if (person.cell === "seated" || person.cell === "move") return { kind: "seated", label };
+    if (person.cell === "seated" || person.cell === "move") {
+      return person.autoMove ? { kind: "seated", label, auto: true } : { kind: "seated", label };
+    }
     if (person.cell === "open") return { kind: "open", label };
     if (person.paintStationId) return { kind: "open", label };
     return { kind: "off", label };

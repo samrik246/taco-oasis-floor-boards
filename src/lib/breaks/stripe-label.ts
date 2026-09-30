@@ -6,6 +6,8 @@ export type BreakStripe = {
   shiftId: string;
   startAt: string;
   endAt: string;
+  coverEmployeeId?: string | null;
+  auto?: boolean;
 };
 
 function overlaps(start: Date, end: Date, otherStart: Date, otherEnd: Date): boolean {

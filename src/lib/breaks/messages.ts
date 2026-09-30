@@ -6,7 +6,11 @@ export const BREAK_REFUSAL_TEXT: Record<string, string> = {
   OTHER_BOARD: "Ese horario no es de esta área.",
   ALLOWANCE: "Eso pasa de tus minutos.",
   BLACKOUT: "Ese horario está bloqueado.",
-  OVERLAP: "Otro compañero ya tiene ese horario.",
+  CEILING: "Ya hay dos personas en descanso.",
+  EMPTY_STAR: "Falta una posición obligatoria. Pide ayuda a un gerente.",
+  STAR_COUNT: "No hay suficiente gente en ese horario.",
+  NEEDS_COVER: "Un gerente tiene que nombrar quién te cubre.",
+  BAD_COVER: "Esa persona no puede cubrir.",
   LOCK_CONFLICT: "Otro compañero acaba de tomar ese horario, elige otro.",
   NOT_FOUND: "No encontramos tu turno. Pide ayuda a un gerente.",
   BOARD_MISMATCH: "Ese descanso es de la otra área. Pide ayuda a un gerente.",
@@ -21,6 +25,16 @@ export const BREAK_QUARTER_TAKEN = "Ocupado";
 export const BREAK_QUARTER_OUTSIDE = "Fuera";
 export const BREAK_UNCONFIGURED = "Descansos no configurado";
 export const BREAK_EXPIRED = "Se acabó el tiempo. Entra otra vez.";
+
+/** Tablet line when the five-minute pick names a cover. */
+export function breakCoverToldLine(coverName: string, personName: string): string {
+  return `${coverName} cubre a ${personName}.`;
+}
+
+/** Tablet line when a rolled break no longer fits. */
+export function breakRolledEndedLine(personName: string): string {
+  return `El descanso de ${personName} ya no cabe.`;
+}
 
 export const BREAK_LOG_ACTOR = { id: "break", name: "Descansos" } as const;
 

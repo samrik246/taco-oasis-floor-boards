@@ -353,12 +353,15 @@ function renderRowCells(
   },
 ) {
   const openAt = (hour: number) => marks.quartersFor(hour).some((quarter) => quarter.kind === "open");
+  const markedAt = (hour: number) => marks.quartersFor(hour).some((quarter) => {
+    return quarter.kind === "break" || quarter.auto === true;
+  });
   const cells: ReactNode[] = [];
   let i = 0;
   while (i < hours.length) {
     const hour = hours[i]!;
     const block = row.blocks.find((b) => b.startHour === hour);
-    const blockHasOpen = block != null && hours.slice(i, i + block.span).some((h) => openAt(h));
+    const blockHasOpen = block != null && hours.slice(i, i + block.span).some((h) => openAt(h) || markedAt(h));
     if (block && !blockHasOpen) {
       const fullLabel = stationLabels.get(block.stationId) ?? block.code;
       const visibleText = block.textKind === "position" ? fullLabel : block.text;

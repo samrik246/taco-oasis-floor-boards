@@ -320,8 +320,13 @@ describe("B4 D2 staff breaks", () => {
       startAt: chicagoDateTime(wednesday, "9:00 am"),
       endAt: chicagoDateTime(wednesday, "9:15 am"),
     };
-    const rows = offeredBreakSlots({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken] });
-    const blocked = blockedBreakQuarters({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken] });
+    const second = {
+      board: "cocina",
+      startAt: chicagoDateTime(wednesday, "9:00 am"),
+      endAt: chicagoDateTime(wednesday, "9:30 am"),
+    };
+    const rows = offeredBreakSlots({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken, second] });
+    const blocked = blockedBreakQuarters({ date: wednesday, board: "cocina", shifts, otherBreaks: [taken, second] });
     const faces = breakQuarterFaces({
       shifts: [{ startAt: start.toISOString(), endAt: end.toISOString() }],
       slots: rows,
@@ -466,22 +471,25 @@ describe("B4 D2 staff breaks", () => {
     expect(await prisma.staffBreak.count({ where: { employeeId: ada.id } })).toBe(0);
   }, 60_000);
 
-  it("leaves one break when two saves overlap", async () => {
+  it("leaves two breaks when three saves take one quarter", async () => {
     process.env.MANAGER_SESSION_SECRET = TEST_SECRET;
     const left = await person("left", "Left");
     const right = await person("right", "Right");
+    const mid = await person("mid-ceiling", "Mid");
     const date = chicagoDateOffset(wednesday, 21);
     await shiftFor(left.id, date, "cocina", "8:00 am", "4:00 pm");
     await shiftFor(right.id, date, "cocina", "8:00 am", "4:00 pm");
+    await shiftFor(mid.id, date, "cocina", "8:00 am", "4:00 pm");
     const startAt = chicagoDateTime(date, "9:00 am");
     const endAt = chicagoDateTime(date, "9:15 am");
     const results = await Promise.allSettled([
       saveBreak({ employeeId: left.id, date, startAt, endAt, expectedBoard: "cocina" }),
       saveBreak({ employeeId: right.id, date, startAt, endAt, expectedBoard: "cocina" }),
+      saveBreak({ employeeId: mid.id, date, startAt, endAt, expectedBoard: "cocina" }),
     ]);
     const wins = results.filter((row) => row.status === "fulfilled");
-    expect(wins).toHaveLength(1);
-    expect(await prisma.staffBreak.count({ where: { date, board: "cocina", employeeId: { in: [left.id, right.id] } } })).toBe(1);
+    expect(wins).toHaveLength(2);
+    expect(await prisma.staffBreak.count({ where: { date, board: "cocina", employeeId: { in: [left.id, right.id, mid.id] } } })).toBe(2);
   });
 
   it("drops a break when the shift is superseded, removed, or no longer fits", async () => {

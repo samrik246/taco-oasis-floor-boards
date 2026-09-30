@@ -197,7 +197,7 @@ export function DescansosScreen() {
         headers: { "content-type": "application/json", [STAFF_SESSION_HEADER]: token },
         body: JSON.stringify({ startAt: slot.startAt, endAt: slot.endAt }),
       });
-      const body = await response.json() as { error?: string; startAt?: string; endAt?: string };
+      const body = await response.json() as { error?: string; startAt?: string; endAt?: string; waiting?: boolean; message?: string };
       if (response.status === 401) {
         setMessage("Se acabó el tiempo. Entra otra vez.");
         goHome("expired");
@@ -205,6 +205,10 @@ export function DescansosScreen() {
       }
       if (!response.ok || !body.startAt || !body.endAt) {
         setMessage(body.error ?? "Elige otro horario.");
+        return;
+      }
+      if (body.waiting) {
+        setMessage(body.message ?? "Un gerente tiene que nombrar quién te cubre.");
         return;
       }
       setMine((current) => current ? { ...current, saved: { startAt: body.startAt!, endAt: body.endAt! } } : current);

@@ -4,7 +4,11 @@ import { prisma } from "@/lib/db";
 import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoDateOffset } from "@/lib/date-math";
-import { readBreakGate } from "@/lib/slices/break-gate";
+import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
+import { listBreakCovers, listedCover, type BreakCover } from "@/lib/breaks/covers";
+import { assessStarGate, readBreakGate } from "@/lib/slices/break-gate";
+import type { SliceBoard, SliceBreak, SlicePaint, SliceShift } from "@/lib/slices/day-slices";
 import { chicagoDateTime } from "@/lib/time";
 
 const MINUTE_MS = 60_000;
@@ -96,8 +100,30 @@ function currentShift(shift: BreakShift): boolean {
   return !shift.supersededAt && !shift.boardRemoved;
 }
 
+/** Two booked breaks may cover one quarter. A third is refused. Pending is not booked. */
+export const BREAK_BOARD_CEILING = 2;
+const SLICE_MS = 15 * MINUTE_MS;
+
+export function breakSliceStarts(start: Date, end: Date): number[] {
+  const starts: number[] = [];
+  for (let at = start.getTime(); at + SLICE_MS <= end.getTime(); at += SLICE_MS) starts.push(at);
+  return starts;
+}
+
+export function bookedBreaksOnSlice(
+  others: readonly { board: string; startAt: Date; endAt: Date; status?: string }[],
+  board: string,
+  sliceStart: number,
+): number {
+  const sliceEnd = sliceStart + SLICE_MS;
+  return others.filter((other) => {
+    if (other.board !== board || (other.status != null && other.status !== "booked")) return false;
+    return sliceStart >= other.startAt.getTime() && sliceEnd <= other.endAt.getTime();
+  }).length;
+}
+
 /**
- * Placement, allowance, blackout and same-board overlap.
+ * Placement, allowance, blackout, and at most two booked breaks on the board.
  * Blackout windows come only from breakBlackouts.
  */
 export function assessBreak(input: {
@@ -105,7 +131,7 @@ export function assessBreak(input: {
   startAt: Date;
   endAt: Date;
   shifts: readonly BreakShift[];
-  otherBreaks: readonly { board: string; startAt: Date; endAt: Date }[];
+  otherBreaks: readonly { board: string; startAt: Date; endAt: Date; status?: string }[];
 }): { code: string } | { shiftId: string; board: string } {
   if (!isChicagoQuarterHour(input.startAt) || !isChicagoQuarterHour(input.endAt)) {
     return { code: "ALIGNMENT" };
@@ -128,9 +154,10 @@ export function assessBreak(input: {
   for (const window of breakBlackouts(input.date, held.board)) {
     if (intervalsOverlap(input.startAt, input.endAt, window.start, window.end)) return { code: "BLACKOUT" };
   }
-  for (const other of input.otherBreaks) {
-    if (other.board !== held.board) continue;
-    if (intervalsOverlap(input.startAt, input.endAt, other.startAt, other.endAt)) return { code: "OVERLAP" };
+  for (const sliceStart of breakSliceStarts(input.startAt, input.endAt)) {
+    if (bookedBreaksOnSlice(input.otherBreaks, held.board, sliceStart) >= BREAK_BOARD_CEILING) {
+      return { code: "CEILING" };
+    }
   }
   return { shiftId: held.id, board: held.board };
 }
@@ -183,8 +210,8 @@ export function setBreakLockBusyForTests(count: number): void {
 
 async function liveBreaks(
   tx: Prisma.TransactionClient,
-  rows: readonly { id?: string; shiftId: string; board: string; startAt: Date; endAt: Date }[],
-): Promise<{ board: string; startAt: Date; endAt: Date }[]> {
+  rows: readonly { id?: string; shiftId: string; board: string; startAt: Date; endAt: Date; status?: string }[],
+): Promise<{ board: string; startAt: Date; endAt: Date; status?: string }[]> {
   if (rows.length === 0) return [];
   const live = await tx.shift.findMany({
     where: {
@@ -197,7 +224,79 @@ async function liveBreaks(
   const liveIds = new Set(live.map((shift) => shift.id));
   return rows
     .filter((row) => liveIds.has(row.shiftId))
-    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
+}
+
+async function starWorld(
+  tx: Prisma.TransactionClient,
+  date: string,
+  board: "caja" | "cocina",
+): Promise<{ shifts: SliceShift[]; paints: SlicePaint[]; breaks: SliceBreak[]; starStationIds: string[] }> {
+  const shifts = await tx.shift.findMany({
+    where: { date, supersededAt: null, boardRemoved: false },
+  });
+  const paints = shifts.length === 0
+    ? []
+    : await tx.assignment.findMany({
+      where: { shiftId: { in: shifts.map((shift) => shift.id) } },
+      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
+    });
+  const marks = await tx.mandatoryMark.findMany({
+    where: { board, date },
+    select: { stationId: true },
+  });
+  const extra = marks
+    .map((mark) => mark.stationId)
+    .filter((stationId) => !isDefaultMandatory(stationId));
+  const breaks = await tx.staffBreak.findMany({
+    where: { date },
+    select: {
+      employeeId: true,
+      shiftId: true,
+      board: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      coverEmployeeId: true,
+      shuffleEmployeeId: true,
+      auto: true,
+    },
+  });
+  return {
+    shifts: shifts.map((shift) => ({
+      id: shift.id,
+      employeeId: shift.employeeId,
+      board: shift.board,
+      startAt: shift.startAt,
+      endAt: shift.endAt,
+      superseded: false,
+      boardRemoved: false,
+    })),
+    paints: paints.flatMap((row) => {
+      if (!row.employeeId) return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        stationId: row.stationId,
+        hourStart: row.hourStart,
+      }];
+    }),
+    breaks: breaks.flatMap((row) => {
+      if (row.status !== "booked" && row.status !== "pending") return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        board: row.board,
+        startAt: row.startAt,
+        endAt: row.endAt,
+        status: row.status,
+        coverEmployeeId: row.coverEmployeeId,
+        shuffleEmployeeId: row.shuffleEmployeeId,
+        auto: row.auto,
+      }];
+    }),
+    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[board], ...extra],
+  };
 }
 
 async function withBreakLock<T>(write: () => Promise<T>): Promise<T> {
@@ -218,6 +317,20 @@ async function withBreakLock<T>(write: () => Promise<T>): Promise<T> {
   throw new BreakRefused("LOCK_CONFLICT");
 }
 
+/** The lock row, then one write. A second caller waits, then sees the first write. */
+export async function withStaffBreakLock<T>(
+  write: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return withBreakLock(() => prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.staffBreakLock.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: { updatedAt: new Date() },
+    });
+    return write(tx);
+  }, BREAK_TX));
+}
+
 async function writeBreak(
   input: {
     employeeId: string;
@@ -226,8 +339,10 @@ async function writeBreak(
     endAt: Date;
     expectedBoard?: "caja" | "cocina";
     actor?: BreakManagerActor;
+    coverEmployeeId?: string | null;
+    shuffleEmployeeId?: string | null;
   },
-): Promise<{ id: string; replaced: boolean }> {
+): Promise<{ id: string; replaced: boolean; status: "booked" | "pending"; covers: BreakCover[] }> {
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.staffBreakLock.upsert({
       where: { id: 1 },
@@ -257,7 +372,7 @@ async function writeBreak(
     });
     const others = await tx.staffBreak.findMany({
       where: { date: input.date, employeeId: { not: input.employeeId } },
-      select: { shiftId: true, board: true, startAt: true, endAt: true },
+      select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
     });
     const decision = assessBreak({
       date: input.date,
@@ -270,6 +385,68 @@ async function writeBreak(
     if (!gate.everyTouchedSliceInsideShift) throw new BreakRefused("OUTSIDE_SHIFT");
     if (input.expectedBoard && decision.board !== input.expectedBoard) {
       throw new BreakRefused("BOARD_MISMATCH");
+    }
+    const world = await starWorld(tx, input.date, decision.board as SliceBoard);
+    const namedIds = [...new Set(world.shifts.map((shift) => shift.employeeId))];
+    const [abilityRows, nameRows, defaults] = await Promise.all([
+      tx.employeeStationAbility.findMany({
+        where: { employeeId: { in: namedIds } },
+        select: { employeeId: true, stationId: true, level: true },
+      }),
+      tx.employee.findMany({
+        where: { id: { in: namedIds } },
+        select: { id: true, firstName: true },
+      }),
+      loadColumnDefaults(tx),
+    ]);
+    const covers = listBreakCovers({
+      date: input.date,
+      board: decision.board as SliceBoard,
+      employeeId: input.employeeId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      shifts: world.shifts,
+      paints: world.paints,
+      breaks: world.breaks,
+      starStationIds: world.starStationIds,
+      abilities: abilityRows,
+      defaults,
+      names: new Map(nameRows.map((person) => [person.id, person.firstName])),
+    });
+    const requestedCover = input.coverEmployeeId ?? null;
+    const requestedShuffle = input.shuffleEmployeeId ?? null;
+    if (requestedCover || requestedShuffle) {
+      if (!requestedCover || !listedCover(covers, requestedCover, requestedShuffle)) {
+        throw new BreakRefused("BAD_COVER");
+      }
+    }
+    const star = assessStarGate({
+      date: input.date,
+      board: decision.board as SliceBoard,
+      employeeId: input.employeeId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      shifts: world.shifts,
+      paints: world.paints,
+      breaks: world.breaks,
+      starStationIds: world.starStationIds,
+      coverEmployeeId: requestedCover,
+      shuffleEmployeeId: requestedShuffle,
+    });
+    let status: "booked" | "pending" = "booked";
+    let coverEmployeeId: string | null = null;
+    let coverShiftId: string | null = null;
+    let shuffleEmployeeId: string | null = null;
+    let shuffleShiftId: string | null = null;
+    if ("code" in star) {
+      if (requestedCover) throw new BreakRefused(star.code === "NEEDS_COVER" ? "BAD_COVER" : star.code);
+      if (star.code !== "NEEDS_COVER") throw new BreakRefused(star.code);
+      status = "pending";
+    } else {
+      coverEmployeeId = star.coverEmployeeId;
+      coverShiftId = star.coverShiftId;
+      shuffleEmployeeId = star.shuffleEmployeeId;
+      shuffleShiftId = star.shuffleShiftId;
     }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
@@ -290,6 +467,12 @@ async function writeBreak(
           startAt: input.startAt,
           endAt: input.endAt,
           actor: actorId,
+          status,
+          coverEmployeeId,
+          coverShiftId,
+          shuffleEmployeeId,
+          shuffleShiftId,
+          auto: false,
           updatedAt,
         },
       })
@@ -302,6 +485,12 @@ async function writeBreak(
           startAt: input.startAt,
           endAt: input.endAt,
           actor: actorId,
+          status,
+          coverEmployeeId,
+          coverShiftId,
+          shuffleEmployeeId,
+          shuffleShiftId,
+          auto: false,
           updatedAt,
         },
       });
@@ -316,7 +505,7 @@ async function writeBreak(
       breakEnd: formatInTimeZone(input.endAt, TIMEZONE, "HH:mm"),
       ...(manager ? { employeeId: employee.id } : {}),
     });
-    return { id: saved.id, replaced: existing != null };
+    return { id: saved.id, replaced: existing != null, status, covers: status === "pending" ? covers : [] };
   }, BREAK_TX);
 }
 
@@ -330,7 +519,11 @@ export async function saveBreak(input: {
   expectedBoard?: "caja" | "cocina";
   /** Manager id and name. Absent, the row and the log stay the employee's. */
   actor?: BreakManagerActor;
-}): Promise<{ id: string; replaced: boolean }> {
+  /** Named by the manager. Absent, a star seat waits. */
+  coverEmployeeId?: string | null;
+  /** Second Shuffle move. Present only with the star-seat person who moves over. */
+  shuffleEmployeeId?: string | null;
+}): Promise<{ id: string; replaced: boolean; status: "booked" | "pending"; covers: BreakCover[] }> {
   return withBreakLock(() => writeBreak(input));
 }
 

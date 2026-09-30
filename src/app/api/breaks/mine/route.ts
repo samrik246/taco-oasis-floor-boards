@@ -54,6 +54,8 @@ export async function POST(request: Request) {
     replaced: result.replaced,
     startAt: result.startAt,
     endAt: result.endAt,
+    waiting: result.waiting,
+    ...(result.waiting ? { message: result.message } : {}),
   }, { headers: NO_STORE });
 }
 

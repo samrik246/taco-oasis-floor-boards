@@ -265,25 +265,33 @@ describe("B4 D1 break rules", () => {
     })).toEqual({ code: "ALIGNMENT" });
   });
 
-  it("K3 same-board overlap is refused, back-to-back and the other board are allowed", async () => {
+  it("K3 a third break on the quarter is refused, back-to-back and the other board are allowed", async () => {
     const ada = await person("ada", "Ada");
     const bea = await person("bea", "Bea");
     const cam = await person("cam", "Cam");
+    const dee = await person("dee-ceiling", "Dee");
     await shiftFor(ada.id, wednesday, "cocina", "8:00 am", "5:00 pm");
     await shiftFor(bea.id, wednesday, "cocina", "8:00 am", "5:00 pm");
     await shiftFor(cam.id, wednesday, "caja", "8:00 am", "5:00 pm");
+    await shiftFor(dee.id, wednesday, "cocina", "8:00 am", "5:00 pm");
     await saveBreak({
       employeeId: ada.id,
       date: wednesday,
       startAt: chicagoDateTime(wednesday, "9:00 am"),
       endAt: chicagoDateTime(wednesday, "9:30 am"),
     });
-    await expect(saveBreak({
+    await saveBreak({
       employeeId: bea.id,
       date: wednesday,
       startAt: chicagoDateTime(wednesday, "9:15 am"),
       endAt: chicagoDateTime(wednesday, "9:45 am"),
-    })).rejects.toMatchObject({ code: "OVERLAP" });
+    });
+    await expect(saveBreak({
+      employeeId: dee.id,
+      date: wednesday,
+      startAt: chicagoDateTime(wednesday, "9:15 am"),
+      endAt: chicagoDateTime(wednesday, "9:45 am"),
+    })).rejects.toMatchObject({ code: "CEILING" });
     await saveBreak({
       employeeId: bea.id,
       date: wednesday,
@@ -302,22 +310,27 @@ describe("B4 D1 break rules", () => {
     expect(cocina[0]!.endAt.getTime()).toBe(cocina[1]!.startAt.getTime());
   });
 
-  it("K3 two concurrent saves leave no overlapping pair", async () => {
+  it("K3 three concurrent saves leave two booked breaks", async () => {
     const date = saturday;
     const dee = await person("dee", "Dee");
     const eve = await person("eve", "Eve");
+    const fay = await person("fay-ceiling", "Fay");
     await shiftFor(dee.id, date, "cocina", "8:00 am", "5:00 pm");
     await shiftFor(eve.id, date, "cocina", "8:00 am", "5:00 pm");
+    await shiftFor(fay.id, date, "cocina", "8:00 am", "5:00 pm");
     const attempt = (employeeId: string) => saveBreak({
       employeeId,
       date,
       startAt: chicagoDateTime(date, "10:00 am"),
       endAt: chicagoDateTime(date, "10:30 am"),
     });
-    const results = await Promise.allSettled([attempt(dee.id), attempt(eve.id)]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const rows = await prisma.staffBreak.findMany({ where: { date, board: "cocina", employeeId: { in: [dee.id, eve.id] } } });
-    expect(rows).toHaveLength(1);
+    const results = await Promise.allSettled([attempt(dee.id), attempt(eve.id), attempt(fay.id)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(2);
+    expect(results.filter((result) => result.status === "rejected").map((result) => result.reason)).toEqual([
+      expect.objectContaining({ code: "CEILING" }),
+    ]);
+    const rows = await prisma.staffBreak.findMany({ where: { date, board: "cocina", employeeId: { in: [dee.id, eve.id, fay.id] } } });
+    expect(rows).toHaveLength(2);
   });
 
   it("K4 a second save replaces the first, and a miss keeps the old row", async () => {
@@ -346,16 +359,16 @@ describe("B4 D1 break rules", () => {
     const second = await saveBreak({
       employeeId: fay.id,
       date,
-      startAt: chicagoDateTime(date, "2:00 pm"),
-      endAt: chicagoDateTime(date, "3:00 pm"),
+      startAt: chicagoDateTime(date, "9:30 am"),
+      endAt: chicagoDateTime(date, "10:30 am"),
     });
     expect(second.replaced).toBe(true);
     expect(second.id).toBe(first.id);
     const rows = await prisma.staffBreak.findMany({ where: { employeeId: fay.id, date } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.endAt.toISOString()).toBe(chicagoDateTime(date, "3:00 pm").toISOString());
+    expect(rows[0]!.endAt.toISOString()).toBe(chicagoDateTime(date, "10:30 am").toISOString());
     const log = await prisma.boardChangeLog.findFirstOrThrow({
-      where: { managerId: fay.id, route: BOARD_CHANGE_ROUTES.breakSave, summary: `${date} start=14:00 end=15:00` },
+      where: { managerId: fay.id, route: BOARD_CHANGE_ROUTES.breakSave, summary: `${date} start=09:30 end=10:30` },
     });
     expect(log.managerName).toBe("Fay Moss");
     expect(log.summary).not.toContain("Fay");
@@ -364,8 +377,8 @@ describe("B4 D1 break rules", () => {
     await saveBreak({
       employeeId: fay.id,
       date,
-      startAt: chicagoDateTime(date, "3:00 pm"),
-      endAt: chicagoDateTime(date, "3:15 pm"),
+      startAt: chicagoDateTime(date, "10:00 am"),
+      endAt: chicagoDateTime(date, "10:15 am"),
     });
     expect(await prisma.positionMoveLog.count()).toBe(moves);
     const onlyOther = await person("gus", "Gus");

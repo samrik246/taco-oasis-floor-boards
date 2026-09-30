@@ -217,7 +217,7 @@ describe("B4 PR 2 slice engine", () => {
     expect(slice.seats.map((seat) => seat.employeeId)).toEqual(["ada"]);
   });
 
-  it("the break gate reads the slices and assessBreak is unchanged", () => {
+  it("the break gate reads the slices and a third break hits the ceiling", () => {
     const shifts = [shift({ id: "fay", startAt: at("11:00 am"), endAt: at("7:00 pm") })];
     const gate = readBreakGate({
       date,
@@ -241,7 +241,17 @@ describe("B4 PR 2 slice engine", () => {
       endAt: at("3:00 pm"),
       shifts,
       otherBreaks: [{ board: "cocina", startAt: at("2:30 pm"), endAt: at("2:45 pm") }],
-    })).toEqual({ code: "OVERLAP" });
+    })).toEqual({ shiftId: "fay", board: "cocina" });
+    expect(assessBreak({
+      date,
+      startAt: at("2:00 pm"),
+      endAt: at("3:00 pm"),
+      shifts,
+      otherBreaks: [
+        { board: "cocina", startAt: at("2:30 pm"), endAt: at("2:45 pm") },
+        { board: "cocina", startAt: at("2:15 pm"), endAt: at("2:45 pm") },
+      ],
+    })).toEqual({ code: "CEILING" });
   });
 });
 

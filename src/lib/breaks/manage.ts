@@ -1,4 +1,9 @@
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { prisma } from "@/lib/db";
+import {
+  listBreakCovers,
+  type BreakCover,
+} from "@/lib/breaks/covers";
 import {
   blockedBreakQuarters,
   offeredBreakSlots,
@@ -13,6 +18,8 @@ import {
   type BreakManagerActor,
   type BreakShift,
 } from "@/lib/breaks/rules";
+import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
 import { chicagoToday } from "@/lib/upcoming/source";
 
 export type ManagedBreakRow = "absent" | "this" | "other";
@@ -24,7 +31,7 @@ function currentOnBoard(shifts: readonly BreakShift[], board: "caja" | "cocina")
 async function liveOtherBreaks(date: string, employeeId: string) {
   const others = await prisma.staffBreak.findMany({
     where: { date, employeeId: { not: employeeId } },
-    select: { shiftId: true, board: true, startAt: true, endAt: true },
+    select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
   });
   if (others.length === 0) return [];
   const live = await prisma.shift.findMany({
@@ -38,7 +45,7 @@ async function liveOtherBreaks(date: string, employeeId: string) {
   const liveIds = new Set(live.map((shift) => shift.id));
   return others
     .filter((row) => liveIds.has(row.shiftId))
-    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt }));
+    .map((row) => ({ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }));
 }
 
 /** Allowance uses every shift today. The windows are the requested board only. */
@@ -71,10 +78,113 @@ export async function loadManagedBreak(input: {
     })),
     blocked: blockedBreakQuarters({ date, board: input.board, shifts, otherBreaks }),
     slots: offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }),
-    saved: row === "this" && savedRow
+    saved: row === "this" && savedRow && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
+    pending: row === "this" && savedRow && savedRow.status === "pending"
+      ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
+      : null,
+    auto: row === "this" && savedRow?.status === "booked" && savedRow.auto === true,
+    covers: row === "this" && savedRow && (savedRow.status === "pending" || savedRow.auto)
+      ? await loadBreakCovers({
+        board: input.board,
+        employeeId: employee.id,
+        date,
+        startAt: savedRow.startAt,
+        endAt: savedRow.endAt,
+      })
+      : [],
   };
+}
+
+/** The manager list for one window. Names only. The lock rechecks the same list on the tap. */
+export async function loadBreakCovers(input: {
+  board: "caja" | "cocina";
+  employeeId: string;
+  date: string;
+  startAt: Date;
+  endAt: Date;
+}): Promise<BreakCover[]> {
+  const shifts = await prisma.shift.findMany({
+    where: { date: input.date, supersededAt: null, boardRemoved: false },
+    include: { employee: { select: { firstName: true } } },
+  });
+  const shiftIds = shifts.map((shift) => shift.id);
+  const paints = shiftIds.length === 0
+    ? []
+    : await prisma.assignment.findMany({
+      where: { shiftId: { in: shiftIds } },
+      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
+    });
+  const marks = await prisma.mandatoryMark.findMany({
+    where: { board: input.board, date: input.date },
+    select: { stationId: true },
+  });
+  const extra = marks
+    .map((mark) => mark.stationId)
+    .filter((stationId) => !isDefaultMandatory(stationId));
+  const breakRows = await prisma.staffBreak.findMany({
+    where: { date: input.date },
+    select: {
+      employeeId: true,
+      shiftId: true,
+      board: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      coverEmployeeId: true,
+      shuffleEmployeeId: true,
+    },
+  });
+  const abilities = await prisma.employeeStationAbility.findMany({
+    where: { employeeId: { in: shifts.map((shift) => shift.employeeId) } },
+    select: { employeeId: true, stationId: true, level: true },
+  });
+  const defaults = await loadColumnDefaults();
+  const breaks: SliceBreak[] = breakRows.flatMap((row) => {
+    if (row.status !== "booked" && row.status !== "pending") return [];
+    if (row.board !== "caja" && row.board !== "cocina") return [];
+    return [{
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      board: row.board,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      status: row.status,
+      coverEmployeeId: row.coverEmployeeId,
+      shuffleEmployeeId: row.shuffleEmployeeId,
+    }];
+  });
+  return listBreakCovers({
+    date: input.date,
+    board: input.board as SliceBoard,
+    employeeId: input.employeeId,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    shifts: shifts.map((shift) => ({
+      id: shift.id,
+      employeeId: shift.employeeId,
+      board: shift.board,
+      startAt: shift.startAt,
+      endAt: shift.endAt,
+      superseded: false,
+      boardRemoved: false,
+    })),
+    paints: paints.flatMap((row) => {
+      if (!row.employeeId) return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        stationId: row.stationId,
+        hourStart: row.hourStart,
+      }];
+    }),
+    breaks,
+    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra],
+    abilities,
+    defaults,
+    names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+  });
 }
 
 export async function saveManagedBreak(input: {
@@ -83,6 +193,8 @@ export async function saveManagedBreak(input: {
   employeeId: string;
   startAt: Date;
   endAt: Date;
+  coverEmployeeId?: string | null;
+  shuffleEmployeeId?: string | null;
   now?: Date;
 }) {
   return saveBreak({
@@ -92,6 +204,36 @@ export async function saveManagedBreak(input: {
     endAt: input.endAt,
     expectedBoard: input.board,
     actor: input.manager,
+    coverEmployeeId: input.coverEmployeeId,
+    shuffleEmployeeId: input.shuffleEmployeeId,
+  });
+}
+
+/** One tap replaces the cover the five-minute pick named. The window stays. */
+export async function replaceAutoCover(input: {
+  manager: BreakManagerActor;
+  board: "caja" | "cocina";
+  employeeId: string;
+  coverEmployeeId: string;
+  shuffleEmployeeId?: string | null;
+  now?: Date;
+}) {
+  const date = chicagoToday(input.now ?? breaksNow());
+  const row = await prisma.staffBreak.findUnique({
+    where: { employeeId_date: { employeeId: input.employeeId, date } },
+  });
+  if (!row || row.board !== input.board || row.status !== "booked" || !row.auto) {
+    throw new BreakRefused("BAD_COVER");
+  }
+  return saveManagedBreak({
+    manager: input.manager,
+    board: input.board,
+    employeeId: input.employeeId,
+    startAt: row.startAt,
+    endAt: row.endAt,
+    coverEmployeeId: input.coverEmployeeId,
+    shuffleEmployeeId: input.shuffleEmployeeId,
+    now: input.now,
   });
 }
 

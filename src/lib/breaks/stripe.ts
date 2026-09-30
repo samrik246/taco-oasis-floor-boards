@@ -7,8 +7,15 @@ export { breakStripeLabel };
 /** Live shifts only. A superseded or board-removed shift contributes nothing. */
 export async function boardBreakStripes(board: string, date: string): Promise<BreakStripe[]> {
   const rows = await prisma.staffBreak.findMany({
-    where: { board, date },
-    select: { employeeId: true, shiftId: true, startAt: true, endAt: true },
+    where: { board, date, status: "booked" },
+    select: {
+      employeeId: true,
+      shiftId: true,
+      startAt: true,
+      endAt: true,
+      coverEmployeeId: true,
+      auto: true,
+    },
   });
   if (rows.length === 0) return [];
   const live = await prisma.shift.findMany({
@@ -27,6 +34,8 @@ export async function boardBreakStripes(board: string, date: string): Promise<Br
       shiftId: row.shiftId,
       startAt: row.startAt.toISOString(),
       endAt: row.endAt.toISOString(),
+      coverEmployeeId: row.coverEmployeeId,
+      auto: row.auto,
     }));
 }
 
