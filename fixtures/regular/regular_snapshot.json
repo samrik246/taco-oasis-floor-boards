@@ -1,0 +1,97 @@
+{
+ "_comment": "C3 feed snapshot shape. The first order carries keys and text the feed would never write, to prove the board fence stands on its own.",
+ "last_good_poll_at": "2026-09-29T23:30:00Z",
+ "orders": [
+  {
+   "source": "square_online",
+   "id_tail": "A1B2C3",
+   "order_time": "2026-09-29T17:40:00-05:00",
+   "ready_time": "2026-09-29T18:15:00-05:00",
+   "fulfillment": "PICKUP",
+   "first_name": "Maria Lopez Garcia",
+   "state": "OPEN",
+   "phone_number": "+12145550187",
+   "email_address": "maria.lopez@example.invalid",
+   "total_money": {
+    "amount": 4321,
+    "currency": "USD"
+   },
+   "address": {
+    "address_line_1": "4512 Elm Street"
+   },
+   "customer_id": "CUST_FIXTURE_77Q",
+   "items": [
+    {
+     "name": "Taco al Pastor",
+     "qty": 3,
+     "variation": "Regular",
+     "modifiers": [
+      "Salsa verde",
+      "Extra limón"
+     ],
+     "note": "sin cebolla",
+     "base_price_money": {
+      "amount": 350
+     }
+    },
+    {
+     "name": "Quesadilla",
+     "qty": 1,
+     "variation": "Regular",
+     "modifiers": [
+      "2 x Queso"
+     ],
+     "note": "call Maria 214-555-0199"
+    },
+    {
+     "name": "Horchata",
+     "qty": 2,
+     "variation": "Regular",
+     "modifiers": [],
+     "note": "leave at 4512 Elm Street"
+    },
+    {
+     "name": "Burrito",
+     "qty": 1,
+     "variation": "Regular",
+     "modifiers": [
+      "1 x Dr Pepper",
+      "nombre: Maria Lopez",
+      "tip $5.00"
+     ],
+     "note": ""
+    }
+   ]
+  },
+  {
+   "source": "square_online",
+   "id_tail": "D4E5F6",
+   "order_time": "2026-09-29T18:05:00-05:00",
+   "ready_time": "2026-09-29T19:10:00-05:00",
+   "fulfillment": "DELIVERY",
+   "first_name": "",
+   "state": "OPEN",
+   "items": [
+    {
+     "name": "Torta",
+     "qty": 2,
+     "variation": "Regular",
+     "modifiers": [
+      "Sin jalapeño"
+     ],
+     "note": ""
+    }
+   ]
+  },
+  {
+   "source": "square_online",
+   "id_tail": "sqonline-regular-invalid-tail",
+   "order_time": "2026-09-29T18:05:00-05:00",
+   "ready_time": null,
+   "fulfillment": "PICKUP",
+   "first_name": "Zed",
+   "state": "OPEN",
+   "items": []
+  }
+ ]
+}

@@ -80,6 +80,8 @@ export default defineConfig({
       FLOOR_BOARDS_E2E_NOW: e2eNow,
       // Short idle so manager→staff timeout e2e stays fast
       MANAGER_IDLE_MS: "1500",
+      // C3 Regulares reads this file only; e2e/c3-regular.spec.ts writes it.
+      REGULAR_FEED_FILE: join(testRoot, "regular_snapshot.json"),
     },
   },
 });

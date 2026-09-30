@@ -13,6 +13,7 @@ import {
   monthGrid,
   weekDays,
 } from "@/lib/upcoming/calendar";
+import { RegularLink } from "@/components/regular/RegularLink";
 import { NEXT_COPY, type NextCopy } from "./next-copy";
 import { dayHeading, monthTitle, time12 } from "./format";
 import { OrderDetail } from "./OrderDetail";
@@ -210,6 +211,7 @@ export function NextOrders() {
       <header className="flex flex-col gap-3 border-b-2 border-neutral-900 pb-4">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="mr-2 text-[28px] font-black">{t.title}</h1>
+          <RegularLink locale={locale} className={`${BTN} bg-white underline`} />
           {data?.source === "fixture" && (
             <span
               className="rounded-md bg-neutral-900 px-3 py-1 text-[20px] font-bold text-white"
