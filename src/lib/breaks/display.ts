@@ -37,3 +37,6 @@ export const statusClass = {
   ended: "border-neutral-300 bg-neutral-100 text-neutral-600",
 };
 export const breakButton = "min-h-12 rounded-xl border-2 border-neutral-800 px-4 py-2 font-bold active:bg-neutral-200 disabled:opacity-40";
+
+/** Generic availability copy never reveals station or mandatory-position constraints. */
+export function unavailableLabel(locale: Locale) { return locale === "es" ? "No disponible" : "Unavailable"; }

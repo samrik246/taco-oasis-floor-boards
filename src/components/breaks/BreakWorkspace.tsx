@@ -8,7 +8,7 @@ import { useManagerIdle } from "@/components/board/useManagerSession";
 import { STAFF_SESSION_HEADER } from "@/lib/breaks/header";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { breakLengthMinutes, breakQuarterFaces, preferredBreakLength } from "@/lib/breaks/picker-steps";
-import { approvalLine, breakButton, breakClock, breakRange, stateLabel, statusClass, type BreakArea, type BreakOption, type BreakStatus, type BreakTimeline, type BreakWindow } from "@/lib/breaks/display";
+import { approvalLine, unavailableLabel, breakButton, breakClock, breakRange, stateLabel, statusClass, type BreakArea, type BreakOption, type BreakStatus, type BreakTimeline, type BreakWindow } from "@/lib/breaks/display";
 import { TimelineChips } from "./BreakTimelineStrip";
 import { ManagerBreakDialog } from "./ManagerBreakDialog";
 import { ManagerPairingPanel } from "./ManagerPairingPanel";
@@ -215,7 +215,7 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
       {phase === "picker" && <>
         {!chosenStart && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="break-starts">{faces.map(face => {
           const option = preferredBreakLength(mine.slots.filter(s => s.startAt === face.startAt), mine.allowanceMinutes) as BreakOption | null;
-          return <button key={face.startAt} className={`${breakButton} min-h-24 text-left`} data-testid="break-start" data-start={face.startAt} data-reason={face.reason ?? ""} disabled={busy || face.disabled} onClick={() => { setChosenStart(face.startAt); setChosenEnd(null); }}><span className="block text-xl">{breakClock(face.startAt)}</span><span className="block text-sm">{option ? `${option.board === "caja" ? "Caja" : "Cocina"} · ${approvalLine(locale, option.approval, true)}` : face.reason}</span></button>;
+          return <button key={face.startAt} className={`${breakButton} min-h-24 text-left`} data-testid="break-start" data-start={face.startAt} data-reason={face.reason ?? ""} disabled={busy || face.disabled} onClick={() => { setChosenStart(face.startAt); setChosenEnd(null); }}><span className="block text-xl">{breakClock(face.startAt)}</span><span className="block text-sm">{option ? `${option.board === "caja" ? "Caja" : "Cocina"} · ${approvalLine(locale, option.approval, true)}` : face.reason ? unavailableLabel(locale) : ""}</span></button>;
         })}</div>}
         {selected && <div className="space-y-4"><button className={breakButton} disabled={busy} onClick={() => { setChosenStart(null); setChosenEnd(null); }} data-testid="break-start-back">{es ? "Otro inicio" : "Different start"}</button>
           <p className="text-xl font-bold">{selected.board === "caja" ? "Caja" : "Cocina"} · {breakRange(selected)}</p><p>{approvalLine(locale, selected.approval, true)}</p>
@@ -239,6 +239,6 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
       </>}
     </section>}
     {phase === "pairing" && session?.role === "owner" && <ManagerPairingPanel token={session.token} locale={locale} onDenied={denied} />}
-    {managed && session?.kind === "gerente" && <ManagerBreakDialog {...managed} managerToken={session.token} locale={locale} onDenied={denied} onClose={() => setManaged(null)} onSaved={refresh} />}
+    {managed && session?.kind === "gerente" && <ManagerBreakDialog {...managed} managerToken={session.token} locale={locale} onDenied={denied} onClose={() => setManaged(null)} onExit={close} onSaved={refresh} />}
   </section>;
 }

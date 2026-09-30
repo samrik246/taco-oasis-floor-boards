@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { breakClock, approvalLine, stateLabel, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
+import { useEffect, useRef, useState } from "react";
+import { breakClock, breakRange, unavailableLabel, approvalLine, stateLabel, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
 import type { Locale } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import {
   breakLengthMinutes,
   breakLengthsForStart,
   breakQuarterFaces,
-  breakSaveLine,
-  managerShiftLine,
   preferredBreakLength,
   type BreakChoice,
 } from "@/lib/breaks/picker-steps";
@@ -35,8 +33,8 @@ type Managed = {
   covers: CoverChoice[];
 };
 
-function coverLabel(cover: CoverChoice): string {
-  return cover.kind === "simple" ? cover.firstName : `${cover.moves[0].firstName} y ${cover.moves[1].firstName}`;
+function coverLabel(cover: CoverChoice, locale: Locale): string {
+  return cover.kind === "simple" ? cover.firstName : `${cover.moves[0].firstName} ${locale === "es" ? "y" : "and"} ${cover.moves[1].firstName}`;
 }
 
 function clock(iso: string): string {
@@ -50,6 +48,7 @@ export function ManagerBreakDialog({
   name,
   managerToken,
   onClose,
+  onExit,
   onSaved,
   locale = "es",
   onDenied,
@@ -59,6 +58,8 @@ export function ManagerBreakDialog({
   name: string;
   managerToken: string;
   onClose: () => void;
+  /** Full BREAK exit; ordinary Pintar callers retain dialog-only dismissal. */
+  onExit?: () => void;
   onSaved: () => Promise<void>;
   locale?: Locale;
   onDenied?: () => void;
@@ -73,7 +74,19 @@ export function ManagerBreakDialog({
   const [coverWindow, setCoverWindow] = useState<Slot | null>(null);
   const [autoPick, setAutoPick] = useState(false);
 
+  const generation = useRef(0);
+  function dismiss(exit = false) {
+    generation.current += 1;
+    if (exit && onExit) onExit();
+    else onClose();
+  }
+  function back() {
+    if (chosenStart) { setChosenStart(null); setChosenEnd(null); }
+    else dismiss();
+  }
+
   useEffect(() => {
+    const version = ++generation.current;
     let cancelled = false;
     void (async () => {
       try {
@@ -82,57 +95,62 @@ export function ManagerBreakDialog({
           { headers: managerAuthHeaders(managerToken) },
         );
         const body = await response.json() as Managed & { error?: string };
-        if (cancelled) return;
+        if (cancelled || version !== generation.current) return;
         if ((response.status === 401 || response.status === 403) && onDenied) { onDenied(); return; }
         if (!response.ok) {
-          setMessage(body.error ?? "No se pudo abrir BREAK.");
+          setMessage(body.error ?? (es ? "No se pudo abrir BREAK." : "Could not open BREAK."));
           return;
         }
         setMine(body);
         setCovers(body.covers ?? []);
         setAutoPick(body.auto === true);
         setCoverWindow(body.pending ?? (body.auto ? body.saved : null));
-        if (body.row === "other") setMessage("Ese BREAK es de la otra área.");
+        if (body.row === "other") setMessage(es ? "Ese BREAK es de la otra área." : "That BREAK is in the other area.");
       } catch {
-        if (!cancelled) setMessage("No se pudo abrir BREAK.");
+        if (!cancelled && version === generation.current) setMessage(es ? "No se pudo abrir BREAK." : "Could not open BREAK.");
       }
     })();
     return () => {
       cancelled = true;
+      generation.current += 1;
     };
-  }, [board, employeeId, managerToken, onDenied]);
+  }, [board, employeeId, managerToken, onDenied, es]);
 
-  async function commit(response: Response, fallback: string, slot: Slot | null) {
+  async function commit(response: Response, fallback: string, slot: Slot | null, version: number) {
+    if (version !== generation.current) return;
     if ((response.status === 401 || response.status === 403) && onDenied) { onDenied(); return; }
     const body = await response.json() as { error?: string; waiting?: boolean; message?: string; covers?: CoverChoice[] };
+    if (version !== generation.current) return;
     if (!response.ok) {
       setMessage(body.error ?? fallback);
       setBusy(false);
       return;
     }
     if (body.waiting) {
-      setMessage(body.message ?? "Requiere aprobación del gerente.");
+      setMessage(es ? (body.message ?? "Requiere aprobación del gerente.") : "Gerente approval required.");
       setCovers(body.covers ?? []);
       setCoverWindow(slot);
       setAutoPick(false);
       setMine(current => current ? { ...current, saved: null, pending: slot, state: "pending", approval: "gerente" } : current);
       setChosenStart(null);
       setChosenEnd(null);
-      try { await onSaved(); } catch { setMessage("No se pudo actualizar"); }
-      setBusy(false);
+      try { await onSaved(); } catch { if (version === generation.current) setMessage(es ? "No se pudo actualizar" : "Could not refresh"); }
+      if (version === generation.current) setBusy(false);
       return;
     }
     try {
       await onSaved();
-      onClose();
+      if (version === generation.current) dismiss();
     } catch {
-      setMessage("No se pudo actualizar");
+      if (version !== generation.current) return;
+      setMessage(es ? "No se pudo actualizar" : "Could not refresh");
       setBusy(false);
     }
   }
 
   async function save(slot: BreakChoice, cover?: { employeeId: string; shuffleEmployeeId?: string }) {
     if (busy) return;
+    const version = generation.current;
     setBusy(true);
     setMessage("");
     try {
@@ -147,15 +165,17 @@ export function ManagerBreakDialog({
           ...(cover ? { coverEmployeeId: cover.employeeId, shuffleEmployeeId: cover.shuffleEmployeeId } : {}),
         }),
       });
-      await commit(response, "Elige otro horario.", slot);
+      await commit(response, es ? "Elige otro horario." : "Choose another time.", slot, version);
     } catch {
-      setMessage("No se pudo actualizar");
+      if (version !== generation.current) return;
+      setMessage(es ? "No se pudo actualizar" : "Could not refresh");
       setBusy(false);
     }
   }
 
   async function replaceCover(cover: { employeeId: string; shuffleEmployeeId?: string }) {
     if (busy) return;
+    const version = generation.current;
     setBusy(true);
     setMessage("");
     try {
@@ -170,15 +190,17 @@ export function ManagerBreakDialog({
           ...(cover.shuffleEmployeeId ? { shuffleEmployeeId: cover.shuffleEmployeeId } : {}),
         }),
       });
-      await commit(response, "Esa persona no puede cubrir.", null);
+      await commit(response, es ? "Esa persona no puede cubrir." : "That person cannot cover.", null, version);
     } catch {
-      setMessage("No se pudo actualizar");
+      if (version !== generation.current) return;
+      setMessage(es ? "No se pudo actualizar" : "Could not refresh");
       setBusy(false);
     }
   }
 
   async function clear() {
     if (busy) return;
+    const version = generation.current;
     setBusy(true);
     setMessage("");
     try {
@@ -187,9 +209,10 @@ export function ManagerBreakDialog({
         headers: { "content-type": "application/json", ...managerAuthHeaders(managerToken) },
         body: JSON.stringify({ board, employeeId }),
       });
-      await commit(response, "No se pudo quitar.", null);
+      await commit(response, es ? "No se pudo quitar." : "Could not cancel.", null, version);
     } catch {
-      setMessage("No se pudo actualizar");
+      if (version !== generation.current) return;
+      setMessage(es ? "No se pudo actualizar" : "Could not refresh");
       setBusy(false);
     }
   }
@@ -202,18 +225,18 @@ export function ManagerBreakDialog({
   const faces = mine ? breakQuarterFaces({ shifts: mine.shifts, slots: mine.slots, blocked: mine.blocked }) : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="descanso-title" data-testid="descanso-dialog">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="descanso-title" data-testid="descanso-dialog" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); back(); } }}>
       <div className="max-h-[96vh] w-full max-w-none overflow-y-auto rounded-lg border-2 border-neutral-900 bg-white p-4">
         <h3 id="descanso-title" className="text-lg font-bold" data-testid="descanso-name">BREAK · {name}</h3>
         {mine && (
           <p className="mt-1 text-sm font-semibold" data-testid="descanso-shift">
-            {managerShiftLine(mine.firstName, mine.shifts, mine.allowanceMinutes, clock)}
+            {mine.firstName}. {[...mine.shifts].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map(breakRange).join(es ? " y " : " and ")}. {es ? `Le tocan ${mine.allowanceMinutes} minutos.` : `Up to ${mine.allowanceMinutes} minutes.`}
           </p>
         )}
         {mine && <p className="mt-2 text-xl font-bold">{stateLabel(locale, mine.state ?? "absent")}{mine.approval ? ` · ${approvalLine(locale, mine.approval)}` : ""}</p>}
         {mine?.saved && (
           <p className="mt-2 text-base font-bold" data-testid="descanso-current">
-            {clock(mine.saved.startAt)} a {clock(mine.saved.endAt)}
+            {breakRange(mine.saved)}
             {autoPick ? " auto" : ""}
           </p>
         )}
@@ -242,7 +265,7 @@ export function ManagerBreakDialog({
                     else void save(coverWindow, named);
                   }}
                 >
-                  {cover.kind === "shuffle" ? "Shuffle" : (es ? "Cubrir" : "Cover")} · {coverLabel(cover)}
+                  {cover.kind === "shuffle" ? "Shuffle" : (es ? "Cubrir" : "Cover")} · {coverLabel(cover, locale)}
                 </button>
               );
             })}
@@ -265,7 +288,7 @@ export function ManagerBreakDialog({
                 }}
               >
                 <span className="block">{clock(face.startAt)}</span>
-                {face.reason && <span className="block text-xs font-semibold">{face.reason}</span>}
+                {face.reason && <span className="block text-xs font-semibold">{unavailableLabel(locale)}</span>}
               </button>
             ))}
           </div>
@@ -273,7 +296,7 @@ export function ManagerBreakDialog({
         {showingLengths && selected && (
           <div className="mt-3 flex flex-col gap-2">
             <button type="button" className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 text-base font-bold" data-testid="descanso-start-back" disabled={busy} onClick={() => { setChosenEnd(null); setChosenStart(null); }}>
-              Otro inicio
+              {es ? "Otro inicio" : "Different start"}
             </button>
             <button
               type="button"
@@ -285,7 +308,7 @@ export function ManagerBreakDialog({
               onClick={() => void save(selected)}
             >
               <span className="block">{es ? "RESERVAR" : "RESERVE"}</span>
-              <span className="block text-sm font-semibold">{breakSaveLine(selected, clock)}</span>
+              <span className="block text-sm font-semibold">{breakRange(selected)}, {breakLengthMinutes(selected)} min</span>
               <span className="block">{approvalLine(locale, (selected as BreakOption).approval ?? "gerente", true)}</span>
             </button>
             {lengths.filter((slot) => slot.endAt !== selected.endAt).length > 0 && (
@@ -309,14 +332,14 @@ export function ManagerBreakDialog({
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" onClick={() => { if (chosenStart) { setChosenStart(null); setChosenEnd(null); } else onClose(); }}>{es ? "Atrás" : "Back"}</button>
+          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-back" onClick={back}>{es ? "Atrás" : "Back"}</button>
           {(mine?.saved || mine?.pending || coverWindow) && (
             <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-clear" disabled={busy} onClick={() => void clear()}>
               {(mine?.pending || (coverWindow && !autoPick)) ? (es ? "Rechazar solicitud" : "Reject request") : (es ? "Quitar BREAK" : "Cancel BREAK")}
             </button>
           )}
-          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-close" onClick={onClose}>
-            Cerrar
+          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-close" onClick={() => dismiss(true)}>
+            {onExit ? (es ? "Cerrar · Volver al tablero" : "Close · Back to board") : (es ? "Cerrar" : "Close")}
           </button>
         </div>
       </div>

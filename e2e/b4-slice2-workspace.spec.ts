@@ -9,7 +9,8 @@ import { chicagoDateTime } from "../src/lib/time";
 const root = process.env.FLOOR_BOARDS_TEST_ROOT;
 if (!root) throw new Error("Disposable database required");
 const prisma = new PrismaClient({ datasources: { db: { url: `file:${path.join(root, "e2e.db")}` } } });
-const screens = path.resolve("../../WORK_LOGS/COLOR_BOARDS_B4_SLICE2_YUKI_EVIDENCE_2026_09_30/screens");
+// Each run owns its captures; publication evidence is sealed separately after the run.
+const screens = path.join(root, "b4-slice2-screens");
 const date = formatInTimeZone(new Date(), "America/Chicago", "yyyy-MM-dd");
 const iso = (time: string) => chicagoDateTime(date, time).toISOString();
 async function screenshot(page: Page, name: string) { mkdirSync(screens, { recursive: true }); await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage: true }); }
@@ -170,6 +171,8 @@ test("English approval and all persisted status cards retain full landscape widt
   await enterWorker(page);
   await expect(page.getByTestId("break-status")).toContainText("Reserved");
   await expect(page.getByTestId("break-status")).toContainText("Approval: gerente required.");
+  await expect(page.locator('[data-testid="break-start"]:disabled').first()).toContainText("Unavailable");
+  await expect(page.getByTestId("break-worker")).not.toContainText("Fuera");
   await screenshot(page, "08_EN_RESERVED");
   for (const [state, label] of [["on-break", "On BREAK"], ["completed", "Completed"], ["ended", "Request ended without a BREAK"]]) {
     data.saved!.state = state;
@@ -195,3 +198,45 @@ test("a gerente-created pending request updates its status card without claiming
   await expect(page.getByTestId("descanso-dialog")).not.toContainText("Completado");
   await expect(page.getByTestId("descanso-clear")).toHaveText("Rechazar solicitud");
 });
+
+for (const locale of ["es", "en"] as const) {
+  test(`${locale}: pending review Back returns to queue, Close clears identity and delayed writes cannot reopen BREAK`, async ({ page }) => {
+    await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+    const data = await workerUI(page, "pending");
+    await page.route("**/api/breaks/session", route => route.fulfill({ json: route.request().method() === "GET" ? { role: "manager" } : { kind: "gerente", token: "synthetic-manager", role: "manager", name: "Gerente Ejemplo", idleMs: 60_000 } }));
+    let release!: () => void;
+    let finished!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const settled = new Promise<void>(resolve => { finished = resolve; });
+    await page.route("**/api/breaks/manage**", async route => {
+      if (route.request().method() === "GET") await route.fulfill({ json: {
+        firstName: "Mara", allowanceMinutes: 60, row: "this", shifts: data.shifts, slots: [], blocked: [], saved: null, pending: data.saved,
+        state: "pending", approval: "gerente", covers: [{ kind: "simple", employeeId: "example-cover", shiftId: "example-shift", firstName: "Sol" }],
+      } });
+      else { await held; await route.fulfill({ json: { waiting: true, covers: [] } }); finished(); }
+    });
+    await page.goto("/?board=caja&kiosk=1");
+    await page.getByTestId("open-descansos").click();
+    for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+    await page.getByTestId("break-review").first().click();
+    await page.getByTestId("descanso-back").click();
+    await expect(page.getByTestId("break-gerente")).toBeVisible();
+    await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
+    await page.getByTestId("break-review").first().click();
+    await expect(page.getByTestId("descanso-close")).toHaveText(locale === "es" ? "Cerrar · Volver al tablero" : "Close · Back to board");
+    await expect(page.getByTestId("descanso-cover")).toBeVisible();
+    if (locale === "en") await screenshot(page, "09_EN_COVER_SUPPLEMENT");
+    const request = page.waitForRequest(r => r.url().includes("/api/breaks/manage") && r.method() === "POST");
+    await page.getByTestId("descanso-cover").click(); await request;
+    await page.getByTestId("descanso-close").click();
+    await expect(page.getByTestId("break-sheet")).toHaveCount(0);
+    await expect(page.getByTestId("open-descansos")).toBeVisible();
+    await page.getByTestId("open-descansos").click();
+    await expect(page.getByTestId("break-keypad")).toBeVisible();
+    await expect(page.getByTestId("break-code-input")).toHaveValue("");
+    release(); await settled;
+    await expect(page.getByTestId("break-keypad")).toBeVisible();
+    await expect(page.getByTestId("break-gerente")).toHaveCount(0);
+    await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
+  });
+}

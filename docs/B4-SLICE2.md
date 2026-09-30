@@ -35,3 +35,12 @@ The managed-read DTO now includes the same approval classification as the worker
 ## Remaining gates
 
 Independent judgment must use the frozen commit, complete tests/e2e/fresh build, required artifact checks, attribution and the unchanged lint baseline disposition. Richard's actual screen review and final installation approval remain later gates. Saved-label readback, slice 3, release-chain review, and physical Caja/Cocina tablet acceptance remain in R2. This slice does not install, alter a live display, run an import or push an unjudged commit.
+
+
+## Navigation/copy correction
+
+The pending-review dialog has distinct Back and Close controls: Back dismisses one phase to the gerente queue; Close invokes the workspace reset and returns to the board. Ordinary Pintar callers and successful saves still dismiss just the dialog. A dialog request generation invalidates load/mutation responses on dismissal, unmount or identity change, including deferred JSON and deferred refresh completion. Escape follows one-step Back.
+
+Disabled slot faces display generic `No disponible` / `Unavailable`; dialog buttons, allowance and range text follow the current locale. The Ahora Suspense fallback says BREAK. Rendered interaction regressions are in `tests/b4-slice2-dialog-exits.test.ts`; both-locale board return, fresh code entry on reopening and delayed-mutation cases are in the complete workspace browser suite.
+
+Each browser run now writes captures into its own `FLOOR_BOARDS_TEST_ROOT/b4-slice2-screens` directory. A review packet copies the eight publication images to a separately sealed evidence directory and records their hashes and the source commit. Judge reruns cannot overwrite the publication captures through the test configuration. The original packet remains prior evidence; only a newly judged corrected packet may be posted.
