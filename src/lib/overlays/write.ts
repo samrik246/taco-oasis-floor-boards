@@ -3,6 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
+import {
+  findHandoffOverlay,
+  overlayCoversWindow,
+  paintStationAt,
+} from "@/lib/breaks/handoff-cover";
 import { assessBreak, withStaffBreakLock } from "@/lib/breaks/rules";
 import { TIMEZONE } from "@/lib/constants";
 import { prisma } from "@/lib/db";
@@ -157,33 +162,30 @@ async function liveOtherBreaks(
   });
 }
 
-/** Ceiling and star gate for a cover already named on a pending row. */
-async function handedBooking(
+/**
+ * Star gate for a named cover, with the handoff overlay left out.
+ * The name stands only when that overlay covers the window start to end.
+ */
+async function starAcceptsNamedCover(
   tx: Prisma.TransactionClient,
   input: {
     board: "caja" | "cocina";
     date: string;
     employeeId: string;
+    shiftId: string;
     startAt: Date;
     endAt: Date;
     coverEmployeeId: string;
     ignoreOverlayId: string;
     shifts: readonly LiveShift[];
   },
-): Promise<"book" | "roll" | "wait"> {
-  const decision = assessBreak({
-    date: input.date,
-    startAt: input.startAt,
-    endAt: input.endAt,
-    shifts: input.shifts.filter((shift) => shift.employeeId === input.employeeId),
-    otherBreaks: await liveOtherBreaks(tx, input.date, input.employeeId),
-  });
-  if ("code" in decision) return decision.code === "CEILING" ? "roll" : "wait";
+): Promise<boolean> {
   const marks = await tx.mandatoryMark.findMany({
     where: { board: input.board, date: input.date },
     select: { stationId: true },
   });
   const extra = marks.map((mark) => mark.stationId).filter((id) => !isDefaultMandatory(id));
+  const starStationIds = [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra];
   const paints: SlicePaint[] = input.shifts.length === 0 ? [] : (await tx.assignment.findMany({
     where: { shiftId: { in: input.shifts.map((shift) => shift.id) } },
     select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
@@ -225,9 +227,13 @@ async function handedBooking(
       auto: row.auto,
     }];
   });
-  const overlays = (await loadOverlayRecords(tx, input.board, input.date))
-    .filter((row) => row.id !== input.ignoreOverlayId)
-    .map(toSliceOverlay);
+  const overlays = (await loadOverlayRecords(tx, input.board, input.date)).map(toSliceOverlay);
+  const seat = paintStationAt(paints, input.employeeId, input.shiftId, input.startAt);
+  const matched = findHandoffOverlay(overlays, input.coverEmployeeId, seat, starStationIds);
+  const known = overlays.find((row) => row.id === input.ignoreOverlayId) ?? null;
+  const handoff = matched ?? known;
+  if (handoff && !overlayCoversWindow(handoff, input.startAt, input.endAt)) return false;
+  const excludeId = handoff?.id ?? input.ignoreOverlayId;
   const star = assessStarGate({
     date: input.date,
     board: input.board,
@@ -237,20 +243,48 @@ async function handedBooking(
     shifts: input.shifts.map(asSliceShift),
     paints,
     breaks,
-    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra],
-    overlays,
+    starStationIds,
+    overlays: overlays.filter((row) => row.id !== excludeId),
     coverEmployeeId: input.coverEmployeeId,
   });
-  return "code" in star ? "wait" : "book";
+  return !("code" in star);
+}
+
+/** Ceiling and star gate for a cover already named on a pending row. */
+async function handedBooking(
+  tx: Prisma.TransactionClient,
+  input: {
+    board: "caja" | "cocina";
+    date: string;
+    employeeId: string;
+    shiftId: string;
+    startAt: Date;
+    endAt: Date;
+    coverEmployeeId: string;
+    ignoreOverlayId: string;
+    shifts: readonly LiveShift[];
+  },
+): Promise<"book" | "roll" | "wait"> {
+  const decision = assessBreak({
+    date: input.date,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    shifts: input.shifts.filter((shift) => shift.employeeId === input.employeeId),
+    otherBreaks: await liveOtherBreaks(tx, input.date, input.employeeId),
+  });
+  if ("code" in decision) return decision.code === "CEILING" ? "roll" : "wait";
+  const accepted = await starAcceptsNamedCover(tx, input);
+  return accepted ? "book" : "wait";
 }
 
 /**
  * A star seat handed to someone names that person only when this overlay
  * covers the whole break, start to end, and their shift covers it too.
  * A partial overlap leaves the row untouched. The lock is already held.
- * Only the ceiling-and-star decision books, and only by a conditional write.
- * A full ceiling leaves the row pending, cover named, and rolls one quarter
- * when that quarter still fits.
+ * The star gate runs with this overlay left out. Only that decision books,
+ * and only by a conditional write. A full ceiling leaves the row pending
+ * and rolls one quarter. The name stays only when this overlay covers that
+ * next quarter and the same gate accepts it.
  */
 async function handStar(
   tx: Prisma.TransactionClient,
@@ -305,6 +339,7 @@ async function handStar(
       board: input.board,
       date: input.date,
       employeeId: row.employeeId,
+      shiftId: row.shiftId,
       startAt: row.startAt,
       endAt: row.endAt,
       coverEmployeeId: input.arrivingId,
@@ -321,7 +356,6 @@ async function handStar(
     if (outcome !== "roll") continue;
     const nextStart = new Date(row.startAt.getTime() + QUARTER_MS);
     const nextEnd = new Date(row.endAt.getTime() + QUARTER_MS);
-    if (!coveringShift(input.shifts, input.arrivingId, nextStart, nextEnd, input.board)) continue;
     const rolled = assessBreak({
       date: input.date,
       startAt: nextStart,
@@ -330,9 +364,32 @@ async function handStar(
       otherBreaks: await liveOtherBreaks(tx, input.date, row.employeeId),
     });
     if ("code" in rolled && rolled.code !== "CEILING") continue;
+    const nextCover = coveringShift(input.shifts, input.arrivingId, nextStart, nextEnd, input.board);
+    const keep = nextCover != null && await starAcceptsNamedCover(tx, {
+      board: input.board,
+      date: input.date,
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      startAt: nextStart,
+      endAt: nextEnd,
+      coverEmployeeId: input.arrivingId,
+      ignoreOverlayId: input.ignoreOverlayId,
+      shifts: input.shifts,
+    });
     await tx.staffBreak.updateMany({
       where: { id: row.id, status: "pending", coverEmployeeId: input.arrivingId },
-      data: { startAt: nextStart, endAt: nextEnd },
+      data: {
+        startAt: nextStart,
+        endAt: nextEnd,
+        ...(keep && nextCover
+          ? { coverShiftId: nextCover.id }
+          : {
+            coverEmployeeId: null,
+            coverShiftId: null,
+            shuffleEmployeeId: null,
+            shuffleShiftId: null,
+          }),
+      },
     });
   }
 }

@@ -1,6 +1,11 @@
 import type { Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { firstAutoCover } from "@/lib/breaks/covers";
+import {
+  findHandoffOverlay,
+  overlayCoversWindow,
+  paintStationAt,
+} from "@/lib/breaks/handoff-cover";
 import { breaksNow } from "@/lib/breaks/now";
 import {
   assessBreak,
@@ -10,7 +15,7 @@ import {
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
 import { assessStarGate } from "@/lib/slices/break-gate";
-import type { SliceBoard, SliceBreak, SliceShift } from "@/lib/slices/day-slices";
+import type { SliceBoard, SliceBreak, SliceOverlay, SliceShift } from "@/lib/slices/day-slices";
 
 /** Five minutes before the window. A later read does not pick. */
 export const BREAK_PICK_LEAD_MS = 5 * 60 * 1000;
@@ -52,6 +57,7 @@ function isDue(start: Date, now: Date): boolean {
 type PendingRow = {
   id: string;
   employeeId: string;
+  shiftId: string;
   date: string;
   board: string;
   startAt: Date;
@@ -61,6 +67,8 @@ type PendingRow = {
   coverEmployeeId: string | null;
   coverShiftId: string | null;
 };
+
+type PickWorld = Awaited<ReturnType<typeof loadPickWorld>>;
 
 async function loadPickWorld(
   tx: Prisma.TransactionClient,
@@ -216,15 +224,29 @@ function shiftCovering(
   }) ?? null;
 }
 
-/** The named cover ranks first when their shift still holds this window and the star gate accepts them. */
+/** The switch or add that seated this name on the breaker's star, if there is one. */
+function bindingOverlay(row: PendingRow, world: PickWorld): SliceOverlay | null {
+  if (!row.coverEmployeeId) return null;
+  const seat = paintStationAt(world.paints, row.employeeId, row.shiftId, row.startAt);
+  return findHandoffOverlay(world.overlays, row.coverEmployeeId, seat, world.starStationIds);
+}
+
+/**
+ * The named cover ranks first when the handoff overlay still covers this
+ * window and the star gate accepts them with that overlay left out.
+ * No handoff overlay keeps the shift-and-gate check. A window the overlay
+ * does not cover drops the name.
+ */
 function namedCoverFirst(
   row: PendingRow,
   board: SliceBoard,
-  world: Awaited<ReturnType<typeof loadPickWorld>>,
+  world: PickWorld,
   startAt: Date,
   endAt: Date,
 ): { employeeId: string; shiftId: string } | null {
   if (!row.coverEmployeeId) return null;
+  const handoff = bindingOverlay(row, world);
+  if (handoff && !overlayCoversWindow(handoff, startAt, endAt)) return null;
   const shift = shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
   if (!shift) return null;
   const star = assessStarGate({
@@ -237,7 +259,7 @@ function namedCoverFirst(
     paints: world.paints,
     breaks: world.breaks,
     starStationIds: world.starStationIds,
-    overlays: world.overlays,
+    overlays: handoff ? world.overlays.filter((overlay) => overlay.id !== handoff.id) : world.overlays,
     coverEmployeeId: row.coverEmployeeId,
   });
   if ("code" in star) return null;
@@ -306,9 +328,7 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
     const nextStart = new Date(row.startAt.getTime() + SLICE_MS);
     const nextEnd = new Date(row.endAt.getTime() + SLICE_MS);
     const fits = await rolledWindowFits(tx, row, nextStart, nextEnd);
-    const nextNamed = row.coverEmployeeId
-      ? shiftCovering(world.shifts, row.coverEmployeeId, nextStart, nextEnd, board)
-      : null;
+    const nextNamed = namedCoverFirst(row, board, world, nextStart, nextEnd);
     const wrote = await tx.staffBreak.updateMany({
       where: {
         id: row.id,
@@ -322,11 +342,9 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
           endAt: nextEnd,
           auto: false,
           updatedAt,
-          ...(row.coverEmployeeId && !nextNamed
-            ? { coverEmployeeId: null, coverShiftId: null, shuffleEmployeeId: null, shuffleShiftId: null }
-            : nextNamed
-              ? { coverShiftId: nextNamed.id }
-              : {}),
+          ...(nextNamed
+            ? { coverShiftId: nextNamed.shiftId }
+            : { coverEmployeeId: null, coverShiftId: null, shuffleEmployeeId: null, shuffleShiftId: null }),
         }
         : { status: "ended", auto: false, updatedAt },
     });
@@ -341,13 +359,13 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
  * Pending breaks due in the next five minutes, earliest first.
  * A row that already names a cover stays in this queue. That person ranks
  * first when their shift still covers the window and the star gate accepts
- * them; otherwise the ordinary pick runs. One conditional write inside the
- * lock books when that quarter still has a booked spot. A full ceiling is
- * the same as no cover: roll the same length one quarter, keeping the named
- * cover only when their shift covers the new window, or end the break when
- * the next quarter no longer fits before a blackout or the shift end. A
- * window already under way is left as it was. Two callers cannot both win
- * the same row.
+ * them. A name that came from a handoff overlay is kept only while that
+ * overlay covers the window, and the star gate runs with the overlay left
+ * out. Any other window clears the name and the ordinary pick decides.
+ * One conditional write inside the lock books when that quarter still has a
+ * booked spot. A full ceiling rolls the same length one quarter, or ends
+ * the break when the next quarter no longer fits. A window already under
+ * way is left as it was. Two callers cannot both win the same row.
  */
 export async function pickDueCovers(now: Date = breaksNow()): Promise<BreakPickTally> {
   const seen = await withStaffBreakLock((tx) => readDue(tx, now));

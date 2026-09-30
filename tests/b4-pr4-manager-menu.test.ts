@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { POST } from "@/app/api/boards/[board]/days/[date]/overlays/route";
+import { pickDueCovers } from "@/lib/breaks/auto-pick";
 import { listBreakCovers } from "@/lib/breaks/covers";
 import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadOverlayRecords, screenOverlays } from "@/lib/overlays/read";
@@ -270,7 +271,8 @@ describe("B4 PR 4 manager menu", () => {
       where: { employeeId_date: { employeeId: fay.id, date: day } },
     });
     expect(pending.status).toBe("pending");
-    expect(pending.coverEmployeeId).toBe(gus.id);
+    expect(pending.coverEmployeeId).toBeNull();
+    expect(pending.coverShiftId).toBeNull();
     expect(pending.startAt.getTime()).toBe(at("1:15 pm", day).getTime());
     expect(pending.endAt.getTime()).toBe(at("1:30 pm", day).getTime());
   });
@@ -456,5 +458,157 @@ describe("B4 PR 4 manager menu", () => {
     expect(moved?.seats.find((seat) => seat.stationId === "green1")).toBeUndefined();
     expect(moved?.people.find((row) => row.employeeId === "cam")?.stationId).toBe("multi");
     expect(moved?.emptyStarStationIds).toContain("green1");
+  });
+
+  it("books the same named cover on the next wake when the handoff still covers that quarter", async () => {
+    const day = "2036-06-20";
+    const later = chicagoDateTime(day, "1:00 pm");
+    for (const id of ["green1", "multi", "purple1", "yellow", "nieves", "mana", "mesero", "clean"]) {
+      await cajaStation(id);
+    }
+    const ada = await person("Nia", "green1", undefined, day);
+    const cam = await person("Odo", "multi", undefined, day);
+    await person("Pia", "purple1", undefined, day);
+    await person("Quin", "yellow", undefined, day);
+    await person("Rem", "nieves", undefined, day);
+    await person("Sol", "mana", undefined, day);
+    const ora = await person("Tess", "mesero", undefined, day);
+    const pip = await person("Ula", "clean", undefined, day);
+    const adaShift = await prisma.shift.findFirstOrThrow({ where: { employeeId: ada.id, date: day } });
+    await prisma.staffBreak.create({
+      data: {
+        employeeId: ada.id,
+        shiftId: adaShift.id,
+        board: "caja",
+        date: day,
+        startAt: at("1:00 pm", day),
+        endAt: at("1:15 pm", day),
+        actor: "test",
+        status: "pending",
+      },
+    });
+    for (const holder of [ora, pip]) {
+      const shift = await prisma.shift.findFirstOrThrow({ where: { employeeId: holder.id, date: day } });
+      await prisma.staffBreak.create({
+        data: {
+          employeeId: holder.id,
+          shiftId: shift.id,
+          board: "caja",
+          date: day,
+          startAt: at("1:00 pm", day),
+          endAt: at("1:15 pm", day),
+          actor: "test",
+          status: "booked",
+        },
+      });
+    }
+    await saveOverlay({
+      manager,
+      board: "caja",
+      date: day,
+      kind: "switch",
+      employeeId: ada.id,
+      partnerEmployeeId: cam.id,
+      window: "quarters",
+      startAt: at("1:00 pm", day),
+      endAt: at("1:30 pm", day),
+      now: later,
+    });
+    const rolled = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: day } },
+    });
+    expect(rolled.status).toBe("pending");
+    expect(rolled.coverEmployeeId).toBe(cam.id);
+    expect(rolled.startAt.getTime()).toBe(at("1:15 pm", day).getTime());
+    expect(rolled.endAt.getTime()).toBe(at("1:30 pm", day).getTime());
+    await prisma.staffBreak.deleteMany({
+      where: { date: day, employeeId: { in: [ora.id, pip.id] } },
+    });
+
+    const tally = await pickDueCovers(at("1:10 pm", day));
+    expect(tally).toEqual({ picked: 1, rolled: 0, ended: 0 });
+    const booked = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: day } },
+    });
+    expect(booked.status).toBe("booked");
+    expect(booked.auto).toBe(false);
+    expect(booked.coverEmployeeId).toBe(cam.id);
+    expect(booked.startAt.getTime()).toBe(at("1:15 pm", day).getTime());
+    expect(booked.endAt.getTime()).toBe(at("1:30 pm", day).getTime());
+  });
+
+  it("drops a one-quarter handoff on the next wake and picks someone else", async () => {
+    const day = "2036-06-21";
+    const later = chicagoDateTime(day, "1:00 pm");
+    for (const id of ["green1", "multi", "blue", "purple1", "yellow", "nieves", "mana", "mesero", "clean"]) {
+      await cajaStation(id);
+    }
+    const ada = await person("Vic", "green1", undefined, day);
+    const cam = await person("Wes", "multi", "training", day);
+    const bea = await person("Xue", "blue", "preferred", day);
+    await person("Yara", "purple1", undefined, day);
+    await person("Zeke", "yellow", undefined, day);
+    await person("Aria", "nieves", undefined, day);
+    await person("Bren", "mana", undefined, day);
+    const ora = await person("Cora", "mesero", undefined, day);
+    const pip = await person("Dax", "clean", undefined, day);
+    const adaShift = await prisma.shift.findFirstOrThrow({ where: { employeeId: ada.id, date: day } });
+    await prisma.staffBreak.create({
+      data: {
+        employeeId: ada.id,
+        shiftId: adaShift.id,
+        board: "caja",
+        date: day,
+        startAt: at("1:00 pm", day),
+        endAt: at("1:15 pm", day),
+        actor: "test",
+        status: "pending",
+      },
+    });
+    for (const holder of [ora, pip]) {
+      const shift = await prisma.shift.findFirstOrThrow({ where: { employeeId: holder.id, date: day } });
+      await prisma.staffBreak.create({
+        data: {
+          employeeId: holder.id,
+          shiftId: shift.id,
+          board: "caja",
+          date: day,
+          startAt: at("1:00 pm", day),
+          endAt: at("1:15 pm", day),
+          actor: "test",
+          status: "booked",
+        },
+      });
+    }
+    await saveOverlay({
+      manager,
+      board: "caja",
+      date: day,
+      kind: "switch",
+      employeeId: ada.id,
+      partnerEmployeeId: cam.id,
+      window: "quarters",
+      startAt: at("1:00 pm", day),
+      endAt: at("1:15 pm", day),
+      now: later,
+    });
+    const rolled = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: day } },
+    });
+    expect(rolled.status).toBe("pending");
+    expect(rolled.coverEmployeeId).toBeNull();
+    expect(rolled.startAt.getTime()).toBe(at("1:15 pm", day).getTime());
+    expect(rolled.endAt.getTime()).toBe(at("1:30 pm", day).getTime());
+
+    const tally = await pickDueCovers(at("1:10 pm", day));
+    expect(tally.picked).toBe(1);
+    const booked = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: ada.id, date: day } },
+    });
+    expect(booked.status).toBe("booked");
+    expect(booked.auto).toBe(true);
+    expect(booked.coverEmployeeId).toBe(bea.id);
+    expect(booked.coverEmployeeId).not.toBe(cam.id);
+    expect(booked.startAt.getTime()).toBe(at("1:15 pm", day).getTime());
   });
 });
