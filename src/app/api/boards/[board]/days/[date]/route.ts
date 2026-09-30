@@ -9,6 +9,8 @@ import { loadMandatoryDay } from "@/lib/mandatory-store";
 import { fillMissingSeatNumbers } from "@/lib/assignments/seat-number";
 import { loadStationUse } from "@/lib/assignments/station-use";
 import { boardBreakStripes } from "@/lib/breaks/stripe";
+import { loadOverlayRecords, overlayDto } from "@/lib/overlays/read";
+import { chicagoToday } from "@/lib/upcoming/source";
 
 export const runtime = "nodejs";
 
@@ -121,6 +123,8 @@ export async function GET(request: Request, context: RouteContext) {
       })),
       stationUse: await loadStationUse(board, date, stations.map((s) => s.id)),
       breaks: await boardBreakStripes(board, date),
+      overlays: (await loadOverlayRecords(prisma, board, date)).map(overlayDto),
+      overlayMenu: Boolean(manager) && date === chicagoToday(),
       ...(manager ? { mandatory: await loadMandatoryDay(board, date, owner) } : {}),
     };
 

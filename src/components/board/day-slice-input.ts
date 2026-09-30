@@ -1,5 +1,6 @@
 import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
+import { screenOverlaysFromDto } from "@/lib/overlays/read";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 import { buildDaySlices, type DaySliceInput, type DaySlices, type SlicePaint } from "@/lib/slices/day-slices";
 import { amberEmptyShiftHours } from "@/lib/slices/paint-ratio";
@@ -65,7 +66,7 @@ export function slicesForDay(day: DayBoardDto, now: Date, drafts: readonly Slice
       coverEmployeeId: row.coverEmployeeId ?? null,
       auto: row.auto === true,
     })),
-    overlays: [],
+    overlays: screenOverlaysFromDto(day.overlays ?? [], now),
   };
   return buildDaySlices(input);
 }
