@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 
-const OPEN_FAILURE = "No se pudo abrir el descanso.";
+const OPEN_FAILURE = "No se pudo abrir BREAK.";
 
 function deferred<T>() {
   let settle!: (value: T | PromiseLike<T>) => void;

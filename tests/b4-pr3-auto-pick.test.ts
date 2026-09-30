@@ -356,7 +356,7 @@ describe("B4 PR 3 five-minute pick", () => {
     expect(row.status).toBe("ended");
     expect(row.coverEmployeeId).toBeNull();
     const listed = await listBreaksNow("cocina", at("5:41 pm", day));
-    expect(listed.rolledEnded).toEqual(["El descanso de Ada ya no cabe."]);
+    expect(listed.rolledEnded).toEqual(["El BREAK de Ada ya no cabe."]);
     expect(listed.now.map((item) => item.firstName)).not.toContain("Ada");
   });
 
@@ -521,7 +521,7 @@ describe("B4 PR 3 five-minute pick", () => {
     const ended = await prisma.staffBreak.findUniqueOrThrow({ where: { id: last.id } });
     expect(ended.status).toBe("ended");
     const listed = await listBreaksNow("cocina", at("5:41 pm", edge));
-    expect(listed.rolledEnded).toEqual(["El descanso de Ada ya no cabe."]);
+    expect(listed.rolledEnded).toEqual(["El BREAK de Ada ya no cabe."]);
   });
 
   it("starts the pick timer only from the Node runtime", () => {

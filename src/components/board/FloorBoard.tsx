@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
@@ -75,8 +74,9 @@ import {
   panelResponse,
 } from "@/lib/board/refresh-state";
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
-import { KioskLock, kioskRequested, releaseKioskLock } from "./KioskLock";
-import { staffBreakHref } from "@/lib/breaks/picker-steps";
+import { KioskLock, kioskRequested } from "./KioskLock";
+import { BreakWorkspace } from "@/components/breaks/BreakWorkspace";
+import { BreakTimelineStrip } from "@/components/breaks/BreakTimelineStrip";
 import { preferredBoardDate, preferredBoardHour } from "@/lib/board/startup";
 import { PAINT_DRAFT_EVENT, paintDraftDates, readPaintDraft } from "@/lib/board/paint-drafts";
 
@@ -137,6 +137,9 @@ export function FloorBoard() {
   // Planner A: whole-shift is the default on every page load; per-hour is a
   // manual toggle for one-off fixes, not a sticky preference.
   const [assignMode, setAssignMode] = useState<AssignMode>("shift");
+  const [breakOpen, setBreakOpen] = useState(false);
+  const [breakRefresh, setBreakRefresh] = useState(0);
+  const closeBreak = useCallback(() => { setBreakOpen(false); setBreakRefresh(v => v + 1); }, []);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const { manager, isManager, idleMs, unlock, lock } = useManagerSession();
   const retainedDraftDates = manager && draftDateState?.managerId === manager.id && draftDateState.board === board
@@ -1066,16 +1069,9 @@ export function FloorBoard() {
         })
       : null;
 
-  const staffBreakLink = !isManager ? (
-    <Link
-      href={staffBreakHref(board)}
-      className="touch-target inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-neutral-950 px-3 text-sm font-bold text-white"
-      data-testid="open-descansos"
-      onClick={() => releaseKioskLock()}
-    >
-      Descansos
-    </Link>
-  ) : null;
+  const staffBreakLink = (
+    <button type="button" className="touch-target inline-flex min-h-11 items-center rounded-md border-2 border-neutral-900 bg-neutral-950 px-3 text-sm font-bold text-white active:bg-neutral-700" data-testid="open-descansos" onClick={() => setBreakOpen(true)}>BREAK</button>
+  );
 
   const tareasPanel = (
     <TareasPanel
@@ -1438,6 +1434,10 @@ export function FloorBoard() {
           </>
         )}
       </header>
+      <BreakTimelineStrip locale={locale} date={date || undefined} managerToken={manager?.token} refreshKey={`${breakRefresh}:${day?.date ?? ""}`} />
+      {breakOpen && <div className="fixed inset-0 z-50 flex justify-end bg-black/40" role="dialog" aria-modal="true" aria-label="BREAK" data-testid="break-sheet">
+        <div className="h-dvh w-full overflow-y-auto overscroll-contain bg-white"><BreakWorkspace board={board} locale={locale} onClose={closeBreak} /></div>
+      </div>}
 
       {offline && (
         <p

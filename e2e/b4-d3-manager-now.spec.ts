@@ -103,15 +103,15 @@ test("a manager moves a break on Pintar, the stripe moves, and the now page show
   const fullEnd = chicagoDateTime(date, "10:00 am").toISOString();
   await page.getByTestId(`descanso-${person.id}`).click();
   await expect(page.getByTestId("descanso-dialog")).toBeVisible();
-  await expect(page.getByTestId("descanso-name")).toHaveText("Ada Leakname");
-  await expect(page.getByTestId("descanso-shift")).toHaveText("Ada. 08:00 a 16:00. Le tocan 60 minutos.");
+  await expect(page.getByTestId("descanso-name")).toHaveText("BREAK · Ada Leakname");
+  await expect(page.getByTestId("descanso-shift")).toHaveText("Ada. 8:00 AM a 4:00 PM. Le tocan 60 minutos.");
   await page.locator(`[data-testid="descanso-start"][data-start="${start}"]`).click();
   await page.locator(`[data-testid="descanso-slot"][data-end="${shortEnd}"]`).click();
   await expect(page.getByTestId("descanso-save")).toHaveAttribute("data-end", shortEnd);
   await page.getByTestId("descanso-save").click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
   const stripe = page.getByTestId(`paint-cell-${shift.id}-9`).locator("[data-testid='break-stripe']");
-  await expect(stripe).toHaveAttribute("data-break", "09:00-09:15");
+  await expect(stripe).toHaveAttribute("data-break", "9:00 AM-9:15 AM");
   await expect(pendingCell.locator("xpath=..")).toHaveAttribute("data-pending", "1");
 
   await page.getByTestId(`descanso-${person.id}`).click();
@@ -119,13 +119,13 @@ test("a manager moves a break on Pintar, the stripe moves, and the now page show
   await expect(page.getByTestId("descanso-save")).toHaveAttribute("data-end", fullEnd);
   await page.getByTestId("descanso-save").click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
-  await expect(stripe).toHaveAttribute("data-break", "09:00-10:00");
+  await expect(stripe).toHaveAttribute("data-break", "9:00 AM-10:00 AM");
   await expect(pendingCell.locator("xpath=..")).toHaveAttribute("data-pending", "1");
 
   await page.goto(`/descansos/ahora?board=cocina&kiosk=1`);
   await expect(page.getByTestId("ahora-now")).toContainText("Ada");
-  await expect(page.getByTestId("ahora-now")).toContainText("09:00 a 10:00");
-  await expect(page.getByTestId("ahora-updated")).toHaveText("actualizado 09:30");
+  await expect(page.getByTestId("ahora-now")).toContainText("9:00 AM a 10:00 AM");
+  await expect(page.getByTestId("ahora-updated")).toHaveText("actualizado 9:30 AM");
   await expect(page.getByTestId("ahora")).not.toContainText("Leakname");
   await expect(page.getByTestId("ahora")).not.toContainText(externalId);
   await expect(page.getByTestId("ahora")).not.toContainText(person.id);

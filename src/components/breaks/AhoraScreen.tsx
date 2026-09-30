@@ -10,7 +10,7 @@ import { TIMEZONE } from "@/lib/constants";
 const REFRESH_MS = 30_000;
 
 function clock(iso: string): string {
-  return formatInTimeZone(new Date(iso), TIMEZONE, "HH:mm");
+  return formatInTimeZone(new Date(iso), TIMEZONE, "h:mm a");
 }
 
 function BreakList({ items, testId }: { items: BreakNowItem[]; testId: string }) {
@@ -61,24 +61,24 @@ export function AhoraScreen() {
   }, [board, load]);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col gap-6 bg-white p-6 text-neutral-950" data-testid="ahora">
+    <main className="mx-auto flex min-h-dvh w-full max-w-none flex-col gap-6 bg-white p-6 text-neutral-950" data-testid="ahora">
       <KioskLock active={kiosk} />
-      <h1 className="text-3xl font-bold">Ahora en descanso</h1>
-      {!board && <p className="text-lg font-semibold" role="alert">Esa área no tiene descansos.</p>}
+      <h1 className="text-3xl font-bold">Ahora en BREAK</h1>
+      {!board && <p className="text-lg font-semibold" role="alert">Esa área no tiene BREAK.</p>}
       {failed && <p className="rounded-md border-2 border-neutral-950 px-3 py-2 text-lg font-bold" role="alert" data-testid="ahora-error">No se pudo actualizar</p>}
       {body && <p className="text-lg font-semibold" data-testid="ahora-updated">actualizado {clock(body.asOf)}</p>}
       {board && body && (
         <>
           <section>
-            <h2 className="text-xl font-bold">Ahora en descanso</h2>
+            <h2 className="text-xl font-bold">Ahora en BREAK</h2>
             {body.now.length === 0
-              ? <p className="mt-2 text-lg font-semibold" data-testid="ahora-now-empty">Nadie en descanso</p>
+              ? <p className="mt-2 text-lg font-semibold" data-testid="ahora-now-empty">Nadie en BREAK</p>
               : <BreakList items={body.now} testId="ahora-now" />}
           </section>
           <section>
             <h2 className="text-xl font-bold">Siguientes</h2>
             {body.next.length === 0
-              ? <p className="mt-2 text-lg font-semibold" data-testid="ahora-next-empty">No hay más descansos hoy</p>
+              ? <p className="mt-2 text-lg font-semibold" data-testid="ahora-next-empty">No hay más BREAK hoy</p>
               : <BreakList items={body.next} testId="ahora-next" />}
           </section>
           {body.coverTold.length > 0 && (

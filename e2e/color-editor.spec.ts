@@ -215,7 +215,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await page.getByTestId("toolbar-more").click();
 
     await loadSample(page);
-    await expect(page.getByTestId("open-descansos")).toHaveCount(0);
+    await expect(page.getByTestId("open-descansos")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     const firstPosition = page.getByTestId("paint-palette").locator("button").first();
     const paletteGeometry = await firstPosition.evaluate((element) => ({

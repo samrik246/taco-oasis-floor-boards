@@ -717,7 +717,7 @@ const es: Messages = {
   position: "Puesto",
   violations: (n) =>
     `${n} violación${n === 1 ? "" : "es"} en este tablero`,
-  moveBreak: "Descanso",
+  moveBreak: "BREAK",
   moveCoverExpo: "Cubrir expo",
   moveTraining: "Entrenamiento",
   moveHelpSlammed: "Ayudar saturado",

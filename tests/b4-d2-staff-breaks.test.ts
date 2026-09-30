@@ -687,7 +687,7 @@ describe("B4 D2 staff breaks", () => {
       chicagoDateTime(date, "9:00 am"),
       chicagoDateTime(date, "10:00 am"),
     );
-    expect(label).toBe("09:15-09:30");
+    expect(label).toBe("9:15 AM-9:30 AM");
     expect(breakStripeLabel(day.breaks, ada.id, shift.id, chicagoDateTime(date, "10:00 am"), chicagoDateTime(date, "11:00 am"))).toBeNull();
 
     const withManager = await boardDay(new Request(`http://local/api/boards/cocina/days/${date}`, {
@@ -820,7 +820,7 @@ describe("B4 D2 staff breaks", () => {
       body: JSON.stringify({ board: "cocina", code: CODE }),
     }));
     expect(missing.status).toBe(503);
-    expect((await missing.json()).error).toBe("Descansos no configurado");
+    expect((await missing.json()).error).toBe("BREAK no configurado");
     const reserved = await reservePasscodeAttempt("cocina");
     expect(reserved).toBe("reserved");
     process.env.STAFF_PASSCODE_PEPPER = TEST_PEPPER;

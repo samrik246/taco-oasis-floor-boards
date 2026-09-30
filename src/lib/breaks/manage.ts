@@ -86,6 +86,7 @@ export async function loadManagedBreak(input: {
       const approval = preview(new Date(slot.startAt), new Date(slot.endAt));
       return approval ? [{ ...slot, board: input.board, approval }] : [];
     }),
+    approval: savedRow && savedRow.status !== "ended" ? (savedRow.status === "pending" || (savedRow.actor !== savedRow.employeeId && !savedRow.auto) ? "gerente" : "automatic") : null,
     state: savedRow ? breakState(savedRow, input.now ?? breaksNow()) : "absent",
     saved: row === "this" && savedRow && savedRow.status === "booked"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }

@@ -57,24 +57,20 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   });
 
   await page.goto(`/descansos?board=cocina`);
-  await page.getByTestId("break-personal").click();
   await expect(page.getByTestId("break-keypad")).toBeVisible();
   await page.getByTestId("break-back").click();
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
-  await page.getByTestId("break-personal").click();
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.clock.fastForward(30_000);
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
 
-  await page.getByTestId("break-personal").click();
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   await page.clock.fastForward(60_000);
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
 
-  await page.getByTestId("break-personal").click();
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
-  await expect(page.getByTestId("break-shift")).toHaveText("Tu turno: 08:00 a 16:00. Te tocan 60 minutos.");
+  await expect(page.getByTestId("break-shift")).toHaveText("Cocina: 8:00 AM – 4:00 PM. Te tocan máximo 60 minutos");
   const blocked = chicagoDateTime(date, "11:00 am").toISOString();
   const blockedFace = page.locator(`[data-testid="break-start"][data-start="${blocked}"]`);
   const weekday = calendarWeekday(date);
@@ -90,15 +86,14 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   const save = page.getByTestId("break-save");
   await expect(save).toHaveAttribute("data-end", fullEnd);
-  await expect(save).toContainText("09:00 a 10:00, 60 min");
+  await expect(save).toContainText("9:00 AM – 10:00 AM, 60 min");
   await page.locator(`[data-testid="break-slot"][data-start="${start}"]`).first().click();
   await expect(page.getByTestId("break-saved")).toHaveCount(0);
   await expect(save).not.toHaveAttribute("data-end", fullEnd);
   await save.click();
-  await expect(page.getByTestId("break-saved-title")).toHaveText("Listo. Tu descanso:");
+  await expect(page.getByTestId("break-saved-title")).toHaveText("Completado");
   await page.getByTestId("break-saved-clear").click();
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
-  await page.getByTestId("break-personal").click();
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
@@ -106,7 +101,7 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await page.getByTestId("break-save").click();
   await expect(page.getByTestId("break-saved")).toBeVisible();
   await page.clock.fastForward(10_000);
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
 
   await page.route("**/api/breaks/mine", async (route) => {
     await route.fulfill({
@@ -115,16 +110,14 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
       body: JSON.stringify({ error: "Se acabó el tiempo. Entra otra vez." }),
     });
   });
-  await page.getByTestId("break-personal").click();
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "expired");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.getByTestId("break-back").click();
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
-  await page.getByTestId("break-personal").click();
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "expired");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.clock.fastForward(30_000);
-  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "home");
+  await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.unroute("**/api/breaks/mine");
 
   await page.route("**/api/managers", async (route) => {
@@ -167,7 +160,7 @@ test("kiosk=1 traps the back button on descansos", async ({ page }) => {
   expect(trapped.kiosk).toBe(true);
   expect(trapped.href).toContain("/descansos?");
   expect(trapped.href).toContain("kiosk=1");
-  await expect(page.getByTestId("break-personal")).toBeVisible();
+  await expect(page.getByTestId("break-keypad")).toBeVisible();
 });
 
 test("staff kiosk Descansos returns to that board", async ({ page }) => {
@@ -214,6 +207,7 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
   }
   async function expectQuietBoard() {
     await expect(page).toHaveURL(boardBack);
+    await expect(page.getByTestId("break-sheet")).toHaveCount(0);
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     expect(dialogs).toEqual([]);
   }
@@ -221,17 +215,15 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
     if (!onBoardKiosk()) await page.goto("/?board=cocina&kiosk=1");
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     const link = page.getByTestId("open-descansos");
-    await expect(link).toHaveAttribute("href", "/descansos?board=cocina&kiosk=1&from=board");
+    await expect(link).toHaveText("BREAK");
     await link.click();
-    await expect(page).toHaveURL(/\/descansos\?/);
-    await expect(page).toHaveURL(/board=cocina/);
-    await expect(page).toHaveURL(/kiosk=1/);
-    await expect(page).toHaveURL(/from=board/);
+    await expect(page.getByTestId("break-sheet")).toBeVisible();
+    await expect(page.getByTestId("break-keypad")).toBeVisible();
+    await expect(page).toHaveURL(boardBack);
     expect(dialogs).toEqual([]);
   }
   async function signIn() {
-    await page.getByTestId("break-personal").click();
-    for (const digit of kioskCode) await page.getByTestId(`break-key-${digit}`).click();
+      for (const digit of kioskCode) await page.getByTestId(`break-key-${digit}`).click();
     await expect(page.getByTestId("break-name")).toHaveText("Nia Kiosk");
   }
 
@@ -248,7 +240,7 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   await expect(page.getByTestId("break-save")).toHaveAttribute("data-end", fullEnd);
   await page.getByTestId("break-save").click();
-  await expect(page.getByTestId("break-saved-title")).toHaveText("Listo. Tu descanso:");
+  await expect(page.getByTestId("break-saved-title")).toHaveText("Completado");
   await page.getByTestId("break-saved-clear").click();
   await expectQuietBoard();
 

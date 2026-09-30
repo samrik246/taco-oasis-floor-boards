@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   const board = boardSchema.safeParse(url.searchParams.get("board"));
   const employeeId = url.searchParams.get("employeeId")?.trim() ?? "";
   if (!board.success || !employeeId) {
-    return NextResponse.json({ error: "Esa área no tiene descansos." }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "Esa área no tiene BREAK." }, { status: 400, headers: NO_STORE });
   }
   try {
     const date = url.searchParams.get("date") ?? chicagoToday(breaksNow());
@@ -133,11 +133,11 @@ export async function DELETE(request: Request) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Esa área no tiene descansos." }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "Esa área no tiene BREAK." }, { status: 400, headers: NO_STORE });
   }
   const parsed = deleteSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Esa área no tiene descansos." }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "Esa área no tiene BREAK." }, { status: 400, headers: NO_STORE });
   }
   try {
     const result = await clearManagedBreak({

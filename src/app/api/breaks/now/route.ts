@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const board = url.searchParams.get("board");
   if (board !== "caja" && board !== "cocina") {
-    return NextResponse.json({ error: "Esa área no tiene descansos." }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "Esa área no tiene BREAK." }, { status: 400, headers: NO_STORE });
   }
   const now = breaksNow();
   const access = await requireDayAccess(request, chicagoToday(now), now);

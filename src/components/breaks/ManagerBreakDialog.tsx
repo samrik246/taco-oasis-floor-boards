@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatInTimeZone } from "date-fns-tz";
+import { breakClock, approvalLine, stateLabel, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
+import type { Locale } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import {
   breakLengthMinutes,
@@ -12,7 +13,6 @@ import {
   preferredBreakLength,
   type BreakChoice,
 } from "@/lib/breaks/picker-steps";
-import { TIMEZONE } from "@/lib/constants";
 
 type Slot = { startAt: string; endAt: string };
 
@@ -21,12 +21,14 @@ type CoverChoice =
   | { kind: "shuffle"; moves: [{ employeeId: string; shiftId: string; firstName: string }, { employeeId: string; shiftId: string; firstName: string }] };
 
 type Managed = {
+  state?: BreakStatus["state"] | "absent";
+  approval?: Approval | null;
   firstName: string;
   allowanceMinutes: number;
   row: "absent" | "this" | "other";
   shifts: Slot[];
   blocked: { startAt: string; endAt: string; reason: "blackout" | "overlap" }[];
-  slots: Slot[];
+  slots: BreakOption[];
   saved: Slot | null;
   pending: Slot | null;
   auto?: boolean;
@@ -38,7 +40,7 @@ function coverLabel(cover: CoverChoice): string {
 }
 
 function clock(iso: string): string {
-  return formatInTimeZone(new Date(iso), TIMEZONE, "HH:mm");
+  return breakClock(iso);
 }
 
 /** Pintar break dialog. A save or clear reloads the day and leaves the paint draft alone. */
@@ -49,6 +51,8 @@ export function ManagerBreakDialog({
   managerToken,
   onClose,
   onSaved,
+  locale = "es",
+  onDenied,
 }: {
   board: "caja" | "cocina";
   employeeId: string;
@@ -56,7 +60,10 @@ export function ManagerBreakDialog({
   managerToken: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  locale?: Locale;
+  onDenied?: () => void;
 }) {
+  const es = locale === "es";
   const [mine, setMine] = useState<Managed | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -76,25 +83,27 @@ export function ManagerBreakDialog({
         );
         const body = await response.json() as Managed & { error?: string };
         if (cancelled) return;
+        if ((response.status === 401 || response.status === 403) && onDenied) { onDenied(); return; }
         if (!response.ok) {
-          setMessage(body.error ?? "No se pudo abrir el descanso.");
+          setMessage(body.error ?? "No se pudo abrir BREAK.");
           return;
         }
         setMine(body);
         setCovers(body.covers ?? []);
         setAutoPick(body.auto === true);
         setCoverWindow(body.pending ?? (body.auto ? body.saved : null));
-        if (body.row === "other") setMessage("Ese descanso es de la otra área.");
+        if (body.row === "other") setMessage("Ese BREAK es de la otra área.");
       } catch {
-        if (!cancelled) setMessage("No se pudo abrir el descanso.");
+        if (!cancelled) setMessage("No se pudo abrir BREAK.");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [board, employeeId, managerToken]);
+  }, [board, employeeId, managerToken, onDenied]);
 
   async function commit(response: Response, fallback: string, slot: Slot | null) {
+    if ((response.status === 401 || response.status === 403) && onDenied) { onDenied(); return; }
     const body = await response.json() as { error?: string; waiting?: boolean; message?: string; covers?: CoverChoice[] };
     if (!response.ok) {
       setMessage(body.error ?? fallback);
@@ -102,11 +111,14 @@ export function ManagerBreakDialog({
       return;
     }
     if (body.waiting) {
-      setMessage(body.message ?? "Un gerente tiene que nombrar quién te cubre.");
+      setMessage(body.message ?? "Requiere aprobación del gerente.");
       setCovers(body.covers ?? []);
       setCoverWindow(slot);
+      setAutoPick(false);
+      setMine(current => current ? { ...current, saved: null, pending: slot, state: "pending", approval: "gerente" } : current);
       setChosenStart(null);
       setChosenEnd(null);
+      try { await onSaved(); } catch { setMessage("No se pudo actualizar"); }
       setBusy(false);
       return;
     }
@@ -191,20 +203,23 @@ export function ManagerBreakDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="descanso-title" data-testid="descanso-dialog">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border-2 border-neutral-900 bg-white p-4">
-        <h3 id="descanso-title" className="text-lg font-bold" data-testid="descanso-name">{name}</h3>
+      <div className="max-h-[96vh] w-full max-w-none overflow-y-auto rounded-lg border-2 border-neutral-900 bg-white p-4">
+        <h3 id="descanso-title" className="text-lg font-bold" data-testid="descanso-name">BREAK · {name}</h3>
         {mine && (
           <p className="mt-1 text-sm font-semibold" data-testid="descanso-shift">
             {managerShiftLine(mine.firstName, mine.shifts, mine.allowanceMinutes, clock)}
           </p>
         )}
+        {mine && <p className="mt-2 text-xl font-bold">{stateLabel(locale, mine.state ?? "absent")}{mine.approval ? ` · ${approvalLine(locale, mine.approval)}` : ""}</p>}
         {mine?.saved && (
-          <p className="mt-2 text-sm font-bold" data-testid="descanso-current">
+          <p className="mt-2 text-base font-bold" data-testid="descanso-current">
             {clock(mine.saved.startAt)} a {clock(mine.saved.endAt)}
             {autoPick ? " auto" : ""}
           </p>
         )}
-        {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-sm font-bold" role="alert" data-testid="descanso-message">{message}</p>}
+        {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-base font-bold" role="alert" data-testid="descanso-message">{message}</p>}
+        {coverWindow && <p className="mt-3 text-xl font-bold">{es ? "Solicitud" : "Request"}: {clock(coverWindow.startAt)} – {clock(coverWindow.endAt)} · {es ? "Visible para el gerente." : "Visible to the gerente."}</p>}
+        {covers.length === 0 && coverWindow && <p>{es ? "No hay cobertura disponible ahora. Puedes rechazar o volver a revisar." : "No cover available now. Reject or check again later."}</p>}
         {covers.length > 0 && coverWindow && (
           <div className="mt-3 flex flex-col gap-2">
             {covers.map((cover) => {
@@ -213,7 +228,7 @@ export function ManagerBreakDialog({
                 <button
                   key={key}
                   type="button"
-                  className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-3 text-sm font-bold disabled:opacity-40"
+                  className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-3 text-base font-bold disabled:opacity-40"
                   data-testid="descanso-cover"
                   data-kind={cover.kind}
                   data-cover={cover.kind === "simple" ? cover.employeeId : cover.moves[0].employeeId}
@@ -227,19 +242,19 @@ export function ManagerBreakDialog({
                     else void save(coverWindow, named);
                   }}
                 >
-                  {coverLabel(cover)}
+                  {cover.kind === "shuffle" ? "Shuffle" : (es ? "Cubrir" : "Cover")} · {coverLabel(cover)}
                 </button>
               );
             })}
           </div>
         )}
         {faces.length > 0 && !showingLengths && (
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
             {faces.map((face) => (
               <button
                 key={face.startAt}
                 type="button"
-                className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-2 text-sm font-bold disabled:opacity-40"
+                className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-2 text-base font-bold disabled:opacity-40"
                 data-testid="descanso-start"
                 data-start={face.startAt}
                 data-reason={face.reason ?? ""}
@@ -257,7 +272,7 @@ export function ManagerBreakDialog({
         )}
         {showingLengths && selected && (
           <div className="mt-3 flex flex-col gap-2">
-            <button type="button" className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 text-sm font-bold" data-testid="descanso-start-back" disabled={busy} onClick={() => { setChosenEnd(null); setChosenStart(null); }}>
+            <button type="button" className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 text-base font-bold" data-testid="descanso-start-back" disabled={busy} onClick={() => { setChosenEnd(null); setChosenStart(null); }}>
               Otro inicio
             </button>
             <button
@@ -269,16 +284,17 @@ export function ManagerBreakDialog({
               disabled={busy}
               onClick={() => void save(selected)}
             >
-              <span className="block">Guardar</span>
+              <span className="block">{es ? "RESERVAR" : "RESERVE"}</span>
               <span className="block text-sm font-semibold">{breakSaveLine(selected, clock)}</span>
+              <span className="block">{approvalLine(locale, (selected as BreakOption).approval ?? "gerente", true)}</span>
             </button>
             {lengths.filter((slot) => slot.endAt !== selected.endAt).length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 {lengths.filter((slot) => slot.endAt !== selected.endAt).map((slot) => (
                   <button
                     key={`${slot.startAt}-${slot.endAt}`}
                     type="button"
-                    className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 text-sm font-bold"
+                    className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 text-base font-bold"
                     data-testid="descanso-slot"
                     data-start={slot.startAt}
                     data-end={slot.endAt}
@@ -293,9 +309,10 @@ export function ManagerBreakDialog({
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          {mine?.saved && (
+          <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" onClick={() => { if (chosenStart) { setChosenStart(null); setChosenEnd(null); } else onClose(); }}>{es ? "Atrás" : "Back"}</button>
+          {(mine?.saved || mine?.pending || coverWindow) && (
             <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-clear" disabled={busy} onClick={() => void clear()}>
-              Quitar
+              {(mine?.pending || (coverWindow && !autoPick)) ? (es ? "Rechazar solicitud" : "Reject request") : (es ? "Quitar BREAK" : "Cancel BREAK")}
             </button>
           )}
           <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-close" onClick={onClose}>

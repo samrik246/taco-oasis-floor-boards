@@ -541,7 +541,7 @@ export function ManagerColorEditor({
                     disabled={busy}
                     onClick={() => setBreakTarget({ employeeId: shift.employee.id, name: personName(shift) })}
                   >
-                    {t.moveBreak}
+                    BREAK
                   </button>
                 )}
                 {day && (
@@ -616,6 +616,7 @@ export function ManagerColorEditor({
       )}
       {breakTarget && (
         <ManagerBreakDialog
+          locale={locale}
           board={board}
           employeeId={breakTarget.employeeId}
           name={breakTarget.name}

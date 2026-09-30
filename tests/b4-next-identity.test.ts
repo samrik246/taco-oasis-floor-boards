@@ -10,6 +10,7 @@ import { loadMyBreak, saveMyBreak, clearMyBreak } from "@/lib/breaks/mine";
 import { requireDayAccess } from "@/lib/managers/day-access";
 import { pairingData, pairManager } from "@/lib/managers/pairing";
 import { GET as readPairings, PUT as writePairing } from "@/app/api/admin/manager-pairings/route";
+import { GET as refreshBreakSession } from "@/app/api/breaks/session/route";
 import { POST as manageBreak } from "@/app/api/breaks/manage/route";
 import { breakTimeline } from "@/lib/breaks/timeline";
 import { chicagoDateTime } from "@/lib/time";
@@ -73,6 +74,21 @@ describe("B4 next identity, linkage, revocation and cross-board contracts", () =
     expect(await gerenteAuthority(m.id, now)).toBeNull();
     const owner = await manager(null, "owner-synthetic", "owner");
     expect(await gerenteAuthority(owner.id, at("11:00 pm"))).not.toBeNull();
+  });
+  it("session refresh rechecks gerente revocation and returns only the current role", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
+    const p = await employee("caja", "Caja Manager", "2:00 pm", "6:00 pm");
+    const m = await manager(p.id, "refresh-only-synthetic");
+    const session = token(m);
+    const response = await refreshBreakSession(request(session));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ role: "manager" });
+    await db.shift.update({ where: { id: p.shift.id }, data: { boardRemoved: true } });
+    expect((await refreshBreakSession(request(session))).status).toBe(403);
+    const owner = await manager(null, "refresh-owner-synthetic", "owner");
+    expect((await refreshBreakSession(request(token(owner)))).status).toBe(200);
+    await db.manager.update({ where: { id: owner.id }, data: { active: false } });
+    expect((await refreshBreakSession(request(token(owner)))).status).toBe(401);
   });
   it("resolves a worker from the opposite tablet and refuses a cross-board collision", async () => {
     const p = await employee("caja"); await code(p.id, "9173");
