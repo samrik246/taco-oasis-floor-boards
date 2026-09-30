@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { hashManagerCode } from "../src/lib/managers/codes";
 import { chicagoDateTime } from "../src/lib/time";
+import { reviewScenario } from "./fixtures/b4-review";
 
 const root = process.env.FLOOR_BOARDS_TEST_ROOT;
 if (!root) throw new Error("Disposable database required");
@@ -13,29 +14,29 @@ const prisma = new PrismaClient({ datasources: { db: { url: `file:${path.join(ro
 const screens = path.join(root, "b4-slice2-screens");
 const date = formatInTimeZone(new Date(), "America/Chicago", "yyyy-MM-dd");
 const iso = (time: string) => chicagoDateTime(date, time).toISOString();
-async function screenshot(page: Page, name: string) { mkdirSync(screens, { recursive: true }); await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage: true }); }
+async function screenshot(page: Page, name: string, fullPage = true) { mkdirSync(screens, { recursive: true }); await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage }); }
 
 async function workerUI(page: Page, state: string | null = null) {
   const saved = state ? { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state, approval: state === "ended" ? null : "gerente", status: state === "pending" ? "pending" : state === "ended" ? "ended" : "booked" } : null;
-  const data = { name: "Mara Ejemplo", allowanceMinutes: 60, shifts: [{ board: "cocina", startAt: iso("8:00 am"), endAt: iso("4:00 pm") }], blocked: [], slots: [
-    { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), approval: "gerente" },
-    { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("3:00 pm"), approval: "automatic" },
-  ], saved };
+  const scenario = reviewScenario(date);
+  const data = { name: "Mara Ejemplo", allowanceMinutes: 60, ...scenario, saved };
   await page.route("**/api/breaks/session", route => route.fulfill({ json: { kind: "staff", token: "synthetic-ui-token", name: data.name } }));
   await page.route("**/api/breaks/mine", async route => {
-    if (route.request().method() === "POST") { data.saved = { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state: "pending", approval: "gerente", status: "pending" }; await route.fulfill({ json: { waiting: true, startAt: data.saved.startAt, endAt: data.saved.endAt } }); }
+    if (route.request().method() === "POST") { const choice = data.slots.find(slot => slot.startAt === route.request().postDataJSON().startAt && slot.endAt === route.request().postDataJSON().endAt);
+      expect(choice).toBeDefined();
+      data.saved = { board: "cocina", startAt: choice!.startAt, endAt: choice!.endAt, state: choice!.approval === "gerente" ? "pending" : "reserved", approval: choice!.approval, status: choice!.approval === "gerente" ? "pending" : "booked" }; await route.fulfill({ json: { waiting: true, startAt: data.saved.startAt, endAt: data.saved.endAt } }); }
     else await route.fulfill({ json: data });
   });
   await page.route("**/api/breaks/timeline**", route => route.fulfill({ json: {
-    date, asOf: iso("9:30 am"), gerenteAvailable: false, people: [], breaks: [
+    date, asOf: iso("1:45 pm"), gerenteAvailable: false, people: [], breaks: [
       { id: "later", employeeId: "b", firstName: "Sol", board: "caja", startAt: iso("3:00 pm"), endAt: iso("3:30 pm"), state: "pending", approval: "gerente" },
       { id: "earlier", employeeId: "a", firstName: "Mara", board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state: "pending", approval: "gerente" },
-      ...Array.from({ length: 6 }, (_, i) => ({ id: `reserve-${i}`, employeeId: `p-${i}`, firstName: `Ejemplo ${i + 1}`, board: i % 2 ? "caja" : "cocina", startAt: iso("4:00 pm"), endAt: iso("4:30 pm"), state: i === 0 ? "on-break" : "reserved", approval: "automatic" })),
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `reserve-${i}`, employeeId: `p-${i}`, firstName: `Ejemplo ${i + 1}`, board: i % 2 ? "caja" : "cocina", startAt: iso(i === 0 ? "1:30 pm" : i < 3 ? "3:00 pm" : i < 5 ? "3:30 pm" : "4:00 pm"), endAt: iso(i === 0 ? "2:00 pm" : i < 3 ? "3:30 pm" : i < 5 ? "4:00 pm" : "4:30 pm"), state: i === 0 ? "on-break" : "reserved", approval: "automatic" })),
     ],
   } }));
   return data;
 }
-async function enterWorker(page: Page) { for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click(); await expect(page.getByTestId("break-worker")).toBeVisible(); }
+async function enterWorker(page: Page) { for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click(); await page.getByTestId("break-sign-in").click(); await expect(page.getByTestId("break-worker")).toBeVisible(); }
 
 test("landscape sheet, both-area ordered overflow, per-length approval and persisted pending state", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -48,11 +49,16 @@ test("landscape sheet, both-area ordered overflow, per-length approval and persi
   await expect(page.getByText("Personal", { exact: true })).toHaveCount(0);
   const sheet = await page.getByTestId("break-sheet").boundingBox();
   expect(sheet!.width).toBeGreaterThan(1200);
-  await screenshot(page, "01_CODE_ENTRY");
+  const entry = page.getByTestId("break-entry-requests");
+  await expect(entry.getByTestId("break-chip")).toHaveCount(8);
+  for (const id of ["break-sign-in", "break-group-cocina", "break-group-caja"]) await expect(page.getByTestId(id)).toBeInViewport({ ratio: 1 });
+  expect(await entry.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await screenshot(page, "01_CODE_ENTRY", false);
   await enterWorker(page);
   await expect(page.getByTestId("break-shift")).toContainText("Te tocan máximo 60 minutos");
   await page.locator(`[data-testid="break-start"][data-start="${iso("2:00 pm")}"]`).click();
-  await expect(page.getByTestId("break-home")).toContainText("Disponible · Aprobación automática");
+  await expect(page.getByTestId("break-slot")).toHaveCount(4);
+  await expect(page.getByTestId("break-slot")).toHaveText(["15 minAprobación: requiere gerente.", "30 minAprobación: requiere gerente.", "45 minAprobación: requiere gerente.", "60 minAprobación: requiere gerente."]);
   await page.locator(`[data-testid="break-slot"][data-end="${iso("2:30 pm")}"]`).click();
   await expect(page.getByTestId("break-home")).toContainText("Disponible · Requiere aprobación del gerente");
   await screenshot(page, "02_WORKER_PICKER");
@@ -82,6 +88,7 @@ test("ended requests stay distinct from completed and stale login cannot reopen 
   const held = new Promise<void>(resolve => { release = resolve; });
   await page.route("**/api/breaks/session", async route => { await held; await route.fulfill({ json: { kind: "staff", token: "late", name: "Late" } }); });
   for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await page.getByTestId("break-close").click();
   release();
   await expect(page.getByTestId("break-keypad")).toBeVisible();
@@ -97,7 +104,6 @@ test("real long manager credential, both-board queue, own break, owner pairing a
   await prisma.staffBreak.create({ data: { employeeId: person.id, shiftId: shift.id, date, board: "caja", actor: person.id, status: "pending", startAt: chicagoDateTime(date, "2:00 pm"), endAt: chicagoDateTime(date, "2:30 pm") } });
   await prisma.staffPasscodeAttempt.deleteMany({ where: { board: "cocina" } });
   await page.goto("/descansos?board=cocina");
-  await page.getByTestId("break-credential-mode").click();
   await page.getByTestId("break-code-input").fill("synthetic-owner-long-credential");
   await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-gerente")).toBeVisible();
@@ -106,7 +112,7 @@ test("real long manager credential, both-board queue, own break, owner pairing a
   await page.getByTestId("break-review").last().click();
   await expect(page.getByTestId("descanso-dialog")).toBeVisible();
   await expect(page.getByTestId("descanso-clear")).toHaveText("Rechazar solicitud");
-  await screenshot(page, "05_COVER_REVIEW");
+  await screenshot(page, "05_COVER_REVIEW", false);
   await page.getByTestId("descanso-back").click();
   await page.getByTestId("break-own").click();
   await expect(page.getByTestId("break-name")).toHaveText("Sofia Ejemplo");
@@ -137,11 +143,12 @@ test("gerente cover choices preserve simple and Shuffle payloads and rejection u
   const writes: Record<string, unknown>[] = [];
   await page.route("**/api/breaks/manage**", async route => {
     if (route.request().method() === "GET") {
-      await route.fulfill({ json: { firstName: "Mara", allowanceMinutes: 60, row: "this", shifts: data.shifts, slots: [], blocked: [], saved: null, pending: data.saved, state: "pending", approval: "gerente", covers: [{ kind: "simple", employeeId: "cover-a", shiftId: "shift-a", firstName: "Sol" }, { kind: "shuffle", moves: [{ employeeId: "cover-b", shiftId: "shift-b", firstName: "Luz" }, { employeeId: "cover-c", shiftId: "shift-c", firstName: "Rio" }] }] } });
+      await route.fulfill({ json: { firstName: "Mara", allowanceMinutes: 60, row: "this", shifts: data.shifts, slots: [], blocked: [], saved: null, pending: data.saved, state: "pending", approval: "gerente", covers: data.covers } });
     } else { writes.push({ method: route.request().method(), ...route.request().postDataJSON() }); await route.fulfill({ json: { waiting: false, cleared: true } }); }
   });
   await page.goto("/descansos?board=caja");
   for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-gerente")).toBeVisible();
   await expect(page.getByTestId("break-pairing-open")).toHaveCount(0);
   await expect(page.getByTestId("break-date")).toHaveCount(0);
@@ -153,7 +160,10 @@ test("gerente cover choices preserve simple and Shuffle payloads and rejection u
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toBeVisible();
   await expect(page.getByTestId("descanso-start")).toHaveCount(0);
   await expect(page.getByTestId("descanso-clear")).toBeInViewport();
-  await screenshot(page, "07_SIMPLE_AND_SHUFFLE");
+  await expect(page.locator('[data-testid="descanso-cover"][data-kind="simple"]')).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toBeInViewport({ ratio: 1 });
+  await expect(page.getByTestId("descanso-dialog")).not.toContainText("Shuffle");
+  await screenshot(page, "07_SIMPLE_AND_SHUFFLE", false);
   await page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]').click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
   expect(writes[1]).toMatchObject({ coverEmployeeId: "cover-b", shuffleEmployeeId: "cover-c" });
@@ -171,9 +181,16 @@ test("English approval and all persisted status cards retain full landscape widt
   await enterWorker(page);
   await expect(page.getByTestId("break-status")).toContainText("Reserved");
   await expect(page.getByTestId("break-status")).toContainText("Approval: gerente required.");
-  await expect(page.locator('[data-testid="break-start"]:disabled').first()).toContainText("Unavailable");
+  if (data.blocked.length) await expect(page.locator('[data-testid="break-start"]:disabled').first()).toContainText("Unavailable");
   await expect(page.getByTestId("break-worker")).not.toContainText("Fuera");
+  await expect(page.locator('[data-testid="break-start"]:enabled')).not.toHaveCount(1);
   await screenshot(page, "08_EN_RESERVED");
+  await page.locator(`[data-testid="break-start"][data-start="${iso("2:15 pm")}"]`).click();
+  await expect(page.getByTestId("break-slot")).toHaveCount(4);
+  await page.locator(`[data-testid="break-slot"][data-end="${iso("3:00 pm")}"]`).click();
+  await page.getByTestId("break-save").click();
+  await expect(page.getByTestId("break-current")).toContainText("2:15 PM – 3:00 PM");
+  await page.getByTestId("break-back").click();
   for (const [state, label] of [["on-break", "On BREAK"], ["completed", "Completed"], ["ended", "Request ended without a BREAK"]]) {
     data.saved!.state = state;
     if (state === "ended") data.saved!.approval = null;
@@ -191,10 +208,11 @@ test("a gerente-created pending request updates its status card without claiming
   } : { waiting: true, covers: [], message: "Requiere aprobación del gerente." } }));
   await page.goto("/descansos?board=caja");
   for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await page.getByTestId("break-review").first().click();
   await page.locator(`[data-testid="descanso-start"][data-start="${iso("2:00 pm")}"]`).click();
   await page.getByTestId("descanso-save").click();
-  await expect(page.getByTestId("descanso-dialog")).toContainText("Pendiente · Aprobación: requiere gerente.");
+  await expect(page.getByTestId("descanso-dialog")).toContainText("Pendiente · Por aprobar");
   await expect(page.getByTestId("descanso-dialog")).not.toContainText("Completado");
   await expect(page.getByTestId("descanso-clear")).toHaveText("Rechazar solicitud");
 });
@@ -218,6 +236,7 @@ for (const locale of ["es", "en"] as const) {
     await page.goto("/?board=caja&kiosk=1");
     await page.getByTestId("open-descansos").click();
     for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+    await page.getByTestId("break-sign-in").click();
     await page.getByTestId("break-review").first().click();
     await page.getByTestId("descanso-back").click();
     await expect(page.getByTestId("break-gerente")).toBeVisible();
@@ -238,5 +257,63 @@ for (const locale of ["es", "en"] as const) {
     await expect(page.getByTestId("break-keypad")).toBeVisible();
     await expect(page.getByTestId("break-gerente")).toHaveCount(0);
     await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
+  });
+}
+
+for (const locale of ["es", "en"] as const) {
+  test(`${locale}: one credential field requires Entrar and accepts keypad plus pasted text up to 64 characters`, async ({ page }) => {
+    await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+    await workerUI(page);
+    const submitted: string[] = [];
+    await page.route("**/api/breaks/session", route => {
+      submitted.push(route.request().postDataJSON().code);
+      return route.fulfill({ status: 401, json: { error: "Synthetic refusal" } });
+    });
+    await page.goto("/descansos?board=caja");
+    await expect(page.getByTestId("break-credential-mode")).toHaveCount(0);
+    for (const digit of "4545") await page.getByTestId(`break-key-${digit}`).click();
+    await expect(page.getByTestId("break-code-input")).toHaveValue("4545");
+    expect(submitted).toEqual([]);
+    await page.getByTestId("break-key-6").click();
+    await page.getByTestId("break-key-back").click();
+    await page.getByTestId("break-sign-in").click();
+    await expect.poll(() => submitted).toEqual(["4545"]);
+    await expect(page.getByTestId("break-code-input")).toHaveValue("");
+    const long = "synthetic-" + "x".repeat(54);
+    await page.getByTestId("break-code-input").fill(long);
+    await expect(page.getByTestId("break-code-input")).toHaveValue(long);
+    await page.getByTestId("break-key-1").click();
+    await expect(page.getByTestId("break-code-input")).toHaveValue(long);
+    expect(submitted).toHaveLength(1);
+    await page.getByTestId("break-sign-in").click();
+    await expect.poll(() => submitted).toEqual(["4545", long]);
+  });
+
+  test(`${locale}: eight requests fit landscape; dense long names remain complete with vertical access`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+    await workerUI(page);
+    await page.goto("/?board=caja&kiosk=1");
+    await page.getByTestId("open-descansos").click();
+    const panel = page.getByTestId("break-entry-requests");
+    await expect(panel.getByTestId("break-chip")).toHaveCount(8);
+    for (const chip of await panel.getByTestId("break-chip").all()) await expect(chip).toBeInViewport({ ratio: 1 });
+    await expect(page.getByTestId("break-sign-in")).toBeInViewport({ ratio: 1 });
+    const kitchen = await panel.getByTestId("break-group-cocina").boundingBox();
+    const caja = await panel.getByTestId("break-group-caja").boundingBox();
+    expect(kitchen!.y + kitchen!.height).toBeLessThanOrEqual(caja!.y);
+    for (const board of ["cocina", "caja"]) await expect(panel.getByTestId(`break-group-${board}`).getByTestId("break-chip").first()).toHaveAttribute("data-state", "pending");
+    await screenshot(page, `10_${locale.toUpperCase()}_ENTRY_VIEWPORT`, false);
+    await page.getByTestId("break-close").click();
+    const rows = Array.from({ length: 32 }, (_, i) => ({ id: `dense-${String(i).padStart(2, "0")}`, employeeId: `person-${i}`, firstName: `PersonaEjemplo${i}ConNombreMuyLargoSinEspaciosYApellidoCompuesto`, board: i % 2 ? "caja" : "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state: "pending", approval: "gerente" }));
+    await page.route("**/api/breaks/timeline**", route => route.fulfill({ json: { date, asOf: iso("1:45 pm"), gerenteAvailable: true, people: [], breaks: rows } }));
+    await page.getByTestId("open-descansos").click();
+    await expect(panel.getByTestId("break-chip")).toHaveCount(32);
+    const layout = await panel.evaluate(el => ({ fits: el.scrollWidth <= el.clientWidth, cards: [...el.querySelectorAll<HTMLElement>('[data-testid="break-chip"]')].map(card => ({ fits: card.scrollWidth <= card.clientWidth && card.scrollHeight <= card.clientHeight, text: card.textContent })) }));
+    expect(layout.fits).toBe(true); expect(layout.cards.every(card => card.fits)).toBe(true);
+    for (const row of rows) expect(layout.cards.some(card => card.text?.includes(row.firstName))).toBe(true);
+    const last = panel.getByTestId("break-chip").last();
+    await last.scrollIntoViewIfNeeded(); await expect(last).toBeInViewport({ ratio: 1 });
+    await screenshot(page, `11_${locale.toUpperCase()}_DENSE_REQUESTS`);
   });
 }

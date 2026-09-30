@@ -131,3 +131,21 @@ describe("closed dialog ignores delayed mutation completion", () => {
     }
   });
 });
+
+it("marks the chosen cover during a pending save and keeps ended distinct from rejection", async () => {
+  const held = deferred<Response>();
+  vi.stubGlobal("fetch", vi.fn(async (_url, init) => init?.method ? held.promise : Response.json(pending)));
+  const dialog = await mount("es");
+  await dialog.click("descanso-cover");
+  const selected = dialog.host.querySelector('[data-testid="descanso-cover"][aria-pressed="true"]');
+  expect(selected?.textContent).toContain("Example Cover");
+  expect(selected?.textContent).toContain("Guardando");
+  expect(dialog.host.textContent).toContain("Mezclar");
+  expect(dialog.host.textContent).not.toContain("Shuffle");
+  await act(async () => held.resolve(Response.json({ error: "Unavailable" }, { status: 400 })));
+  expect(dialog.host.querySelector('[aria-pressed="true"]')).toBeNull();
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...pending, pending: null, state: "ended", approval: null, covers: [] })));
+  const ended = await mount("es");
+  expect(ended.host.querySelector('[data-testid="descanso-status"]')?.textContent).toContain("Solicitud finalizada sin BREAK");
+  expect(ended.host.textContent).not.toMatch(/Rechazad|Completado/);
+});

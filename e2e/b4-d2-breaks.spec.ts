@@ -64,11 +64,13 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
 
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   await page.clock.fastForward(60_000);
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
 
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   await expect(page.getByTestId("break-shift")).toHaveText("Cocina: 8:00 AM – 4:00 PM. Te tocan máximo 60 minutos");
   const blocked = chicagoDateTime(date, "11:00 am").toISOString();
@@ -95,6 +97,7 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await page.getByTestId("break-saved-clear").click();
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-name")).toHaveText("Ada Break");
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   await expect(page.getByTestId("break-save")).toHaveAttribute("data-end", fullEnd);
@@ -111,10 +114,12 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
     });
   });
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.getByTestId("break-back").click();
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
+  await page.getByTestId("break-sign-in").click();
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   await page.clock.fastForward(30_000);
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
@@ -224,6 +229,7 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
   }
   async function signIn() {
       for (const digit of kioskCode) await page.getByTestId(`break-key-${digit}`).click();
+      await page.getByTestId("break-sign-in").click();
     await expect(page.getByTestId("break-name")).toHaveText("Nia Kiosk");
   }
 

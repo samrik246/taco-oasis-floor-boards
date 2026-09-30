@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { breakClock, breakRange, unavailableLabel, approvalLine, stateLabel, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
+import { breakClock, breakRange, unavailableLabel, approvalLine, stateLabel, statusClass, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
 import type { Locale } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import {
@@ -74,6 +74,7 @@ export function ManagerBreakDialog({
   const [covers, setCovers] = useState<CoverChoice[]>([]);
   const [coverWindow, setCoverWindow] = useState<Slot | null>(null);
   const [autoPick, setAutoPick] = useState(false);
+  const [actingCover, setActingCover] = useState<string | null>(null);
 
   const generation = useRef(0);
   function dismiss(exit = false) {
@@ -201,6 +202,7 @@ export function ManagerBreakDialog({
 
   async function clear() {
     if (busy) return;
+    setActingCover(null);
     const version = generation.current;
     setBusy(true);
     setMessage("");
@@ -234,7 +236,9 @@ export function ManagerBreakDialog({
             {es ? managerShiftLine(mine.firstName, mine.shifts, mine.allowanceMinutes, clock) : `${mine.firstName}. ${[...mine.shifts].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map(breakRange).join(" and ")}. Up to ${mine.allowanceMinutes} minutes.`}
           </p>
         )}
-        {mine && <p className="mt-2 text-xl font-bold">{stateLabel(locale, mine.state ?? "absent")}{mine.approval ? ` · ${approvalLine(locale, mine.approval)}` : ""}</p>}
+        {mine && <p className={`mt-3 rounded-xl border-2 p-3 text-xl font-black ${mine.state && mine.state !== "absent" ? statusClass[mine.state] : "border-neutral-300"}`} data-testid="descanso-status">
+          {mine.state === "pending" ? (es ? "Pendiente · Por aprobar" : "Pending · Needs approval") : mine.state === "reserved" ? (es ? "Reservado · Aprobado" : "Reserved · Approved") : stateLabel(locale, mine.state ?? "absent")}
+        </p>}
         {mine?.saved && (
           <p className="mt-2 text-base font-bold" data-testid="descanso-current">
             {breakRange(mine.saved)}
@@ -242,23 +246,25 @@ export function ManagerBreakDialog({
           </p>
         )}
         {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-base font-bold" role="alert" data-testid="descanso-message">{message}</p>}
-        {coverWindow && <p className="mt-3 text-xl font-bold">{es ? "Solicitud" : "Request"}: {clock(coverWindow.startAt)} – {clock(coverWindow.endAt)} · {es ? "Visible para el gerente." : "Visible to the gerente."}</p>}
+        {coverWindow && <p className="mt-3 text-xl font-bold">{es ? "Solicitud" : "Request"}: {clock(coverWindow.startAt)} – {clock(coverWindow.endAt)}</p>}
         {covers.length === 0 && coverWindow && <p>{es ? "No hay cobertura disponible ahora. Puedes rechazar o volver a revisar." : "No cover available now. Reject or check again later."}</p>}
         {covers.length > 0 && coverWindow && (
-          <div className="mt-3 flex flex-col gap-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {covers.map((cover) => {
               const key = cover.kind === "simple" ? cover.employeeId : `${cover.moves[0].employeeId}-${cover.moves[1].employeeId}`;
               return (
                 <button
                   key={key}
                   type="button"
-                  className="touch-target min-h-11 rounded-lg border-2 border-neutral-950 px-3 text-base font-bold disabled:opacity-40"
+                  className={`touch-target min-h-16 rounded-xl border-2 px-4 py-3 text-left text-lg font-bold disabled:opacity-60 [overflow-wrap:anywhere] ${cover.kind === "simple" ? "border-green-800 bg-green-50 text-green-950" : "border-blue-800 bg-blue-50 text-blue-950"} ${busy && actingCover === key ? "ring-4 ring-neutral-950" : ""}`}
+                  aria-pressed={busy && actingCover === key}
                   data-testid="descanso-cover"
                   data-kind={cover.kind}
                   data-cover={cover.kind === "simple" ? cover.employeeId : cover.moves[0].employeeId}
                   data-shuffle={cover.kind === "shuffle" ? cover.moves[1].employeeId : ""}
                   disabled={busy}
                   onClick={() => {
+                    setActingCover(key);
                     const named = cover.kind === "simple"
                       ? { employeeId: cover.employeeId }
                       : { employeeId: cover.moves[0].employeeId, shuffleEmployeeId: cover.moves[1].employeeId };
@@ -266,7 +272,8 @@ export function ManagerBreakDialog({
                     else void save(coverWindow, named);
                   }}
                 >
-                  {cover.kind === "shuffle" ? "Shuffle" : (es ? "Cubrir" : "Cover")} · {coverLabel(cover, locale)}
+                  {cover.kind === "shuffle" ? (es ? "Mezclar" : "Shuffle") : (es ? "Cubrir" : "Cover")} · {coverLabel(cover, locale)}
+                  <span className="block text-sm">{busy && actingCover === key ? (es ? "Guardando…" : "Saving…") : (es ? "Aprobar con esta cobertura" : "Approve with this cover")}</span>
                 </button>
               );
             })}
@@ -332,10 +339,10 @@ export function ManagerBreakDialog({
             )}
           </div>
         )}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="sticky bottom-0 mt-4 flex flex-wrap justify-end gap-2 border-t-2 border-neutral-200 bg-white pt-3">
           <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-back" onClick={back}>{es ? "Atrás" : "Back"}</button>
           {(mine?.saved || mine?.pending || coverWindow) && (
-            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" data-testid="descanso-clear" disabled={busy} onClick={() => void clear()}>
+            <button type="button" className="touch-target min-h-12 rounded-md border-2 border-red-800 bg-red-50 px-3 font-bold text-red-950 disabled:opacity-40" data-testid="descanso-clear" disabled={busy} onClick={() => void clear()}>
               {(mine?.pending || (coverWindow && !autoPick)) ? (es ? "Rechazar solicitud" : "Reject request") : (es ? "Quitar BREAK" : "Cancel BREAK")}
             </button>
           )}

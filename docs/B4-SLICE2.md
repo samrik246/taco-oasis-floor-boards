@@ -4,8 +4,8 @@ The accepted slice-1 contracts feed one `BreakWorkspace`, embedded as a full-wid
 
 ## Screen behavior
 
-- The sheet opens at code entry. Staff can use four numeric keys; the explicit gerente credential control accepts 4–64 characters and submits without truncation. Tokens remain in component memory. Back, Close and expiry clear identity; request generations prevent late responses restoring a closed identity.
-- The board strip and entry view show both areas. Pending requests lead, sorted by requested time and stable id. Chips retain area, Central `h:mm AM/PM`, state words and distinct colors. Horizontal overflow is focusable, scrollable and labeled with the total count.
+- The sheet opens at code entry. One field and keypad accept 4–64 characters without truncation; everyone submits with Entrar. Tokens remain in component memory. Back, Close and expiry clear identity; request generations prevent late responses restoring a closed identity.
+- The board strip and entry view show both areas. Pending requests lead, sorted by requested time and stable id. Chips retain area, Central `h:mm AM/PM`, state words and distinct colors. The board strip keeps labeled horizontal overflow; entry and queue group wrapping rows by Cocina then Caja.
 - The worker card uses the computed allowance, board/window, persisted state, approval mode and next action. Pending saves are re-read and shown as pending rather than left in the picker. An ended request is explicitly not a completed BREAK. Open times and each duration expose the slice-1 preview; save still revalidates on the server.
 - Gerentes see both-area pending requests, simple cover, Shuffle and rejection, plus a separate own-BREAK action when sign-in returned a staff token. Existing Pintar cover controls use the wider dialog and 12-hour times. Owner history is read-only; mutations remain today-only.
 - The owner pairing panel shows safe manager display names and linkage, the 14-day Central window, incomplete retained-history notice, and deduplicated schedule candidates with qualifying source-position names. Selection never writes until Confirm. Cancel leaves the database alone. The API keeps enforcing owner-only access.
@@ -44,3 +44,15 @@ The pending-review dialog has distinct Back and Close controls: Back dismisses o
 Disabled slot faces display generic `No disponible` / `Unavailable`; dialog buttons, allowance and range text follow the current locale. The Ahora Suspense fallback says BREAK. Rendered interaction regressions are in `tests/b4-slice2-dialog-exits.test.ts`; both-locale board return, fresh code entry on reopening and delayed-mutation cases are in the complete workspace browser suite.
 
 Each browser run now writes captures into its own `FLOOR_BOARDS_TEST_ROOT/b4-slice2-screens` directory. A review packet copies the eight publication images to a separately sealed evidence directory and records their hashes and the source commit. Judge reruns cannot overwrite the publication captures through the test configuration. The original packet remains prior evidence; only a newly judged corrected packet may be posted.
+
+## Owner screen correction
+
+The owner review replaces the entry-mode toggle with one masked 4–64-character field, a numeric keypad and explicit Entrar for everyone. Four digits no longer submit automatically; typing/paste and keypad feed the same field. Server identity, collision, throttling and authority checks are unchanged.
+
+Entry and gerente queue lists group Cocina above Caja, with pending-first/time/id ordering inside each area. Cards wrap without horizontal scrolling. Eight example requests and the entry controls fit a 1280×800 landscape viewport in both languages. Dense/long-name sets retain every request and grow vertically with normal sheet scrolling rather than hiding or shrinking content; physical tablet acceptance is still separate. The board's compact strip retains its original horizontal overflow.
+
+Gerente status uses a labeled amber pending or blue reserved/approved heading. Cover and Mezclar/Shuffle actions have distinct labeled colors and show the chosen cover while saving; rejection is a separate red action. Ended requests keep their factual ended wording. No rejection status is stored. Existing one-tap cover, Back/Close, shared Pintar, expiry and delayed-response contracts remain.
+
+`e2e/fixtures/b4-review.ts` creates an eight-hour synthetic crew with all mandatory Cocina seats filled and no numbered partner for its Guia. Worker options come from production placement and coverage functions, including allowance/blackouts and complete intervals. Simple and two-move covers come from the production cover list. The screenshots show four valid durations at 2 PM with coherent gerente approval; automatic morning options and multiple alternative starts remain available. Reservation editing is exercised at 2:15 PM for 45 minutes. No live roster or credentials are used.
+
+New viewport captures supplement the eight versioned review images. Dense-case captures are explicitly full-page evidence of retained rows, not a viewport-fit claim. Earlier packets remain immutable prior evidence.

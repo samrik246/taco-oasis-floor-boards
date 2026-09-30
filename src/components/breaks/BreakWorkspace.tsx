@@ -24,7 +24,6 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; locale: Locale; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>("keypad");
   const [code, setCode] = useState("");
-  const [credentialMode, setCredentialMode] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [mine, setMine] = useState<Mine | null>(null);
   const [timeline, setTimeline] = useState<BreakTimeline | null>(null);
@@ -49,7 +48,7 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
   const close = useCallback(() => { reset(); onClose(); }, [reset, onClose]);
   const denied = useCallback(() => { reset(); setMessage(es ? "Entra otra vez. Se revisará tu acceso actual." : "Sign in again to check current access."); }, [reset, es]);
   useEffect(() => () => { generation.current += 1; }, []);
-  useEffect(() => { if (phase === "keypad") inputRef.current?.focus(); }, [phase, credentialMode]);
+  useEffect(() => { if (phase === "keypad") inputRef.current?.focus(); }, [phase]);
   useManagerIdle({ active: !paused && phase !== "saved", idleMs: !session ? BREAK_KEYPAD_IDLE_MS : session.kind === "gerente" ? session.idleMs ?? 15_000 : BREAK_IDLE_MS, onIdle: close });
   useEffect(() => {
     if (phase !== "saved") return;
@@ -126,9 +125,8 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
   function press(key: string) {
     if (paused || busy) return;
     if (key === "⌫") { setCode(v => v.slice(0, -1)); return; }
-    if (!key || code.length >= 4) return;
-    const next = code + key; setCode(next);
-    if (next.length === 4) void signIn(next);
+    if (!key || code.length >= 64) return;
+    setCode(code + key);
   }
   async function save(slot: BreakOption) {
     if (!staffToken || busy) return;
@@ -189,13 +187,12 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
     {phase === "keypad" && <div className="grid gap-6 lg:grid-cols-2" data-testid="break-keypad">
       <form className="space-y-4" onSubmit={e => { e.preventDefault(); void signIn(code); }}>
         <h2 className="text-2xl font-bold">{es ? "Entra con tu código" : "Enter your code"}</h2>
-        <label className="block font-bold" htmlFor="break-code">{credentialMode ? (es ? "Código de gerente" : "Gerente credential") : (es ? "Código personal" : "Personal code")}</label>
-        <input ref={inputRef} id="break-code" type="password" inputMode={credentialMode ? "text" : "numeric"} autoComplete="off" maxLength={credentialMode ? 64 : 4} className="min-h-16 w-full rounded-xl border-2 px-4 text-3xl tracking-widest" value={code} disabled={busy || paused} onChange={e => setCode(credentialMode ? e.target.value : e.target.value.replace(/\D/g, ""))} data-testid="break-code-input" />
-        {!credentialMode && <div className="grid grid-cols-3 gap-2">{KEYS.map(key => <button key={key || "blank"} type="button" className={`${breakButton} min-h-16 text-2xl`} disabled={busy || paused || !key} data-testid={key === "⌫" ? "break-key-back" : key ? `break-key-${key}` : undefined} onClick={() => press(key)}>{key}</button>)}</div>}
+        <label className="block font-bold" htmlFor="break-code">{es ? "Código" : "Code"}</label>
+        <input ref={inputRef} id="break-code" type="password" inputMode="text" autoComplete="off" maxLength={64} className="min-h-16 w-full rounded-xl border-2 px-4 text-3xl tracking-widest" value={code} disabled={busy || paused} onChange={e => setCode(e.target.value)} data-testid="break-code-input" />
+        <div className="grid grid-cols-3 gap-2">{KEYS.map(key => <button key={key || "blank"} type="button" className={`${breakButton} min-h-16 text-2xl`} disabled={busy || paused || !key} data-testid={key === "⌫" ? "break-key-back" : key ? `break-key-${key}` : undefined} onClick={() => press(key)}>{key}</button>)}</div>
         <button className={`${breakButton} w-full bg-neutral-950 text-white active:bg-neutral-700`} disabled={busy || paused || code.length < 4} data-testid="break-sign-in">{es ? "Entrar" : "Sign in"}</button>
-        <button className={breakButton} type="button" disabled={busy} onClick={() => { setCredentialMode(v => !v); setCode(""); }} data-testid="break-credential-mode">{credentialMode ? (es ? "Teclado numérico" : "Number keypad") : (es ? "Código de gerente / más caracteres" : "Gerente credential / more characters")}</button>
       </form>
-      <div className="min-w-0 space-y-3"><h2 className="text-xl font-bold">Caja + Cocina</h2>{timeline && <TimelineChips data={timeline} locale={locale} />}</div>
+      <div className="min-w-0 space-y-3" data-testid="break-entry-requests">{timeline && <TimelineChips data={timeline} locale={locale} grouped />}</div>
     </div>}
     {(phase === "picker" || phase === "saved") && mine && <section className="space-y-5" data-testid={phase === "saved" ? "break-saved" : "break-worker"}>
       <h2 className="text-3xl font-bold" data-testid="break-name">{mine.name}</h2>
@@ -232,8 +229,8 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
         {staffToken && <button className={breakButton} onClick={() => { setDate(""); setPhase("picker"); }} data-testid="break-own">{es ? "Mi BREAK · RESERVAR" : "My BREAK · RESERVE"}</button>}
         {session.role === "owner" && <><button className={breakButton} onClick={() => setPhase("pairing")} data-testid="break-pairing-open">{es ? "Vincular gerentes" : "Pair gerentes"}</button><label>{es ? "Consultar fecha" : "View date"}<input className={`${breakButton} ml-2`} type="date" value={date || timeline?.date || ""} onChange={e => { generation.current += 1; setTimeline(null); setDate(e.target.value); }} data-testid="break-date" /></label><button className={breakButton} onClick={() => { generation.current += 1; setDate(""); setTimeline(null); }}>{es ? "Hoy" : "Today"}</button></>}
       </div>
-      {timeline && <><TimelineChips data={timeline} locale={locale} /><h3 className="text-xl font-bold">{es ? "Solicitudes pendientes" : "Pending requests"}</h3>
-        {timeline.breaks.filter(row => row.state === "pending").sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id)).map(row => <div className="flex flex-wrap items-center gap-3 rounded-xl border-2 border-amber-700 bg-amber-50 p-4" key={row.id}><span className="mr-auto font-bold">{row.firstName} · {row.board} · {breakRange(row)}</span>{!historical && <button className={breakButton} onClick={() => setManaged({ employeeId: row.employeeId, name: row.firstName, board: row.board })} data-testid="break-review">{es ? "Revisar · Cubrir / Shuffle / Rechazar" : "Review · Cover / Shuffle / Reject"}</button>}</div>)}
+      {timeline && <><TimelineChips data={timeline} locale={locale} grouped /><h3 className="text-xl font-bold">{es ? "Solicitudes pendientes" : "Pending requests"}</h3>
+        {timeline.breaks.filter(row => row.state === "pending").sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id)).map(row => <div className="flex flex-wrap items-center gap-3 rounded-xl border-2 border-amber-700 bg-amber-50 p-4" key={row.id}><span className="mr-auto font-bold">{row.firstName} · {row.board} · {breakRange(row)}</span>{!historical && <button className={breakButton} onClick={() => setManaged({ employeeId: row.employeeId, name: row.firstName, board: row.board })} data-testid="break-review">{es ? "Revisar" : "Review"}</button>}</div>)}
         {!timeline.breaks.some(row => row.state === "pending") && <p>{es ? "Sin solicitudes pendientes" : "No pending requests"}</p>}
         {historical ? <p>{es ? "Solo consulta. Los cambios de BREAK son para hoy." : "Read only. BREAK changes are today only."}</p> : <><h3 className="text-xl font-bold">{es ? "Personas de hoy" : "Today's people"}</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{timeline.people.map(person => <div key={person.id} className="rounded-xl border-2 p-3"><p className="font-bold">{person.name}</p>{[...new Set(person.shifts.map(s => s.board))].map(area => <button key={area} className={`${breakButton} mr-2 mt-2`} onClick={() => setManaged({ employeeId: person.id, name: person.name, board: area })}>{area === "caja" ? "Caja" : "Cocina"} · BREAK</button>)}</div>)}</div></>}
       </>}
