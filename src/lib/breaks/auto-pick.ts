@@ -144,12 +144,12 @@ async function loadPickWorld(
   };
 }
 
-async function rolledWindowFits(
+async function assessHeldWindow(
   tx: Prisma.TransactionClient,
   row: PendingRow,
   startAt: Date,
   endAt: Date,
-): Promise<boolean> {
+) {
   const shifts = await tx.shift.findMany({
     where: { employeeId: row.employeeId, date: row.date },
   });
@@ -168,7 +168,7 @@ async function rolledWindowFits(
       select: { id: true },
     });
   const liveIds = new Set(live.map((shift) => shift.id));
-  const decision = assessBreak({
+  return assessBreak({
     date: row.date,
     startAt,
     endAt,
@@ -182,6 +182,15 @@ async function rolledWindowFits(
         status: other.status,
       })),
   });
+}
+
+async function rolledWindowFits(
+  tx: Prisma.TransactionClient,
+  row: PendingRow,
+  startAt: Date,
+  endAt: Date,
+): Promise<boolean> {
+  const decision = await assessHeldWindow(tx, row, startAt, endAt);
   if (!("code" in decision)) return true;
   return decision.code === "CEILING";
 }
@@ -219,8 +228,10 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
       endAt: row.endAt,
       ...world,
     });
+    const held = await assessHeldWindow(tx, row, row.startAt, row.endAt);
+    const ceilingFull = "code" in held && held.code === "CEILING";
     const updatedAt = nextBreakWriteStamp(row.updatedAt.getTime());
-    if (choice) {
+    if (choice && !ceilingFull) {
       const wrote = await tx.staffBreak.updateMany({
         where: {
           id: row.id,
@@ -264,10 +275,11 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
 
 /**
  * Pending breaks due in the next five minutes, earliest first.
- * One conditional write inside the lock names a simple preferred or ok cover,
- * rolls the same length one quarter, or ends the break when the next quarter
- * no longer fits before a blackout or the shift end. A window already under
- * way is left as it was. Two callers cannot both win the same row.
+ * One conditional write inside the lock names a simple preferred or ok cover
+ * when that quarter still has a booked spot. A full ceiling is the same as
+ * no cover: roll the same length one quarter, or end the break when the next
+ * quarter no longer fits before a blackout or the shift end. A window already
+ * under way is left as it was. Two callers cannot both win the same row.
  */
 export async function pickDueCovers(now: Date = breaksNow()): Promise<BreakPickTally> {
   const seen = await withStaffBreakLock((tx) => readDue(tx, now));

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { pickDueCovers, setAfterPickReadForTests } from "@/lib/breaks/auto-pick";
 import { firstAutoCover } from "@/lib/breaks/covers";
 import { listBreaksNow } from "@/lib/breaks/now";
@@ -90,6 +91,69 @@ async function seatedDay(input: {
     });
   }
   return { asker: seats[0]!, seats, extras, shifts };
+}
+
+async function autoCoverFor(day: string, employeeId: string) {
+  const shifts = await prisma.shift.findMany({
+    where: { date: day, supersededAt: null, boardRemoved: false },
+    include: { employee: { select: { firstName: true } } },
+  });
+  const paints = shifts.length === 0
+    ? []
+    : await prisma.assignment.findMany({
+      where: { shiftId: { in: shifts.map((shift) => shift.id) } },
+      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
+    });
+  const breakRows = await prisma.staffBreak.findMany({ where: { date: day } });
+  const abilities = await prisma.employeeStationAbility.findMany({
+    where: { employeeId: { in: shifts.map((shift) => shift.employeeId) } },
+    select: { employeeId: true, stationId: true, level: true },
+  });
+  const defaults = await loadColumnDefaults(prisma);
+  return firstAutoCover({
+    date: day,
+    board: "cocina",
+    employeeId,
+    startAt: at("2:00 pm", day),
+    endAt: at("2:15 pm", day),
+    shifts: shifts.map((shift) => ({
+      id: shift.id,
+      employeeId: shift.employeeId,
+      board: shift.board,
+      startAt: shift.startAt,
+      endAt: shift.endAt,
+      superseded: false,
+      boardRemoved: false,
+    })),
+    paints: paints.flatMap((row) => {
+      if (!row.employeeId) return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        stationId: row.stationId,
+        hourStart: row.hourStart,
+      }];
+    }),
+    breaks: breakRows.flatMap((row) => {
+      if (row.status !== "booked" && row.status !== "pending") return [];
+      if (row.board !== "caja" && row.board !== "cocina") return [];
+      return [{
+        employeeId: row.employeeId,
+        shiftId: row.shiftId,
+        board: row.board,
+        startAt: row.startAt,
+        endAt: row.endAt,
+        status: row.status === "booked" ? "booked" as const : "pending" as const,
+        coverEmployeeId: row.coverEmployeeId,
+        shuffleEmployeeId: row.shuffleEmployeeId,
+        auto: row.auto,
+      }];
+    }),
+    starStationIds: stars,
+    abilities,
+    defaults,
+    names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+  });
 }
 
 describe("B4 PR 3 five-minute pick", () => {
@@ -327,6 +391,48 @@ describe("B4 PR 3 five-minute pick", () => {
     expect(other.status).toBe("pending");
     expect(other.coverEmployeeId).toBeNull();
     expect(other.startAt.toISOString()).toBe(at("2:15 pm", day).toISOString());
+  });
+
+  it("rolls a pending star when two breaks already book the quarter", async () => {
+    const day = chicagoDateOffset(date, 5);
+    const { asker, extras } = await seatedDay({
+      day,
+      extras: [
+        { key: "cam", firstName: "Cam", level: "preferred" },
+        { key: "bea", firstName: "Bea", level: "ok" },
+        { key: "gus", firstName: "Gus", level: "ok" },
+      ],
+    });
+    const waiting = await saveBreak({
+      employeeId: asker.id,
+      date: day,
+      startAt: at("2:00 pm", day),
+      endAt: at("2:15 pm", day),
+    });
+    expect(waiting.status).toBe("pending");
+    const booked = [];
+    for (const person of [extras[1]!, extras[2]!]) {
+      booked.push(await saveBreak({
+        employeeId: person.id,
+        date: day,
+        startAt: at("2:00 pm", day),
+        endAt: at("2:15 pm", day),
+      }));
+    }
+    expect(booked.map((row) => row.status)).toEqual(["booked", "booked"]);
+    expect(await autoCoverFor(day, asker.id)).toMatchObject({ employeeId: extras[0]!.id });
+
+    const tally = await pickDueCovers(at("1:56 pm", day));
+    expect(tally).toEqual({ picked: 0, rolled: 1, ended: 0 });
+    const row = await prisma.staffBreak.findUniqueOrThrow({
+      where: { employeeId_date: { employeeId: asker.id, date: day } },
+    });
+    expect(row.status).toBe("pending");
+    expect(row.auto).toBe(false);
+    expect(row.coverEmployeeId).toBeNull();
+    expect(row.startAt.toISOString()).toBe(at("2:15 pm", day).toISOString());
+    expect(row.endAt.toISOString()).toBe(at("2:30 pm", day).toISOString());
+    expect(await prisma.staffBreak.count({ where: { date: day, status: "booked" } })).toBe(2);
   });
 
   it("starts the pick timer only from the Node runtime", () => {
