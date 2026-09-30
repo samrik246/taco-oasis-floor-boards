@@ -8,6 +8,7 @@ import {
   withStaffBreakLock,
 } from "@/lib/breaks/rules";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
 import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
 
 /** Five minutes before the window. A later read does not pick. */
@@ -141,6 +142,7 @@ async function loadPickWorld(
     abilities,
     defaults,
     names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
+    overlays: (await loadOverlayRecords(tx, board, date)).map(toSliceOverlay),
   };
 }
 

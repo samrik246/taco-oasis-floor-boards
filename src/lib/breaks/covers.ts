@@ -8,6 +8,7 @@ import {
   sliceIndexesTouching,
   type SliceBoard,
   type SliceBreak,
+  type SliceOverlay,
   type SlicePaint,
   type SliceShift,
 } from "@/lib/slices/day-slices";
@@ -37,6 +38,7 @@ function rankCoverCandidates(input: {
   shifts: readonly SliceShift[];
   paints: readonly SlicePaint[];
   breaks: readonly SliceBreak[];
+  overlays?: readonly SliceOverlay[];
   starStationIds: readonly string[];
   abilities: readonly AbilityRow[];
   defaults?: ReadonlyMap<string, string>;
@@ -54,7 +56,7 @@ function rankCoverCandidates(input: {
     shifts: input.shifts,
     paints: input.paints,
     breaks: resting,
-    overlays: [],
+    overlays: input.overlays ?? [],
   });
   const starred = sliceIndexesTouching(day, input.startAt, input.endAt)
     .map((index) => day.slices[index])
@@ -192,6 +194,7 @@ function acceptsCover(
     paints: input.paints,
     breaks: input.breaks,
     starStationIds: input.starStationIds,
+    overlays: input.overlays,
     coverEmployeeId: row.kind === "simple" ? row.employeeId : row.moves[0].employeeId,
     shuffleEmployeeId: row.kind === "shuffle" ? row.moves[1].employeeId : null,
   });
