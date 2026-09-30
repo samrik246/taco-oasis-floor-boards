@@ -23,7 +23,7 @@ async function screenshot(page: Page, name: string, fullPage = true) {
   await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage });
 }
 
-async function workerUI(page: Page, state: string | null = null) {
+async function workerUI(page: Page, state: string | null = null, { gerenteAvailable = false } = {}) {
   const saved = state ? { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state, approval: state === "ended" ? null : "gerente", status: state === "pending" ? "pending" : state === "ended" ? "ended" : "booked" } : null;
   const scenario = reviewScenario(date);
   const data = { name: "Mara Ejemplo", allowanceMinutes: 60, ...scenario, saved };
@@ -35,7 +35,7 @@ async function workerUI(page: Page, state: string | null = null) {
     else await route.fulfill({ json: data });
   });
   await page.route("**/api/breaks/timeline**", route => route.fulfill({ json: {
-    date, asOf: iso("1:45 pm"), gerenteAvailable: false, people: [], breaks: [
+    date, asOf: iso("1:45 pm"), gerenteAvailable, people: [], breaks: [
       { id: "later", employeeId: "b", firstName: "Sol", board: "caja", startAt: iso("3:00 pm"), endAt: iso("3:30 pm"), state: "pending", approval: "gerente" },
       { id: "earlier", employeeId: "a", firstName: "Mara", board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state: "pending", approval: "gerente" },
       ...Array.from({ length: 6 }, (_, i) => ({ id: `reserve-${i}`, employeeId: `p-${i}`, firstName: `Ejemplo ${i + 1}`, board: i % 2 ? "caja" : "cocina", startAt: iso(i === 0 ? "1:30 pm" : i < 3 ? "3:00 pm" : i < 5 ? "3:30 pm" : "4:00 pm"), endAt: iso(i === 0 ? "2:00 pm" : i < 3 ? "3:30 pm" : i < 5 ? "4:00 pm" : "4:30 pm"), state: i === 0 ? "on-break" : "reserved", approval: "automatic" })),
@@ -60,6 +60,7 @@ test("landscape sheet, both-area ordered overflow, per-length approval and persi
   await expect(entry.getByTestId("break-chip")).toHaveCount(8);
   for (const id of ["break-sign-in", "break-group-cocina", "break-group-caja"]) await expect(page.getByTestId(id)).toBeInViewport({ ratio: 1 });
   expect(await entry.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect(entry.getByText("Sin gerente habilitado ahora", { exact: true })).toBeVisible();
   await screenshot(page, "01_CODE_ENTRY", false);
   await enterWorker(page);
   await expect(page.getByTestId("break-shift")).toContainText("Te tocan máximo 60 minutos");
@@ -148,7 +149,7 @@ for (const locale of ["es", "en"] as const) {
 test(`${locale}: gerente cover choices preserve simple and Shuffle payloads and rejection uses the stored request`, async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
-  const data = await workerUI(page, "pending");
+  const data = await workerUI(page, "pending", { gerenteAvailable: true });
   await page.route("**/api/breaks/session", route => route.fulfill({ json: route.request().method() === "GET" ? { role: "manager" } : { kind: "gerente", token: "synthetic-manager", role: "manager", name: "Gerente Ejemplo", idleMs: 60_000 } }));
   const writes: Record<string, unknown>[] = [];
   await page.route("**/api/breaks/manage**", async route => {
@@ -174,6 +175,7 @@ test(`${locale}: gerente cover choices preserve simple and Shuffle payloads and 
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toBeInViewport({ ratio: 1 });
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toContainText(locale === "es" ? "Mezclar" : "Shuffle");
   if (locale === "es") await expect(page.getByTestId("descanso-dialog")).not.toContainText("Shuffle");
+  await expect(page.getByText(/Sin gerente habilitado ahora|No authorized gerente now/)).toHaveCount(0);
   await screenshot(page, locale === "es" ? "07_SIMPLE_AND_SHUFFLE" : "12_EN_SHUFFLE_VIEWPORT", false);
   await page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]').click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
@@ -213,7 +215,7 @@ test("English approval and all persisted status cards retain full landscape widt
 });
 
 test("a gerente-created pending request updates its status card without claiming completion", async ({ page }) => {
-  const data = await workerUI(page);
+  const data = await workerUI(page, null, { gerenteAvailable: true });
   await page.route("**/api/breaks/session", route => route.fulfill({ json: route.request().method() === "GET" ? { role: "manager" } : { kind: "gerente", token: "synthetic-manager", role: "manager", name: "Gerente Ejemplo", idleMs: 60_000 } }));
   await page.route("**/api/breaks/manage**", route => route.fulfill({ json: route.request().method() === "GET" ? {
     firstName: "Mara", allowanceMinutes: 60, row: "absent", shifts: data.shifts, slots: data.slots, blocked: [], saved: null, pending: null, state: "absent", covers: [],
@@ -224,6 +226,7 @@ test("a gerente-created pending request updates its status card without claiming
   await page.getByTestId("break-review").first().click();
   await page.locator(`[data-testid="descanso-start"][data-start="${iso("2:00 pm")}"]`).click();
   await page.getByTestId("descanso-save").click();
+  await expect(page.getByText(/Sin gerente habilitado ahora|No authorized gerente now/)).toHaveCount(0);
   await expect(page.getByTestId("descanso-dialog")).toContainText("Pendiente · Por aprobar");
   await expect(page.getByTestId("descanso-dialog")).not.toContainText("Completado");
   await expect(page.getByTestId("descanso-clear")).toHaveText("Rechazar solicitud");
@@ -232,7 +235,7 @@ test("a gerente-created pending request updates its status card without claiming
 for (const locale of ["es", "en"] as const) {
   test(`${locale}: pending review Back returns to queue, Close clears identity and delayed writes cannot reopen BREAK`, async ({ page }) => {
     await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
-    const data = await workerUI(page, "pending");
+    const data = await workerUI(page, "pending", { gerenteAvailable: true });
     await page.route("**/api/breaks/session", route => route.fulfill({ json: route.request().method() === "GET" ? { role: "manager" } : { kind: "gerente", token: "synthetic-manager", role: "manager", name: "Gerente Ejemplo", idleMs: 60_000 } }));
     let release!: () => void;
     let finished!: () => void;
@@ -256,6 +259,7 @@ for (const locale of ["es", "en"] as const) {
     await page.getByTestId("break-review").first().click();
     await expect(page.getByTestId("descanso-close")).toHaveText(locale === "es" ? "Cerrar · Volver al tablero" : "Close · Back to board");
     await expect(page.getByTestId("descanso-cover")).toBeVisible();
+    await expect(page.getByText(/Sin gerente habilitado ahora|No authorized gerente now/)).toHaveCount(0);
     if (locale === "en") await screenshot(page, "09_EN_COVER_SUPPLEMENT");
     const request = page.waitForRequest(r => r.url().includes("/api/breaks/manage") && r.method() === "POST");
     await page.getByTestId("descanso-cover").click(); await request;
@@ -315,6 +319,7 @@ for (const locale of ["es", "en"] as const) {
     const caja = await panel.getByTestId("break-group-caja").boundingBox();
     expect(kitchen!.y + kitchen!.height).toBeLessThanOrEqual(caja!.y);
     for (const board of ["cocina", "caja"]) await expect(panel.getByTestId(`break-group-${board}`).getByTestId("break-chip").first()).toHaveAttribute("data-state", "pending");
+    await expect(panel.getByText(locale === "es" ? "Sin gerente habilitado ahora" : "No authorized gerente now", { exact: true })).toBeVisible();
     await screenshot(page, `10_${locale.toUpperCase()}_ENTRY_VIEWPORT`, false);
     await page.getByTestId("break-close").click();
     const rows = Array.from({ length: 32 }, (_, i) => ({ id: `dense-${String(i).padStart(2, "0")}`, employeeId: `person-${i}`, firstName: `PersonaEjemplo${i}ConNombreMuyLargoSinEspaciosYApellidoCompuesto`, board: i % 2 ? "caja" : "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state: "pending", approval: "gerente" }));
