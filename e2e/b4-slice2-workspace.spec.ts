@@ -150,6 +150,8 @@ test("gerente cover choices preserve simple and Shuffle payloads and rejection u
   expect(writes[0]).toMatchObject({ method: "POST", board: "cocina", employeeId: "a", coverEmployeeId: "cover-a" });
   await page.getByTestId("break-review").first().click();
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toBeVisible();
+  await expect(page.getByTestId("descanso-start")).toHaveCount(0);
+  await expect(page.getByTestId("descanso-clear")).toBeInViewport();
   await screenshot(page, "07_SIMPLE_AND_SHUFFLE");
   await page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]').click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);

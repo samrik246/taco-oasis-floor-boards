@@ -248,7 +248,7 @@ export function ManagerBreakDialog({
             })}
           </div>
         )}
-        {faces.length > 0 && !showingLengths && (
+        {faces.length > 0 && !showingLengths && !coverWindow && (
           <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
             {faces.map((face) => (
               <button
