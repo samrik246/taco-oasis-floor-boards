@@ -16,8 +16,8 @@ const words = {
 } as const;
 
 function mark(row: OverlayDto, now: Date, text: { cancelled: string; imported: string; ended: string }): string | null {
-  if (row.endReason === "cancel" || row.cancelledAt) return text.cancelled;
   if (row.endReason === "import") return text.imported;
+  if (row.endReason === "cancel" || row.cancelledAt) return text.cancelled;
   if (new Date(row.endAt).getTime() <= now.getTime()) return text.ended;
   return null;
 }

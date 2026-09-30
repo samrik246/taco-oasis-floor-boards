@@ -273,6 +273,12 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       const stationId = paintOnShifts(input.paints, row.employeeId, breakerIds, start);
       if (!stationId) continue;
       if (!live.some((shift) => shift.employeeId === row.coverEmployeeId)) continue;
+      const coverOverlay = input.overlays.some((overlay) => {
+        return !overlay.cancelledAt
+          && windowCovers(overlay.startAt, overlay.endAt, start, end)
+          && (overlay.employeeId === row.coverEmployeeId || overlay.partnerEmployeeId === row.coverEmployeeId);
+      });
+      if (coverOverlay) continue;
       let vacatedStation: string | null = null;
       for (const [seatId, seat] of [...seats]) {
         if (seat.employeeId !== row.coverEmployeeId) continue;

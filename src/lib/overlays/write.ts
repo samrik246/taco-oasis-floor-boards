@@ -3,14 +3,17 @@ import type { Prisma } from "@prisma/client";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { BOARD_CHANGE_ROUTES, writeBoardChange } from "@/lib/board-change-log";
+import { assessBreak, withStaffBreakLock } from "@/lib/breaks/rules";
 import { TIMEZONE } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
-import { loadOverlayRecords, screenOverlays, type OverlayKind } from "@/lib/overlays/read";
+import { loadOverlayRecords, screenOverlays, toSliceOverlay, type OverlayKind } from "@/lib/overlays/read";
 import { resolveOverlayWindow, type OverlayWindowMode } from "@/lib/overlays/windows";
+import { assessStarGate } from "@/lib/slices/break-gate";
 import {
   buildDaySlices,
   type DaySlices,
+  type SliceBreak,
   type SlicePaint,
   type SliceShift,
 } from "@/lib/slices/day-slices";
@@ -127,8 +130,126 @@ async function logOverlay(
 }
 
 const IMPORT_ACTOR = { id: "import", name: "Import" };
+const QUARTER_MS = 15 * 60 * 1000;
 
-/** A star seat handed to someone becomes that person's cover. Paint is not written. */
+async function liveOtherBreaks(
+  tx: Prisma.TransactionClient,
+  date: string,
+  employeeId: string,
+): Promise<{ board: string; startAt: Date; endAt: Date; status: string }[]> {
+  const others = await tx.staffBreak.findMany({
+    where: { date, employeeId: { not: employeeId } },
+    select: { shiftId: true, board: true, startAt: true, endAt: true, status: true },
+  });
+  if (others.length === 0) return [];
+  const live = await tx.shift.findMany({
+    where: {
+      id: { in: others.map((row) => row.shiftId) },
+      supersededAt: null,
+      boardRemoved: false,
+    },
+    select: { id: true },
+  });
+  const liveIds = new Set(live.map((row) => row.id));
+  return others.flatMap((row) => {
+    if (!liveIds.has(row.shiftId)) return [];
+    return [{ board: row.board, startAt: row.startAt, endAt: row.endAt, status: row.status }];
+  });
+}
+
+/** Ceiling and star gate for a cover already named on a pending row. */
+async function handedBooking(
+  tx: Prisma.TransactionClient,
+  input: {
+    board: "caja" | "cocina";
+    date: string;
+    employeeId: string;
+    startAt: Date;
+    endAt: Date;
+    coverEmployeeId: string;
+    ignoreOverlayId: string;
+    shifts: readonly LiveShift[];
+  },
+): Promise<"book" | "roll" | "wait"> {
+  const decision = assessBreak({
+    date: input.date,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    shifts: input.shifts.filter((shift) => shift.employeeId === input.employeeId),
+    otherBreaks: await liveOtherBreaks(tx, input.date, input.employeeId),
+  });
+  if ("code" in decision) return decision.code === "CEILING" ? "roll" : "wait";
+  const marks = await tx.mandatoryMark.findMany({
+    where: { board: input.board, date: input.date },
+    select: { stationId: true },
+  });
+  const extra = marks.map((mark) => mark.stationId).filter((id) => !isDefaultMandatory(id));
+  const paints: SlicePaint[] = input.shifts.length === 0 ? [] : (await tx.assignment.findMany({
+    where: { shiftId: { in: input.shifts.map((shift) => shift.id) } },
+    select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
+  })).flatMap((row) => {
+    if (!row.employeeId) return [];
+    return [{
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      stationId: row.stationId,
+      hourStart: row.hourStart,
+    }];
+  });
+  const stored = await tx.staffBreak.findMany({
+    where: { date: input.date },
+    select: {
+      employeeId: true,
+      shiftId: true,
+      board: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      coverEmployeeId: true,
+      shuffleEmployeeId: true,
+      auto: true,
+    },
+  });
+  const breaks: SliceBreak[] = stored.flatMap((row) => {
+    if (row.status !== "booked" && row.status !== "pending") return [];
+    if (row.board !== "caja" && row.board !== "cocina") return [];
+    return [{
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      board: row.board,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      status: row.status,
+      coverEmployeeId: row.coverEmployeeId,
+      shuffleEmployeeId: row.shuffleEmployeeId,
+      auto: row.auto,
+    }];
+  });
+  const overlays = (await loadOverlayRecords(tx, input.board, input.date))
+    .filter((row) => row.id !== input.ignoreOverlayId)
+    .map(toSliceOverlay);
+  const star = assessStarGate({
+    date: input.date,
+    board: input.board,
+    employeeId: input.employeeId,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    shifts: input.shifts.map(asSliceShift),
+    paints,
+    breaks,
+    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra],
+    overlays,
+    coverEmployeeId: input.coverEmployeeId,
+  });
+  return "code" in star ? "wait" : "book";
+}
+
+/**
+ * A star seat handed to someone names that person on the pending break.
+ * The lock is already held. Only the ceiling-and-star decision books,
+ * and only by a conditional write. A full ceiling leaves the row pending,
+ * cover named, and rolls one quarter when that quarter still fits.
+ */
 async function handStar(
   tx: Prisma.TransactionClient,
   input: {
@@ -140,6 +261,7 @@ async function handStar(
     end: Date;
     shifts: readonly LiveShift[];
     stars: ReadonlySet<string>;
+    ignoreOverlayId: string;
   },
 ): Promise<void> {
   if (!input.stars.has(input.stationId)) return;
@@ -161,16 +283,54 @@ async function handStar(
     if (paint?.stationId !== input.stationId) continue;
     const coverShift = coveringShift(input.shifts, input.arrivingId, row.startAt, row.endAt, input.board);
     if (!coverShift) continue;
-    await tx.staffBreak.update({
-      where: { id: row.id },
-      data: {
-        status: "booked",
-        coverEmployeeId: input.arrivingId,
-        coverShiftId: coverShift.id,
-        shuffleEmployeeId: null,
-        shuffleShiftId: null,
-        auto: false,
-      },
+    const named = {
+      coverEmployeeId: input.arrivingId,
+      coverShiftId: coverShift.id,
+      shuffleEmployeeId: null,
+      shuffleShiftId: null,
+      auto: false,
+    };
+    if (row.status === "booked") {
+      await tx.staffBreak.update({ where: { id: row.id }, data: named });
+      continue;
+    }
+    const wrote = await tx.staffBreak.updateMany({
+      where: { id: row.id, status: "pending" },
+      data: named,
+    });
+    if (wrote.count !== 1) continue;
+    const outcome = await handedBooking(tx, {
+      board: input.board,
+      date: input.date,
+      employeeId: row.employeeId,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      coverEmployeeId: input.arrivingId,
+      ignoreOverlayId: input.ignoreOverlayId,
+      shifts: input.shifts,
+    });
+    if (outcome === "book") {
+      await tx.staffBreak.updateMany({
+        where: { id: row.id, status: "pending", coverEmployeeId: input.arrivingId },
+        data: { status: "booked" },
+      });
+      continue;
+    }
+    if (outcome !== "roll") continue;
+    const nextStart = new Date(row.startAt.getTime() + QUARTER_MS);
+    const nextEnd = new Date(row.endAt.getTime() + QUARTER_MS);
+    if (!coveringShift(input.shifts, input.arrivingId, nextStart, nextEnd, input.board)) continue;
+    const rolled = assessBreak({
+      date: input.date,
+      startAt: nextStart,
+      endAt: nextEnd,
+      shifts: input.shifts.filter((shift) => shift.employeeId === row.employeeId),
+      otherBreaks: await liveOtherBreaks(tx, input.date, row.employeeId),
+    });
+    if ("code" in rolled && rolled.code !== "CEILING") continue;
+    await tx.staffBreak.updateMany({
+      where: { id: row.id, status: "pending", coverEmployeeId: input.arrivingId },
+      data: { startAt: nextStart, endAt: nextEnd },
     });
   }
 }
@@ -190,7 +350,7 @@ export async function saveOverlay(input: {
 }): Promise<{ id: string }> {
   const now = input.now ?? new Date();
   if (input.date !== chicagoToday(now)) throw new OverlayRefused("NOT_TODAY");
-  return prisma.$transaction(async (tx) => {
+  return withStaffBreakLock(async (tx) => {
     const shifts = await tx.shift.findMany({
       where: { date: input.date, supersededAt: null, boardRemoved: false },
     });
@@ -299,6 +459,7 @@ export async function saveOverlay(input: {
         end: window.endAt,
         shifts,
         stars,
+        ignoreOverlayId: created.id,
       });
       await handStar(tx, {
         board: input.board,
@@ -309,6 +470,7 @@ export async function saveOverlay(input: {
         end: window.endAt,
         shifts,
         stars,
+        ignoreOverlayId: created.id,
       });
     }
     if (input.kind === "add") {
@@ -321,6 +483,7 @@ export async function saveOverlay(input: {
         end: window.endAt,
         shifts,
         stars,
+        ignoreOverlayId: created.id,
       });
     }
     await logOverlay(tx, input.manager, BOARD_CHANGE_ROUTES.overlaySave, {
