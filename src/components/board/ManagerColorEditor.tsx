@@ -7,9 +7,7 @@ import { breakStripeLabel } from "@/lib/breaks/stripe-label";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 import { showDescansoButton } from "@/lib/breaks/picker-steps";
-import { isFutureHour } from "@/lib/rules/live-hour";
-import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
-import { boardStationLabel, displayStationLabel, moveReasonLabel, type Locale, type Messages } from "@/lib/i18n";
+import { boardStationLabel, displayStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
@@ -23,8 +21,11 @@ import { markForStation, openCellOutlineClass, selectionMark } from "@/lib/selec
 import { chicagoYmd, comparePintarRows, primaryStationId, type ScheduleSort } from "@/lib/schedule/build-schedule";
 import { stationSolidClass } from "@/lib/schedule/station-codes";
 import { abilityFor, assignmentsAtStationHour, displayName, stationColorClass } from "./board-helpers";
+import { removedHours } from "@/lib/overlays/read";
 import { AmberMark } from "./AmberMark";
 import { amberHoursForDay, slicesForDay } from "./day-slice-input";
+import { OverlayDayList } from "./OverlayDayList";
+import { OverlayMenu } from "./OverlayMenu";
 import { QuarterRow } from "./QuarterRow";
 import { SelectionMarkDot } from "./SelectionMarkDot";
 import { buildTimelineRows, personName } from "./timeline-rows";
@@ -49,7 +50,6 @@ type Props = {
 };
 
 type Draft = Record<string, PaintEdit>;
-type PendingReason = { edit: PaintEdit; name: string; from: string };
 type PaletteChoice = { id: string; stationIds: readonly string[]; label: string; color: string | null };
 
 function familyChoice(id: string): PaintFamily | null {
@@ -146,9 +146,6 @@ export function ManagerColorEditor({
   });
   const [restored, setRestored] = useState(() => Boolean(readPaintDraft(managerId, board, date)?.edits.length));
   const [storageError, setStorageError] = useState<"retain" | "clear" | null>(null);
-  const [pendingReason, setPendingReason] = useState<(PendingReason & { snapshot: string }) | null>(null);
-  const [reason, setReason] = useState<MoveReason>("Other");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [breakTarget, setBreakTarget] = useState<{ employeeId: string; name: string } | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -184,7 +181,6 @@ export function ManagerColorEditor({
     mandatoryTag: "Obl",
     needChoice: "Elige un puesto o Borrar primero.",
     markFailed: "No se pudo marcar el puesto.",
-    reasonTitle: "Motivo para cambiar un puesto actual o pasado",
     noPerson: "Sin persona",
   } : {
     title: "Color positions",
@@ -216,7 +212,6 @@ export function ManagerColorEditor({
     mandatoryTag: "Obl",
     needChoice: "Pick a position or Erase first.",
     markFailed: "Could not mark the position.",
-    reasonTitle: "Reason for changing a current or past position",
     noPerson: "No person",
   };
 
@@ -230,15 +225,10 @@ export function ManagerColorEditor({
 
   // The editor mounts only after manager unlock. Its keyed mount re-reads that
   // manager's local draft; staff and other managers never mount these cells.
-  const snapshot = useMemo(() => JSON.stringify(day?.shifts.map((sh) => [
-    sh.id, sh.startAt, sh.endAt, sh.sourcePosition, sh.employee.id, sh.supersededAt,
-    sh.assignments.map((a) => [a.id, a.stationId, a.hourStart]).sort(),
-  ]).sort() ?? []), [day]);
   const pendingCount = Object.keys(draftState.draft).length;
   const staleDraft = day != null && Object.values(draftState.draft).some((edit) => !editStillMatches(day, date, edit));
   const draft = staleDraft ? {} : draftState.draft;
   const undo = draftState.undo;
-  const activePendingReason = pendingReason?.snapshot === snapshot ? pendingReason : null;
 
   const rows = useMemo(() => {
     if (!day) return [];
@@ -416,11 +406,6 @@ export function ManagerColorEditor({
       stationId,
       ...(family ? { family } : {}),
     };
-    if (assignment && !validCurrentFamily && stationId !== assignment.stationId &&
-        !isFutureHour(chicagoHourStart(date, hour), new Date())) {
-      setPendingReason({ snapshot, edit, name: personName(shift), from: assignment.stationId });
-      return;
-    }
     stage(edit);
   }
 
@@ -559,11 +544,25 @@ export function ManagerColorEditor({
                     {t.moveBreak}
                   </button>
                 )}
+                {day && (
+                  <OverlayMenu
+                    day={day}
+                    shift={shift}
+                    board={board}
+                    date={date}
+                    locale={locale}
+                    managerToken={managerToken}
+                    readonly={readonly}
+                    busy={busy}
+                    onSaved={onSaved}
+                  />
+                )}
               </th>
               {cells.map((cell, index) => {
                 const hour = hours[index]!;
                 const edit = draft[draftKey(shift.id, hour)];
-                const stationId = edit ? edit.stationId : cell.stationId;
+                const removedHere = !edit && (day ? removedHours(day.overlays ?? [], shift.employee.id, date, new Date()).has(hour) : false);
+                const stationId = edit ? edit.stationId : removedHere ? null : cell.stationId;
                 const station = day?.stations.find((s) => s.id === stationId);
                 const label = edit?.family && edit.expected?.stationId === cell.stationId ?
                   (station ? displayStationLabel(locale, station) : cell.stationId ? boardStationLabel(locale, cell.stationId, day?.stations ?? []) : "") :
@@ -595,9 +594,9 @@ export function ManagerColorEditor({
                   ? breakStripeLabel(day?.breaks, shift.employee.id, shift.id, chicagoHourStart(date, hour), chicagoHourEnd(date, hour))
                   : null;
                 const quarters = paintedSlices ? personQuarters(paintedSlices, shift.employee.id, hour) : [];
-                const showAmber = !station && cell.kind !== "off" && !ended && (amberByShift.get(shift.id)?.has(hour) ?? false);
+                const showAmber = !removedHere && !station && cell.kind !== "off" && !ended && (amberByShift.get(shift.id)?.has(hour) ?? false);
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}<QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}{removedHere && <AmberMark kind="removed-hour" />}<QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></button>}
                 </td>;
               })}
             </tr>)}</tbody>
@@ -605,6 +604,16 @@ export function ManagerColorEditor({
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
       </div>
+      {day && (
+        <OverlayDayList
+          day={day}
+          board={board}
+          date={date}
+          locale={locale}
+          managerToken={managerToken}
+          onSaved={onSaved}
+        />
+      )}
       {breakTarget && (
         <ManagerBreakDialog
           board={board}
@@ -621,26 +630,6 @@ export function ManagerColorEditor({
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" onClick={() => setMandatoryAsk(null)} data-testid="mandatory-confirm-cancel">{copy.mandatoryCancel}</button>
             <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 bg-neutral-900 px-3 font-bold text-white" onClick={() => { const id = mandatoryAsk; setMandatoryAsk(null); void toggleMandatory(id, true); }} data-testid="mandatory-confirm-yes">{copy.mandatoryYes}</button>
-          </div>
-        </div>
-      </div>}
-      {activePendingReason && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="paint-reason-title" data-testid="paint-reason-dialog">
-        <div className="w-full max-w-md rounded-lg border-2 border-neutral-900 bg-white p-4">
-          <h3 id="paint-reason-title" className="text-lg font-bold">{copy.reasonTitle}</h3>
-          <p className="mt-1 text-sm">{activePendingReason.name} · {formatHourLabel(activePendingReason.edit.hour)}</p>
-          <label className="mt-3 block text-sm font-bold">{t.reason}
-            <select className="touch-target mt-1 min-h-11 w-full rounded-md border-2 border-neutral-900 px-2" value={reason} onChange={(e) => setReason(e.target.value as MoveReason)}>{MOVE_REASONS.map((r) => <option key={r} value={r}>{moveReasonLabel(locale, r)}</option>)}</select>
-          </label>
-          <label className="mt-3 block text-sm font-bold">{t.noteOptional}
-            <input className="touch-target mt-1 min-h-11 w-full rounded-md border-2 border-neutral-900 px-2" value={note} onChange={(e) => setNote(e.target.value)} />
-          </label>
-          <div className="mt-4 flex justify-end gap-2">
-            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 font-bold" onClick={() => setPendingReason(null)}>{t.cancel}</button>
-            <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 bg-neutral-900 px-3 font-bold text-white" onClick={() => {
-              stage({ ...activePendingReason.edit, reason, note });
-              setPendingReason(null);
-              setNote("");
-            }}>{t.save}</button>
           </div>
         </div>
       </div>}

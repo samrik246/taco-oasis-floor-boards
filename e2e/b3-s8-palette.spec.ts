@@ -141,9 +141,7 @@ test("H4 erase sits left of undo, selects, and clears a saved cell", async ({ pa
   await expect(page.getByTestId("paint-selected")).toContainText(/Borrar|Erase/);
 
   await page.getByTestId(`paint-cell-${shiftId}-${hour}`).click();
-  const dialog = page.getByTestId("paint-reason-dialog");
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: /Guardar|Save/ }).click();
+  await expect(page.getByTestId("paint-reason-dialog")).toHaveCount(0);
   await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
   const cleared = page.getByTestId(`paint-cell-${shiftId}-${hour}`);
   await expect(cleared.locator("xpath=..")).toHaveAttribute("data-pending", "1");
