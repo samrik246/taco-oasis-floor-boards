@@ -14,6 +14,10 @@ import {
   weekDays,
 } from "@/lib/upcoming/calendar";
 import { NEXT_COPY, type NextCopy } from "./next-copy";
+import { PrintButton } from "./PrintButton";
+import { ManagerUnlockModal } from "@/components/board/ManagerUnlockModal";
+import { useManagerIdle, useManagerSession } from "@/components/board/useManagerSession";
+import { messagesFor } from "@/lib/i18n";
 import { dayHeading, monthTitle, time12 } from "./format";
 import { OrderDetail } from "./OrderDetail";
 import { OrderCard } from "./parts";
@@ -84,6 +88,12 @@ export function NextOrders() {
   const [loading, setLoading] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const scrollToDay = useRef<string | null>(null);
+  // Imprimir: the manager token lives in memory only and drops on idle.
+  const session = useManagerSession();
+  useManagerIdle({ idleMs: session.idleMs, onIdle: session.lock, active: session.isManager });
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const pendingToken = useRef<((token: string | null) => void) | null>(null);
+  const [uncertainTails, setUncertainTails] = useState<Set<string>>(() => new Set());
 
   const t = NEXT_COPY[prefs.locale];
   const locale = prefs.locale;
@@ -126,6 +136,19 @@ export function NextOrders() {
     setOpen(o);
   };
   const closeSheet = () => window.history.back();
+
+  const getToken = useCallback((): Promise<string | null> => {
+    if (session.manager) return Promise.resolve(session.manager.token);
+    return new Promise((resolve) => {
+      pendingToken.current = resolve;
+      setUnlockOpen(true);
+    });
+  }, [session.manager]);
+  const settleUnlock = (token: string | null) => {
+    setUnlockOpen(false);
+    pendingToken.current?.(token);
+    pendingToken.current = null;
+  };
 
   // After a month tap switches to the list, bring that day's heading up.
   useEffect(() => {
@@ -377,9 +400,29 @@ export function NextOrders() {
             locale={locale}
             today={today}
             onClose={closeSheet}
+            printSlot={
+              <PrintButton
+                key={open.id_tail}
+                tail={open.id_tail}
+                t={t}
+                getToken={getToken}
+                onTokenRejected={session.lock}
+                uncertainTails={uncertainTails}
+                onUncertain={(tail) => setUncertainTails((prev) => new Set(prev).add(tail))}
+              />
+            }
           />
         </div>
       )}
+      <ManagerUnlockModal
+        open={unlockOpen}
+        t={messagesFor(locale)}
+        onCancel={() => settleUnlock(null)}
+        onUnlocked={(manager, idleMs) => {
+          session.unlock(manager, idleMs);
+          settleUnlock(manager.token);
+        }}
+      />
     </main>
   );
 }

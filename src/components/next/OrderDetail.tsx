@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Locale } from "@/lib/i18n";
 import type { UpcomingOrder } from "@/lib/upcoming/fence";
@@ -16,6 +17,8 @@ type Props = {
   /** Floor-board strip. Ready time and people, and no order code. */
   surface?: "board";
   onClose?: () => void;
+  /** Imprimir, Próximos only. Never rendered on the board strip. */
+  printSlot?: ReactNode;
 };
 
 /** Split "1 x Beef, 1 x Corn" into one modifier per line. */
@@ -30,7 +33,7 @@ function modifierList(raw: string): string[] {
  * One order's kitchen detail, filling the screen. Renders only fenced fields.
  * Big text: 22px body, 28px item names, 32px date and time.
  */
-export function OrderDetail({ order, columns, t, locale, today, surface, onClose }: Props) {
+export function OrderDetail({ order, columns, t, locale, today, surface, onClose, printSlot }: Props) {
   return (
     <section
       className="flex min-h-full flex-col gap-4 bg-white p-4 text-[22px] text-neutral-900 sm:p-6"
@@ -118,6 +121,8 @@ export function OrderDetail({ order, columns, t, locale, today, surface, onClose
           </li>
         ))}
       </ul>
+
+      {surface !== "board" && printSlot}
 
       {onClose && (
         <button
