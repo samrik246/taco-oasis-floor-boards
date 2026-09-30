@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { clearManagedBreak, loadManagedBreak, saveManagedBreak } from "@/lib/breaks/manage";
+import { clearManagedBreak, loadManagedBreak, replaceAutoCover, saveManagedBreak } from "@/lib/breaks/manage";
 import { MANAGER_BREAK_TEXT } from "@/lib/breaks/messages";
 import { BreakRefused } from "@/lib/breaks/rules";
 import { NO_STORE } from "@/lib/managers/day-access";
@@ -13,10 +13,11 @@ const boardSchema = z.enum(["caja", "cocina"]);
 const postSchema = z.object({
   board: boardSchema,
   employeeId: z.string().min(1),
-  startAt: z.string().min(1),
-  endAt: z.string().min(1),
+  startAt: z.string().min(1).optional(),
+  endAt: z.string().min(1).optional(),
   coverEmployeeId: z.string().min(1).optional(),
   shuffleEmployeeId: z.string().min(1).optional(),
+  replaceAuto: z.literal(true).optional(),
 });
 
 const deleteSchema = z.object({
@@ -68,8 +69,29 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: MANAGER_BREAK_TEXT.ALIGNMENT }, { status: 400, headers: NO_STORE });
   }
-  const startAt = new Date(parsed.data.startAt);
-  const endAt = new Date(parsed.data.endAt);
+  if (parsed.data.replaceAuto) {
+    if (!parsed.data.coverEmployeeId) {
+      return NextResponse.json({ error: MANAGER_BREAK_TEXT.BAD_COVER }, { status: 400, headers: NO_STORE });
+    }
+    try {
+      const saved = await replaceAutoCover({
+        manager: auth.manager,
+        board: parsed.data.board,
+        employeeId: parsed.data.employeeId,
+        coverEmployeeId: parsed.data.coverEmployeeId,
+        shuffleEmployeeId: parsed.data.shuffleEmployeeId,
+      });
+      return NextResponse.json({
+        id: saved.id,
+        replaced: saved.replaced,
+        waiting: false,
+      }, { headers: NO_STORE });
+    } catch (error) {
+      return refused(error);
+    }
+  }
+  const startAt = new Date(parsed.data.startAt ?? "");
+  const endAt = new Date(parsed.data.endAt ?? "");
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
     return NextResponse.json({ error: MANAGER_BREAK_TEXT.ALIGNMENT }, { status: 400, headers: NO_STORE });
   }

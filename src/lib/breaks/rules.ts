@@ -259,6 +259,7 @@ async function starWorld(
       status: true,
       coverEmployeeId: true,
       shuffleEmployeeId: true,
+      auto: true,
     },
   });
   return {
@@ -291,6 +292,7 @@ async function starWorld(
         status: row.status,
         coverEmployeeId: row.coverEmployeeId,
         shuffleEmployeeId: row.shuffleEmployeeId,
+        auto: row.auto,
       }];
     }),
     starStationIds: [...MANDATORY_STATIONS_BY_BOARD[board], ...extra],
@@ -313,6 +315,20 @@ async function withBreakLock<T>(write: () => Promise<T>): Promise<T> {
     }
   }
   throw new BreakRefused("LOCK_CONFLICT");
+}
+
+/** The lock row, then one write. A second caller waits, then sees the first write. */
+export async function withStaffBreakLock<T>(
+  write: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return withBreakLock(() => prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.staffBreakLock.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: { updatedAt: new Date() },
+    });
+    return write(tx);
+  }, BREAK_TX));
 }
 
 async function writeBreak(
@@ -456,6 +472,7 @@ async function writeBreak(
           coverShiftId,
           shuffleEmployeeId,
           shuffleShiftId,
+          auto: false,
           updatedAt,
         },
       })
@@ -473,6 +490,7 @@ async function writeBreak(
           coverShiftId,
           shuffleEmployeeId,
           shuffleShiftId,
+          auto: false,
           updatedAt,
         },
       });

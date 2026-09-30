@@ -26,6 +26,16 @@ export const BREAK_QUARTER_OUTSIDE = "Fuera";
 export const BREAK_UNCONFIGURED = "Descansos no configurado";
 export const BREAK_EXPIRED = "Se acabó el tiempo. Entra otra vez.";
 
+/** Tablet line when the five-minute pick names a cover. */
+export function breakCoverToldLine(coverName: string, personName: string): string {
+  return `${coverName} cubre a ${personName}.`;
+}
+
+/** Tablet line when a rolled break no longer fits. */
+export function breakRolledEndedLine(personName: string): string {
+  return `El descanso de ${personName} ya no cabe.`;
+}
+
 export const BREAK_LOG_ACTOR = { id: "break", name: "Descansos" } as const;
 
 /** Manager dialog only. Unlisted codes keep the staff line. */

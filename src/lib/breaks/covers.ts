@@ -24,12 +24,11 @@ export type BreakCover =
 
 type AbilityRow = { employeeId: string; stationId: string; level: string };
 
-/**
- * Names only, best first. Simple covers (preferred, then ok, then training),
- * then a Shuffle of two moves. A longer chain is not a cover.
- * A missing ability is ok. Forbidden is left off the list.
- */
-export function listBreakCovers(input: {
+type RankedSimple = { rank: number; employeeId: string; shiftId: string; firstName: string };
+type RankedShuffle = { rank: number; partnerRank: number; moves: [CoverMove, CoverMove] };
+
+/** Preferred, then ok, then training. A Shuffle of two is after the simple names. */
+function rankCoverCandidates(input: {
   date: string;
   board: SliceBoard;
   employeeId: string;
@@ -42,7 +41,7 @@ export function listBreakCovers(input: {
   abilities: readonly AbilityRow[];
   defaults?: ReadonlyMap<string, string>;
   names: ReadonlyMap<string, string>;
-}): BreakCover[] {
+}): { simples: RankedSimple[]; shuffles: RankedShuffle[] } {
   const stars = new Set(input.starStationIds);
   const defaults = input.defaults ?? new Map<string, string>();
   const resting = input.breaks.filter((row) => row.employeeId !== input.employeeId);
@@ -64,7 +63,7 @@ export function listBreakCovers(input: {
     const stationId = slice.people.find((person) => person.employeeId === input.employeeId)?.stationId;
     return stationId != null && stars.has(stationId) ? [stationId] : [];
   }))];
-  if (askerStations.length === 0 || starred.length === 0) return [];
+  if (askerStations.length === 0 || starred.length === 0) return { simples: [], shuffles: [] };
 
   const held = new Map<string, SliceShift>();
   for (const shift of input.shifts) {
@@ -118,16 +117,48 @@ export function listBreakCovers(input: {
       || a.moves[0].employeeId.localeCompare(b.moves[0].employeeId);
   });
 
-  const ranked: BreakCover[] = [
-    ...simples.map((row) => ({
+  return { simples, shuffles };
+}
+
+/**
+ * Names only, best first. Simple covers (preferred, then ok, then training),
+ * then a Shuffle of two moves. A longer chain is not a cover.
+ * A missing ability is ok. Forbidden is left off the list.
+ */
+export function listBreakCovers(input: Parameters<typeof rankCoverCandidates>[0]): BreakCover[] {
+  const ranked = rankCoverCandidates(input);
+  const rows: BreakCover[] = [
+    ...ranked.simples.map((row) => ({
       kind: "simple" as const,
       employeeId: row.employeeId,
       shiftId: row.shiftId,
       firstName: row.firstName,
     })),
-    ...shuffles.map((row) => ({ kind: "shuffle" as const, moves: row.moves })),
+    ...ranked.shuffles.map((row) => ({ kind: "shuffle" as const, moves: row.moves })),
   ];
-  return ranked.filter((row) => acceptsCover(input, row));
+  return rows.filter((row) => acceptsCover(input, row));
+}
+
+/**
+ * The first simple cover the five-minute pick may name.
+ * Preferred, then ok. Training and a Shuffle stay off this list.
+ */
+export function firstAutoCover(
+  input: Parameters<typeof rankCoverCandidates>[0],
+): { employeeId: string; shiftId: string } | null {
+  const okRank = abilitySortRank("ok");
+  for (const row of rankCoverCandidates(input).simples) {
+    if (row.rank > okRank) continue;
+    const cover: BreakCover = {
+      kind: "simple",
+      employeeId: row.employeeId,
+      shiftId: row.shiftId,
+      firstName: row.firstName,
+    };
+    if (!acceptsCover(input, cover)) continue;
+    return { employeeId: row.employeeId, shiftId: row.shiftId };
+  }
+  return null;
 }
 
 export function listedCover(

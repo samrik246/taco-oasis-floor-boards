@@ -62,7 +62,8 @@ export function slicesForDay(day: DayBoardDto, now: Date, drafts: readonly Slice
       startAt: new Date(row.startAt),
       endAt: new Date(row.endAt),
       status: "booked" as const,
-      coverEmployeeId: null,
+      coverEmployeeId: row.coverEmployeeId ?? null,
+      auto: row.auto === true,
     })),
     overlays: [],
   };

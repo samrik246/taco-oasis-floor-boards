@@ -34,6 +34,8 @@ export type SliceBreak = {
   coverEmployeeId?: string | null;
   /** Second Shuffle move. Takes the seat the cover left. */
   shuffleEmployeeId?: string | null;
+  /** The five-minute pick named the cover. */
+  auto?: boolean;
 };
 
 export type SliceOverlay = {
@@ -71,6 +73,8 @@ export type SlicePerson = {
   /** Hourly paint, including slices the shift does not cover. */
   paintStationId: string | null;
   cell: SliceCell;
+  /** This quarter is the seat an automatic cover moved into. */
+  autoMove?: boolean;
 };
 
 export type SliceSeat = {
@@ -100,6 +104,8 @@ export type QuarterKind = "off" | "open" | "seated" | "break";
 export type QuarterView = {
   kind: QuarterKind;
   label: string;
+  /** The moved quarter of an automatic cover. */
+  auto?: boolean;
 };
 
 /** Wall-clock start of slice `index`. Index 60 is 10:00, the end of the last slice. */
@@ -280,6 +286,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
         cover.stationId = stationId;
         cover.counts = true;
         cover.onBreak = false;
+        if (row.auto) cover.autoMove = true;
       } else {
         people.push({
           employeeId: row.coverEmployeeId,
@@ -293,6 +300,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
             start,
           ),
           cell: "move",
+          ...(row.auto ? { autoMove: true } : {}),
         });
       }
       if (!row.shuffleEmployeeId || !vacatedStation || vacatedStation === stationId) continue;
@@ -352,7 +360,9 @@ export function personQuarters(day: DaySlices, employeeId: string, hour: number)
     const person = slice?.people.find((row) => row.employeeId === employeeId);
     if (!person) return { kind: "off", label };
     if (person.cell === "break") return { kind: "break", label };
-    if (person.cell === "seated" || person.cell === "move") return { kind: "seated", label };
+    if (person.cell === "seated" || person.cell === "move") {
+      return person.autoMove ? { kind: "seated", label, auto: true } : { kind: "seated", label };
+    }
     if (person.cell === "open") return { kind: "open", label };
     if (person.paintStationId) return { kind: "open", label };
     return { kind: "off", label };

@@ -84,7 +84,8 @@ export async function loadManagedBreak(input: {
     pending: row === "this" && savedRow && savedRow.status === "pending"
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
-    covers: row === "this" && savedRow?.status === "pending"
+    auto: row === "this" && savedRow?.status === "booked" && savedRow.auto === true,
+    covers: row === "this" && savedRow && (savedRow.status === "pending" || savedRow.auto)
       ? await loadBreakCovers({
         board: input.board,
         employeeId: employee.id,
@@ -205,6 +206,34 @@ export async function saveManagedBreak(input: {
     actor: input.manager,
     coverEmployeeId: input.coverEmployeeId,
     shuffleEmployeeId: input.shuffleEmployeeId,
+  });
+}
+
+/** One tap replaces the cover the five-minute pick named. The window stays. */
+export async function replaceAutoCover(input: {
+  manager: BreakManagerActor;
+  board: "caja" | "cocina";
+  employeeId: string;
+  coverEmployeeId: string;
+  shuffleEmployeeId?: string | null;
+  now?: Date;
+}) {
+  const date = chicagoToday(input.now ?? breaksNow());
+  const row = await prisma.staffBreak.findUnique({
+    where: { employeeId_date: { employeeId: input.employeeId, date } },
+  });
+  if (!row || row.board !== input.board || row.status !== "booked" || !row.auto) {
+    throw new BreakRefused("BAD_COVER");
+  }
+  return saveManagedBreak({
+    manager: input.manager,
+    board: input.board,
+    employeeId: input.employeeId,
+    startAt: row.startAt,
+    endAt: row.endAt,
+    coverEmployeeId: input.coverEmployeeId,
+    shuffleEmployeeId: input.shuffleEmployeeId,
+    now: input.now,
   });
 }
 

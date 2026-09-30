@@ -32,6 +32,8 @@ export type BreakStripeDto = {
   shiftId: string;
   startAt: string;
   endAt: string;
+  coverEmployeeId?: string | null;
+  auto?: boolean;
 };
 
 export type AssignmentDto = {

@@ -29,6 +29,7 @@ type Managed = {
   slots: Slot[];
   saved: Slot | null;
   pending: Slot | null;
+  auto?: boolean;
   covers: CoverChoice[];
 };
 
@@ -63,6 +64,7 @@ export function ManagerBreakDialog({
   const [chosenEnd, setChosenEnd] = useState<string | null>(null);
   const [covers, setCovers] = useState<CoverChoice[]>([]);
   const [coverWindow, setCoverWindow] = useState<Slot | null>(null);
+  const [autoPick, setAutoPick] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +82,8 @@ export function ManagerBreakDialog({
         }
         setMine(body);
         setCovers(body.covers ?? []);
-        setCoverWindow(body.pending);
+        setAutoPick(body.auto === true);
+        setCoverWindow(body.pending ?? (body.auto ? body.saved : null));
         if (body.row === "other") setMessage("Ese descanso es de la otra área.");
       } catch {
         if (!cancelled) setMessage("No se pudo abrir el descanso.");
@@ -139,6 +142,29 @@ export function ManagerBreakDialog({
     }
   }
 
+  async function replaceCover(cover: { employeeId: string; shuffleEmployeeId?: string }) {
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/breaks/manage", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...managerAuthHeaders(managerToken) },
+        body: JSON.stringify({
+          board,
+          employeeId,
+          replaceAuto: true,
+          coverEmployeeId: cover.employeeId,
+          ...(cover.shuffleEmployeeId ? { shuffleEmployeeId: cover.shuffleEmployeeId } : {}),
+        }),
+      });
+      await commit(response, "Esa persona no puede cubrir.", null);
+    } catch {
+      setMessage("No se pudo actualizar");
+      setBusy(false);
+    }
+  }
+
   async function clear() {
     if (busy) return;
     setBusy(true);
@@ -175,6 +201,7 @@ export function ManagerBreakDialog({
         {mine?.saved && (
           <p className="mt-2 text-sm font-bold" data-testid="descanso-current">
             {clock(mine.saved.startAt)} a {clock(mine.saved.endAt)}
+            {autoPick ? " auto" : ""}
           </p>
         )}
         {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-sm font-bold" role="alert" data-testid="descanso-message">{message}</p>}
@@ -192,9 +219,13 @@ export function ManagerBreakDialog({
                   data-cover={cover.kind === "simple" ? cover.employeeId : cover.moves[0].employeeId}
                   data-shuffle={cover.kind === "shuffle" ? cover.moves[1].employeeId : ""}
                   disabled={busy}
-                  onClick={() => void save(coverWindow, cover.kind === "simple"
-                    ? { employeeId: cover.employeeId }
-                    : { employeeId: cover.moves[0].employeeId, shuffleEmployeeId: cover.moves[1].employeeId })}
+                  onClick={() => {
+                    const named = cover.kind === "simple"
+                      ? { employeeId: cover.employeeId }
+                      : { employeeId: cover.moves[0].employeeId, shuffleEmployeeId: cover.moves[1].employeeId };
+                    if (autoPick) void replaceCover(named);
+                    else void save(coverWindow, named);
+                  }}
                 >
                   {coverLabel(cover)}
                 </button>

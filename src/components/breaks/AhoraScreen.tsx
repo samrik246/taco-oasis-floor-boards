@@ -81,6 +81,20 @@ export function AhoraScreen() {
               ? <p className="mt-2 text-lg font-semibold" data-testid="ahora-next-empty">No hay más descansos hoy</p>
               : <BreakList items={body.next} testId="ahora-next" />}
           </section>
+          {body.coverTold.length > 0 && (
+            <ul className="space-y-2" data-testid="ahora-cover">
+              {body.coverTold.map((line) => (
+                <li key={line} className="text-2xl font-bold">{line}</li>
+              ))}
+            </ul>
+          )}
+          {body.rolledEnded.length > 0 && (
+            <ul className="space-y-2" data-testid="ahora-ended">
+              {body.rolledEnded.map((line) => (
+                <li key={line} className="text-2xl font-bold">{line}</li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </main>
