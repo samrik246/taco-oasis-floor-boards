@@ -55,4 +55,4 @@ Gerente status uses a labeled amber pending or blue reserved/approved heading. C
 
 `e2e/fixtures/b4-review.ts` creates an eight-hour synthetic crew with all mandatory Cocina seats filled and no numbered partner for its Guia. Worker options come from production placement and coverage functions, including allowance/blackouts and complete intervals. Simple and two-move covers come from the production cover list. The screenshots show four valid durations at 2 PM with coherent gerente approval; automatic morning options and multiple alternative starts remain available. Reservation editing is exercised at 2:15 PM for 45 minutes. No live roster or credentials are used.
 
-New viewport captures supplement the eight versioned review images. Dense-case captures are explicitly full-page evidence of retained rows, not a viewport-fit claim. Earlier packets remain immutable prior evidence.
+New viewport captures supplement the eight versioned review images. Dense-case captures show the reachable end of the list; DOM and geometry assertions prove all rows are retained, without claiming they fit one viewport. Earlier packets remain immutable prior evidence.

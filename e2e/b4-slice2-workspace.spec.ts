@@ -14,7 +14,14 @@ const prisma = new PrismaClient({ datasources: { db: { url: `file:${path.join(ro
 const screens = path.join(root, "b4-slice2-screens");
 const date = formatInTimeZone(new Date(), "America/Chicago", "yyyy-MM-dd");
 const iso = (time: string) => chicagoDateTime(date, time).toISOString();
-async function screenshot(page: Page, name: string, fullPage = true) { mkdirSync(screens, { recursive: true }); await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage }); }
+async function screenshot(page: Page, name: string, fullPage = true) {
+  mkdirSync(screens, { recursive: true });
+  if (!name.includes("DENSE")) {
+    await page.getByTestId("break-home").evaluate(el => el.scrollIntoView({ block: "start" }));
+    await expect(page.getByTestId("break-home").locator("h1")).toBeInViewport();
+  }
+  await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage });
+}
 
 async function workerUI(page: Page, state: string | null = null) {
   const saved = state ? { board: "cocina", startAt: iso("2:00 pm"), endAt: iso("2:30 pm"), state, approval: state === "ended" ? null : "gerente", status: state === "pending" ? "pending" : state === "ended" ? "ended" : "booked" } : null;
@@ -137,7 +144,10 @@ test("real long manager credential, both-board queue, own break, owner pairing a
   await expect(page.getByTestId("break-gerente")).toHaveCount(0);
 });
 
-test("gerente cover choices preserve simple and Shuffle payloads and rejection uses the stored request", async ({ page }) => {
+for (const locale of ["es", "en"] as const) {
+test(`${locale}: gerente cover choices preserve simple and Shuffle payloads and rejection uses the stored request`, async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
   const data = await workerUI(page, "pending");
   await page.route("**/api/breaks/session", route => route.fulfill({ json: route.request().method() === "GET" ? { role: "manager" } : { kind: "gerente", token: "synthetic-manager", role: "manager", name: "Gerente Ejemplo", idleMs: 60_000 } }));
   const writes: Record<string, unknown>[] = [];
@@ -162,8 +172,9 @@ test("gerente cover choices preserve simple and Shuffle payloads and rejection u
   await expect(page.getByTestId("descanso-clear")).toBeInViewport();
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="simple"]')).toBeInViewport({ ratio: 1 });
   await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toBeInViewport({ ratio: 1 });
-  await expect(page.getByTestId("descanso-dialog")).not.toContainText("Shuffle");
-  await screenshot(page, "07_SIMPLE_AND_SHUFFLE", false);
+  await expect(page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]')).toContainText(locale === "es" ? "Mezclar" : "Shuffle");
+  if (locale === "es") await expect(page.getByTestId("descanso-dialog")).not.toContainText("Shuffle");
+  await screenshot(page, locale === "es" ? "07_SIMPLE_AND_SHUFFLE" : "12_EN_SHUFFLE_VIEWPORT", false);
   await page.locator('[data-testid="descanso-cover"][data-kind="shuffle"]').click();
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
   expect(writes[1]).toMatchObject({ coverEmployeeId: "cover-b", shuffleEmployeeId: "cover-c" });
@@ -172,6 +183,7 @@ test("gerente cover choices preserve simple and Shuffle payloads and rejection u
   await expect(page.getByTestId("descanso-dialog")).toHaveCount(0);
   expect(writes[2]).toEqual({ method: "DELETE", board: "cocina", employeeId: "a" });
 });
+}
 
 test("English approval and all persisted status cards retain full landscape width", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
