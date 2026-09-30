@@ -40,22 +40,45 @@ function seatsCover(overlay: SliceOverlay, coverId: string, stationId: string): 
   return false;
 }
 
+export type HandoffBinding =
+  | { state: "live"; overlay: SliceOverlay }
+  | { state: "lost" }
+  | { state: "none" };
+
 /**
  * The handoff that put this named cover on the breaker's star.
- * Newest first. A cancelled row is skipped. A window that has already
- * ended still binds, so a later quarter can drop the name.
+ * Newest first. A live row binds even when its window has already ended,
+ * so a later quarter can drop the name. A cancelled or import-ended row
+ * is a lost binding when no live row seats this cover. No such row means
+ * a manual name, which is not a handoff.
  */
+export function handoffBinding(
+  overlays: readonly SliceOverlay[],
+  coverEmployeeId: string,
+  breakerStationId: string | null,
+  starStationIds: readonly string[],
+): HandoffBinding {
+  if (!breakerStationId || !starStationIds.includes(breakerStationId)) return { state: "none" };
+  let lost = false;
+  for (const overlay of overlays) {
+    if (overlay.kind !== "switch" && overlay.kind !== "add") continue;
+    if (!seatsCover(overlay, coverEmployeeId, breakerStationId)) continue;
+    if (overlay.cancelledAt) {
+      lost = true;
+      continue;
+    }
+    return { state: "live", overlay };
+  }
+  return lost ? { state: "lost" } : { state: "none" };
+}
+
+/** The live handoff, if one still seats this cover. A lost binding is not one. */
 export function findHandoffOverlay(
   overlays: readonly SliceOverlay[],
   coverEmployeeId: string,
   breakerStationId: string | null,
   starStationIds: readonly string[],
 ): SliceOverlay | null {
-  if (!breakerStationId || !starStationIds.includes(breakerStationId)) return null;
-  for (const overlay of overlays) {
-    if (overlay.cancelledAt) continue;
-    if (overlay.kind !== "switch" && overlay.kind !== "add") continue;
-    if (seatsCover(overlay, coverEmployeeId, breakerStationId)) return overlay;
-  }
-  return null;
+  const binding = handoffBinding(overlays, coverEmployeeId, breakerStationId, starStationIds);
+  return binding.state === "live" ? binding.overlay : null;
 }

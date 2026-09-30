@@ -2,9 +2,10 @@ import type { Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { firstAutoCover } from "@/lib/breaks/covers";
 import {
-  findHandoffOverlay,
+  handoffBinding,
   overlayCoversWindow,
   paintStationAt,
+  type HandoffBinding,
 } from "@/lib/breaks/handoff-cover";
 import { breaksNow } from "@/lib/breaks/now";
 import {
@@ -15,7 +16,7 @@ import {
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
 import { assessStarGate } from "@/lib/slices/break-gate";
-import type { SliceBoard, SliceBreak, SliceOverlay, SliceShift } from "@/lib/slices/day-slices";
+import type { SliceBoard, SliceBreak, SliceShift } from "@/lib/slices/day-slices";
 
 /** Five minutes before the window. A later read does not pick. */
 export const BREAK_PICK_LEAD_MS = 5 * 60 * 1000;
@@ -224,17 +225,18 @@ function shiftCovering(
   }) ?? null;
 }
 
-/** The switch or add that seated this name on the breaker's star, if there is one. */
-function bindingOverlay(row: PendingRow, world: PickWorld): SliceOverlay | null {
-  if (!row.coverEmployeeId) return null;
+/** Live, lost, or absent handoff for the name stored on this pending row. */
+function bindingFor(row: PendingRow, world: PickWorld): HandoffBinding {
+  if (!row.coverEmployeeId) return { state: "none" };
   const seat = paintStationAt(world.paints, row.employeeId, row.shiftId, row.startAt);
-  return findHandoffOverlay(world.overlays, row.coverEmployeeId, seat, world.starStationIds);
+  return handoffBinding(world.overlays, row.coverEmployeeId, seat, world.starStationIds);
 }
 
 /**
  * The named cover ranks first when the handoff overlay still covers this
  * window and the star gate accepts them with that overlay left out.
- * No handoff overlay keeps the shift-and-gate check. A window the overlay
+ * A cancelled or import-ended handoff drops the name. No handoff overlay
+ * keeps the shift-and-gate check for a manual name. A window the overlay
  * does not cover drops the name.
  */
 function namedCoverFirst(
@@ -245,7 +247,9 @@ function namedCoverFirst(
   endAt: Date,
 ): { employeeId: string; shiftId: string } | null {
   if (!row.coverEmployeeId) return null;
-  const handoff = bindingOverlay(row, world);
+  const binding = bindingFor(row, world);
+  if (binding.state === "lost") return null;
+  const handoff = binding.state === "live" ? binding.overlay : null;
   if (handoff && !overlayCoversWindow(handoff, startAt, endAt)) return null;
   const shift = shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
   if (!shift) return null;
@@ -360,8 +364,10 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
  * A row that already names a cover stays in this queue. That person ranks
  * first when their shift still covers the window and the star gate accepts
  * them. A name that came from a handoff overlay is kept only while that
- * overlay covers the window, and the star gate runs with the overlay left
- * out. Any other window clears the name and the ordinary pick decides.
+ * overlay is still live and covers the window, and the star gate runs with
+ * the overlay left out. A cancel or an import that ends it clears the name.
+ * A manual name that never had a handoff stays. Any other window clears
+ * the name and the ordinary pick decides.
  * One conditional write inside the lock books when that quarter still has a
  * booked spot. A full ceiling rolls the same length one quarter, or ends
  * the break when the next quarter no longer fits. A window already under
