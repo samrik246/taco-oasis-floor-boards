@@ -107,7 +107,7 @@ test("real long manager credential, both-board queue, own break, owner pairing a
   await expect(page.getByTestId("descanso-dialog")).toBeVisible();
   await expect(page.getByTestId("descanso-clear")).toHaveText("Rechazar solicitud");
   await screenshot(page, "05_COVER_REVIEW");
-  await page.getByTestId("descanso-close").click();
+  await page.getByTestId("descanso-back").click();
   await page.getByTestId("break-own").click();
   await expect(page.getByTestId("break-name")).toHaveText("Sofia Ejemplo");
   await page.getByTestId("break-back").click();

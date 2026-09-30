@@ -8,6 +8,7 @@ import {
   breakLengthMinutes,
   breakLengthsForStart,
   breakQuarterFaces,
+  managerShiftLine,
   preferredBreakLength,
   type BreakChoice,
 } from "@/lib/breaks/picker-steps";
@@ -230,7 +231,7 @@ export function ManagerBreakDialog({
         <h3 id="descanso-title" className="text-lg font-bold" data-testid="descanso-name">BREAK · {name}</h3>
         {mine && (
           <p className="mt-1 text-sm font-semibold" data-testid="descanso-shift">
-            {mine.firstName}. {[...mine.shifts].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map(breakRange).join(es ? " y " : " and ")}. {es ? `Le tocan ${mine.allowanceMinutes} minutos.` : `Up to ${mine.allowanceMinutes} minutes.`}
+            {es ? managerShiftLine(mine.firstName, mine.shifts, mine.allowanceMinutes, clock) : `${mine.firstName}. ${[...mine.shifts].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map(breakRange).join(" and ")}. Up to ${mine.allowanceMinutes} minutes.`}
           </p>
         )}
         {mine && <p className="mt-2 text-xl font-bold">{stateLabel(locale, mine.state ?? "absent")}{mine.approval ? ` · ${approvalLine(locale, mine.approval)}` : ""}</p>}
