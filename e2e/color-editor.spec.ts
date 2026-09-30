@@ -1,6 +1,7 @@
 import { ownerShortIdle } from "./owner-short-idle";
 import path from "node:path";
-import { test, expect, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
+import { test, expect, type Page, type Request } from "@playwright/test";
 import { ensureSampleLoaded } from "./load-sample-api";
 import { PrismaClient } from "@prisma/client";
 
@@ -287,9 +288,10 @@ test.describe("condensed staff board and manager color editor", () => {
     await expect(page.getByTestId("paint-undo")).toBeDisabled();
   });
 
-  test("automatic date and offline-cache changes retain a private draft without writing", async ({ page }) => {
+  test("automatic date and offline-cache changes retain a private draft without writing", async ({ page }, testInfo) => {
     // The offline cache holds Chicago today only, so the browser's today is the cached day.
     await page.clock.install({ time: new Date("2026-09-21T17:00:00Z") });
+    await page.clock.pauseAt(new Date("2026-09-21T17:00:01Z"));
     await page.route("**/api/managers", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       const response = await route.fetch();
@@ -297,38 +299,123 @@ test.describe("condensed staff board and manager color editor", () => {
       await route.fulfill({ response, json: { ...body, idleMs: 120_000 } });
     });
     const paintWrites: string[] = [];
+    let phase = "setup";
+    const boardPath = /^\/api\/boards\/caja\/days\/2026-09-(20|21)$/;
+    const requests = new Map<Request, number>();
+    const network: { id: number; phase: string; path: string; outcome: string; status?: number; error?: string }[] = [];
     page.on("request", (request) => {
       if (request.method() === "PUT" && request.url().endsWith("/api/assignments/paint")) {
         paintWrites.push(request.url());
       }
+      const pathname = new URL(request.url()).pathname;
+      if (boardPath.test(pathname)) {
+        const id = requests.size + 1;
+        requests.set(request, id);
+        network.push({ id, phase, path: pathname, outcome: "request" });
+      }
     });
-    await page.goto("/");
-    await loadSample(page);
-    await stageOpenHour(page);
+    page.on("response", (response) => {
+      const id = requests.get(response.request());
+      if (id) network.push({ id, phase, path: new URL(response.url()).pathname, outcome: "response", status: response.status() });
+    });
+    page.on("requestfailed", (request) => {
+      const id = requests.get(request);
+      if (id) network.push({ id, phase, path: new URL(request.url()).pathname, outcome: "failed", error: request.failure()?.errorText });
+    });
+    const readDraft = () => page.evaluate(() => Object.entries(localStorage)
+      .filter(([key]) => key.startsWith("taco-oasis-paint-draft-v1:") && key.endsWith(":caja:2026-09-20"))
+      .map(([key, raw]) => {
+        const { version, edits } = JSON.parse(raw);
+        return { key, version, edits };
+      }));
+    try {
+      await page.goto("/");
+      await loadSample(page);
+      const target = await stageOpenHour(page);
+      const draft = await readDraft();
+      expect(draft).toHaveLength(1);
+      expect(draft[0]!.edits).toEqual([expect.objectContaining(target)]);
+      const headers = await managerHeaders(page);
+      const beforeResponse = await page.request.get("/api/boards/caja/days/2026-09-20", { headers });
+      expect(beforeResponse.ok()).toBe(true);
+      const before = await beforeResponse.json() as Day;
 
-    await page.route("**/api/days", (route) => route.fulfill({ json: { dates: ["2026-09-21"] } }));
-    await page.clock.fastForward(30_100);
-    await expect(page.getByTestId("compact-date")).toHaveValue("2026-09-20");
-    await expect(page.getByTestId("compact-date").locator("option[value='2026-09-20']")).toContainText(/borrador|draft/i);
-    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
-    expect(paintWrites).toHaveLength(0);
+      phase = "date-removed";
+      await page.route("**/api/days", (route) => route.fulfill({ json: { dates: ["2026-09-21"] } }));
+      const [datesResponse, plannedResponse] = await Promise.all([
+        page.waitForResponse((response) => new URL(response.url()).pathname === "/api/days" && response.ok()),
+        page.waitForResponse((response) => response.url().endsWith("/api/boards/caja/days/2026-09-20") && response.ok()),
+        page.clock.fastForward(30_100),
+      ]);
+      expect(await datesResponse.json()).toEqual({ dates: ["2026-09-21"] });
+      await plannedResponse.finished();
+      await expect(page.getByTestId("compact-date")).toHaveValue("2026-09-20");
+      await expect(page.getByTestId("compact-date").locator("option[value='2026-09-20']")).toContainText(/borrador|draft/i);
+      await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+      expect(paintWrites).toHaveLength(0);
 
-    await page.unroute("**/api/days");
-    const cacheResponse = await page.request.get("/api/boards/caja/days/2026-09-21", { headers: await managerHeaders(page) });
-    const cachedDay = await cacheResponse.json();
-    await page.evaluate((day) => localStorage.setItem("taco-oasis-last-board-v1", JSON.stringify({
-      version: 1, board: "caja", date: "2026-09-21", day, savedAt: new Date().toISOString(),
-    })), cachedDay);
-    await page.route("**/api/boards/caja/days/2026-09-20", (route) => route.abort("failed"));
-    await page.clock.fastForward(30_100);
-    await expect(page.getByTestId("compact-date")).toHaveValue("2026-09-21");
-    await expect(page.getByTestId("offline-banner")).toBeVisible();
-    await page.unroute("**/api/boards/caja/days/2026-09-20");
-    await page.getByTestId("compact-date").selectOption("2026-09-20");
-    await expect(page.getByTestId("paint-restored")).toBeVisible();
-    await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
-    await expect(page.getByTestId("paint-save")).toBeEnabled();
-    expect(paintWrites).toHaveLength(0);
+      await page.unroute("**/api/days");
+      const cacheResponse = await page.request.get("/api/boards/caja/days/2026-09-21", { headers });
+      expect(cacheResponse.ok()).toBe(true);
+      const cachedDay = await cacheResponse.json();
+      await page.evaluate((day) => localStorage.setItem("taco-oasis-last-board-v1", JSON.stringify({
+        version: 1, board: "caja", date: "2026-09-21", day, savedAt: new Date().toISOString(),
+      })), cachedDay);
+      // Fallback changes the selected date and immediately fetches that date.
+      // Both requests must fail until the test deliberately restores connectivity.
+      let boardsOffline = true;
+      await page.route(/\/api\/boards\/caja\/days\/2026-09-(20|21)$/, (route) =>
+        boardsOffline ? route.abort("failed") : route.continue());
+      phase = "offline";
+      await Promise.all([
+        page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/boards/caja/days/2026-09-20")),
+        page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/boards/caja/days/2026-09-21")),
+        page.clock.fastForward(30_100),
+      ]);
+      await expect(page.getByTestId("compact-date")).toHaveValue("2026-09-21");
+      await expect(page.getByTestId("offline-banner")).toBeVisible();
+      await expect(page.getByTestId("floor-board")).toHaveAttribute("data-offline", "1");
+      await expect(page.getByTestId("paint-matrix")).toBeVisible();
+      await expect(page.getByTestId("paint-save")).toBeDisabled();
+      await expect(page.getByTestId("paint-pending")).toContainText(/0 cambios pendientes|0 pending changes/i);
+      await expect(page.getByTestId("compact-date").locator("option[value='2026-09-20']")).toContainText(/borrador|draft/i);
+      expect(await readDraft()).toEqual(draft);
+      expect(network.filter((event) => event.phase === "offline" && event.outcome === "response")).toEqual([]);
+      expect(paintWrites).toHaveLength(0);
+
+      phase = "reconnected";
+      boardsOffline = false;
+      const [liveResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().endsWith("/api/boards/caja/days/2026-09-21") && response.ok()),
+        page.getByTestId("refresh-day").click(),
+      ]);
+      await liveResponse.finished();
+      await expect(page.getByTestId("offline-banner")).toHaveCount(0);
+      await expect(page.getByTestId("floor-board")).toHaveAttribute("data-offline", "0");
+      await expect(page.getByTestId("compact-date")).toHaveValue("2026-09-21");
+      expect(await readDraft()).toEqual(draft);
+
+      phase = "draft-restored";
+      await Promise.all([
+        page.waitForResponse((response) => response.url().endsWith("/api/boards/caja/days/2026-09-20") && response.ok()),
+        page.getByTestId("compact-date").selectOption("2026-09-20"),
+      ]);
+      await expect(page.getByTestId("paint-restored")).toBeVisible();
+      await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+      await expect(page.getByTestId("paint-save")).toBeEnabled();
+      expect(await readDraft()).toEqual(draft);
+      const afterResponse = await page.request.get("/api/boards/caja/days/2026-09-20", { headers });
+      expect(afterResponse.ok()).toBe(true);
+      const after = await afterResponse.json() as Day;
+      expect(after.shifts.map(({ id, assignments }) => ({ id, assignments })))
+        .toEqual(before.shifts.map(({ id, assignments }) => ({ id, assignments })));
+      expect(paintWrites).toHaveLength(0);
+    } finally {
+      // Persist outcomes even on failure, without credentials, headers or roster payloads.
+      const evidencePath = testInfo.outputPath("offline-board-network.json");
+      await writeFile(evidencePath, JSON.stringify({ phase, network, paintWrites }, null, 2));
+      await testInfo.attach("offline-board-network", { path: evidencePath, contentType: "application/json" });
+    }
   });
 
   test("a changed shift blocks stale publication and a failed save keeps the draft", async ({ page }) => {
