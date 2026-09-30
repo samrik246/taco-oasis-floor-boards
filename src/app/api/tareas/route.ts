@@ -9,7 +9,9 @@ import {
 } from "@/lib/tareas/service";
 import { isFloorBoardId } from "@/lib/board-config";
 import { requireManagerSession } from "@/lib/managers/require-session";
-import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+import { boardDateSchema, NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,7 @@ export async function GET(req: Request) {
       boardRaw && isFloorBoardId(boardRaw) ? boardRaw : undefined;
 
     if (date) {
+      boardDateSchema.parse(date);
       const access = await requireDayAccess(req, date);
       if (!access.ok) return access.response;
     }
@@ -50,13 +53,14 @@ export async function GET(req: Request) {
     const assignments = await listTareaAssignments(date, board);
     return NextResponse.json({ templates, assignments }, { headers: NO_STORE });
   } catch (e) {
+    if (e instanceof z.ZodError) return NextResponse.json({ error: "Invalid date" }, { status: 422 });
     console.error(e);
     return NextResponse.json({ error: "Failed to load tareas" }, { status: 500 });
   }
 }
 
 const postSchema = z.object({
-  date: z.string().min(1),
+  date: boardDateSchema,
   employeeId: z.string().min(1),
   templateId: z.string().min(1),
   hour: z.number().int(),
@@ -69,6 +73,8 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
+    const access = await requireDayAccess(req, body.date);
+    if (!access.ok) return access.response;
     const result = await assignTarea(body);
     if (!result.ok) {
       return NextResponse.json(
@@ -101,6 +107,10 @@ const patchSchema = z.object({
 export async function PATCH(req: Request) {
   try {
     const body = patchSchema.parse(await req.json());
+    const stored = await prisma.tareaAssignment.findUnique({ where: { id: body.id }, select: { date: true } });
+    if (!stored) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const access = await requireDayAccess(req, stored.date);
+    if (!access.ok) return access.response;
     const updated = await setTareaStatus(body);
     if (!updated) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

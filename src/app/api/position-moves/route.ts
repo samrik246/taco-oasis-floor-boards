@@ -7,7 +7,7 @@ import {
 } from "@/lib/position-moves-service";
 import { BOARD_CHANGE_ROUTES } from "@/lib/board-change-log";
 import { requireManagerSession } from "@/lib/managers/require-session";
-import { NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+import { boardDateSchema, NO_STORE, requireDayAccess, requireAssignmentDayAccess } from "@/lib/managers/day-access";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,7 @@ export async function GET(req: Request) {
     if (!date) {
       return NextResponse.json({ error: "date required" }, { status: 422 });
     }
+    boardDateSchema.parse(date);
     const access = await requireDayAccess(req, date);
     if (!access.ok) return access.response;
     const logs = await listPositionMoves(date);
@@ -25,13 +26,14 @@ export async function GET(req: Request) {
       { headers: NO_STORE },
     );
   } catch (e) {
+    if (e instanceof z.ZodError) return NextResponse.json({ error: "Invalid date" }, { status: 422 });
     console.error(e);
     return NextResponse.json({ error: "Failed to load moves" }, { status: 500 });
   }
 }
 
 const postSchema = z.object({
-  date: z.string().min(1),
+  date: boardDateSchema,
   hour: z.number().int(),
   employeeId: z.string().min(1),
   fromStationId: z.string().nullable().optional(),
@@ -46,6 +48,12 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
+    const access = await requireDayAccess(req, body.date);
+    if (!access.ok) return access.response;
+    if (body.assignmentId) {
+      const storedAccess = await requireAssignmentDayAccess(req, [body.assignmentId]);
+      if (!storedAccess.ok) return storedAccess.response;
+    }
     const result = await logPositionMove({
       date: body.date,
       hour: body.hour,

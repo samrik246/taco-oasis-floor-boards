@@ -46,7 +46,7 @@ describe("POST /api/imports preview / commit", () => {
   beforeAll(async () => {
     await resetScheduleTables(prisma);
     const manager = await prisma.manager.create({
-      data: { name: "C1 Test Manager", codeHash: hashManagerCode("7788"), active: true },
+      data: { name: "C1 Test Manager", role: "owner", codeHash: hashManagerCode("7788"), active: true },
     });
     token = signManagerSession({ id: manager.id, name: manager.name });
   });

@@ -37,3 +37,5 @@ The final release packet must pin the actual prior live release and hold the sha
 ## Development checks
 
 Run the complete `pnpm test`, `pnpm test:e2e`, `pnpm build` and repository checks. Both test runners use guarded disposable databases. Historical browser fixtures now use synthetic owner access; ordinary-manager privacy and today-only cases retain ordinary-manager access. `scripts/e2e-owner-fixture.ts` changes only the disposable browser-test database, never the normal seed. Independent judgment is against the frozen commit.
+
+The slice-1 correction inventory is `docs/B4-DATE-ROUTE-INVENTORY.md`: dated auxiliary APIs enforce the same requested/persisted-date boundary; full-week employee hours require owner access.

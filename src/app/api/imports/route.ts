@@ -6,6 +6,7 @@ import {
   previewImport,
 } from "@/lib/import/persist-import";
 import { requireManagerSession } from "@/lib/managers/require-session";
+import { requireDayAccess } from "@/lib/managers/day-access";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -75,6 +76,11 @@ export async function POST(request: Request) {
     }
 
     const parsed = await parseScheduleWorkbook(buffer, { filename: meta.filename });
+
+    for (const date of parsed.dates) {
+      const access = await requireDayAccess(request, date);
+      if (!access.ok) return access.response;
+    }
 
     if (meta.mode === "preview") {
       const preview = await previewImport(parsed);

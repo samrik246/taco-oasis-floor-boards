@@ -8,6 +8,8 @@ import {
 import { isFloorBoardId } from "@/lib/board-config";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
+import { boardDateSchema, NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
@@ -18,6 +20,11 @@ export async function GET(req: Request) {
     const date = url.searchParams.get("date");
     const boardRaw = url.searchParams.get("board");
     const employeeId = url.searchParams.get("employeeId") ?? undefined;
+    if (date) {
+      boardDateSchema.parse(date);
+      const access = await requireDayAccess(req, date);
+      if (!access.ok) return access.response;
+    }
     const questions = await listPerformanceQuestions();
 
     if (!date || !boardRaw || !isFloorBoardId(boardRaw)) {
@@ -29,8 +36,9 @@ export async function GET(req: Request) {
       board: boardRaw,
       employeeId,
     });
-    return NextResponse.json({ questions, answers });
+    return NextResponse.json({ questions, answers }, { headers: NO_STORE });
   } catch (e) {
+    if (e instanceof z.ZodError) return NextResponse.json({ error: "Invalid date" }, { status: 422 });
     console.error(e);
     return NextResponse.json(
       { error: "Failed to load performance survey" },
@@ -40,7 +48,7 @@ export async function GET(req: Request) {
 }
 
 const postSchema = z.object({
-  date: z.string().min(1),
+  date: boardDateSchema,
   board: z.enum(["caja", "cocina"]),
   employeeId: z.string().min(1),
   answers: z.array(
@@ -56,6 +64,8 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
   try {
     const body = postSchema.parse(await req.json());
+    const access = await requireDayAccess(req, body.date);
+    if (!access.ok) return access.response;
     const result = await upsertPerformanceAnswers(body);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });

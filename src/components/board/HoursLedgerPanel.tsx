@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { stationLabel, tareaLabel, type Locale, type Messages } from "@/lib/i18n";
 
 type Props = {
-  /** The hours route is manager-only: a week includes planned days. */
+  /** The hours route is owner-only: a week includes planned days. */
   managerToken: string | null;
   employeeId: string | null;
   employeeName: string | null;
@@ -41,6 +41,7 @@ export function HoursLedgerPanel({
       return;
     }
     let cancelled = false;
+    setLedger(null);
     setLoading(true);
     setError(null);
     void (async () => {
@@ -53,7 +54,9 @@ export function HoursLedgerPanel({
           const data = await res.json().catch(() => ({}));
           if (!cancelled) {
             setLedger(null);
-            setError(data.error ?? "Failed to load hours");
+            setError(res.status === 403
+              ? (locale === "es" ? "Solo el propietario puede consultar las horas de la semana." : "Only the owner can view weekly hours.")
+              : data.error ?? "Failed to load hours");
           }
           return;
         }
@@ -71,7 +74,7 @@ export function HoursLedgerPanel({
     return () => {
       cancelled = true;
     };
-  }, [employeeId, weekOf, refreshKey, managerToken]);
+  }, [employeeId, weekOf, refreshKey, managerToken, locale]);
 
   if (!employeeId) {
     return (

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { NextResponse } from "next/server";
 import { chicagoToday } from "@/lib/upcoming/source";
 import {
@@ -5,6 +6,9 @@ import {
   requireOwnerSession,
   type AuthedManager,
 } from "@/lib/managers/require-session";
+
+/** A real calendar date, before authorization or date arithmetic. */
+export const boardDateSchema = z.iso.date();
 
 export type DayAccess =
   | { ok: true; manager: AuthedManager | null }

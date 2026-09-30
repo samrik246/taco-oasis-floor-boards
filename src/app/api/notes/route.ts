@@ -3,16 +3,18 @@ import { z } from "zod";
 import { createNote, listNotes } from "@/lib/notes";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
+import { boardDateSchema, NO_STORE, requireDayAccess } from "@/lib/managers/day-access";
+
 export const runtime = "nodejs";
 
 const querySchema = z.object({
   board: z.enum(["caja", "cocina"]),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: boardDateSchema,
 });
 
 const createSchema = z.object({
   board: z.enum(["caja", "cocina"]),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: boardDateSchema,
   body: z.string().min(1).max(4000),
 });
 
@@ -26,8 +28,10 @@ export async function GET(request: Request) {
       board: url.searchParams.get("board"),
       date: url.searchParams.get("date"),
     });
+    const access = await requireDayAccess(request, date);
+    if (!access.ok) return access.response;
     const notes = await listNotes(board, date);
-    return NextResponse.json({ notes });
+    return NextResponse.json({ notes }, { headers: NO_STORE });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(
@@ -47,6 +51,8 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     const input = createSchema.parse(json);
+    const access = await requireDayAccess(request, input.date);
+    if (!access.ok) return access.response;
     const note = await createNote(input);
     return NextResponse.json({ note }, { status: 201 });
   } catch (err) {

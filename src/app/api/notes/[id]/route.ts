@@ -3,6 +3,9 @@ import { z } from "zod";
 import { deleteNote, updateNote } from "@/lib/notes";
 import { requireManagerSession } from "@/lib/managers/require-session";
 
+import { prisma } from "@/lib/db";
+import { requireDayAccess } from "@/lib/managers/day-access";
+
 export const runtime = "nodejs";
 
 const paramsSchema = z.object({
@@ -21,6 +24,10 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!auth.ok) return auth.response;
   try {
     const { id } = paramsSchema.parse(await context.params);
+    const stored = await prisma.managerNote.findUnique({ where: { id }, select: { date: true } });
+    if (!stored) return NextResponse.json({ error: "Note not found" }, { status: 404 });
+    const access = await requireDayAccess(request, stored.date);
+    if (!access.ok) return access.response;
     const json = await request.json();
     const { body } = updateSchema.parse(json);
     const note = await updateNote(id, body);
@@ -46,6 +53,10 @@ export async function DELETE(request: Request, context: RouteContext) {
   if (!auth.ok) return auth.response;
   try {
     const { id } = paramsSchema.parse(await context.params);
+    const stored = await prisma.managerNote.findUnique({ where: { id }, select: { date: true } });
+    if (!stored) return NextResponse.json({ error: "Note not found" }, { status: 404 });
+    const access = await requireDayAccess(request, stored.date);
+    if (!access.ok) return access.response;
     const ok = await deleteNote(id);
     if (!ok) {
       return NextResponse.json({ error: "Note not found" }, { status: 404 });
