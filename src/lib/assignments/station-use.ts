@@ -39,7 +39,7 @@ export async function loadIntervalStationUse(db:QuarterDb,board:"caja"|"cocina",
   const intervals:ReturnType<typeof assignedIntervals>=[];
   for(const row of dates)intervals.push(...assignedIntervals(await resolvePaintWorld(db,row.date),false));
   return stationIds.map(stationId=>{
-    const sorted=intervals.filter(s=>s.stationId===stationId).sort((a,b)=>a.startMs-b.startMs);
+    const sorted=intervals.filter(s=>s.board===board&&s.stationId===stationId).sort((a,b)=>a.startMs-b.startMs);
     let total=0,start=0,end=0;
     for(const s of sorted){if(s.startMs>end){total+=end-start;start=s.startMs;end=s.endMs;}else end=Math.max(end,s.endMs);}
     return {stationId,count:(total+end-start)/60000};

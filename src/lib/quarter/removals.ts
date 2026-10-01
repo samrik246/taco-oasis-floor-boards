@@ -6,13 +6,9 @@ import { reconcileSource } from "./reconcile";
 import { quarterWrite,receiptFor,persistHour,replaceHourSegments,recordMutation,type CommandActor } from "./transaction";
 import { validatePaintWorld,validateObligations,projectSeatNumbers,peerHours } from "./validation";
 
-const removalBase={protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.iso.date(),board:z.enum(["caja","cocina"]),reason:z.string().trim().min(1).max(2000)};
-const removalExpected=z.strictObject({databaseEpoch:z.string(),worldRevision:z.string(),sourceSha256:z.string(),removalRevision:z.number().int().nonnegative()});
-export const removalCommandSchema=z.discriminatedUnion("operation",[
-  z.strictObject({...removalBase,expected:removalExpected,shiftId:z.string().min(1),operation:z.literal("remove"),positions:z.enum(["replay","none"]).optional()}),
-  z.strictObject({...removalBase,expected:removalExpected,shiftId:z.string().min(1),operation:z.literal("restore"),positions:z.enum(["replay","none"]).optional()}),
-  z.strictObject({...removalBase,expected:removalExpected.omit({sourceSha256:true}),removalId:z.string().min(1),operation:z.literal("resolve")}),
-]);
+import { removalCommandSchema } from "./action-shapes";
+export { removalCommandSchema } from "./action-shapes";
+
 type Snapshot={version:2;source:ReturnType<typeof sourceSnapshot>;hours:{before:PaintHour;postRevision:string|null}[]};
 
 export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Date(),client=prisma) {

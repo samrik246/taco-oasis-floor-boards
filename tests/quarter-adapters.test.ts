@@ -1,3 +1,4 @@
+import { loadIntervalStationUse } from "@/lib/assignments/station-use";
 import { quarterTaskSuggestions } from "@/lib/quarter/task-suggestions";
 import { pickDueCovers } from "@/lib/breaks/auto-pick";
 import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
@@ -76,6 +77,24 @@ describe("quarter server adapters and data preservation",()=>{
   beforeEach(()=>{dbFile=path.join(root,`${randomUUID()}.db`);fs.copyFileSync(template,dbFile);db=new PrismaClient({datasources:{db:{url:url(dbFile)}}});process.env.DATABASE_URL=url(dbFile);});
   afterEach(async()=>{await db.$disconnect();process.env.DATABASE_URL=originalDatabaseUrl;});
   afterAll(()=>fs.rmSync(root,{recursive:true,force:true}));
+
+  it("H15 unions occupied minutes across overlapping sources and fragments within the original board/window",async()=>{
+    await db.station.update({where:{id:"green1"},data:{maxConcurrent:-1}});
+    const a=await shift("usage-a"),b=await shift("usage-b",{start:hour+900000,end:hour+2700000});
+    const other=await shift("usage-other",{board:"cocina",start:hour+3600000,end:hour+7200000});
+    const today=await shift("usage-today",{date:nextDate,start:+chicagoHourStart(nextDate,13),end:+chicagoHourStart(nextDate,14)});
+    const oldDate="2038-09-14",old=await shift("usage-old",{date:oldDate,start:+chicagoHourStart(oldDate,13),end:+chicagoHourStart(oldDate,14)});
+    for(const source of [a,b,other,today,old])await db.assignment.create({data:{shiftId:source.id,employeeId:source.employeeId,stationId:"green1",hourStart:source.startAt,hourEnd:source.endAt}});
+    await activate();
+    const before=await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1","purple1"]));
+    expect(before).toEqual([{stationId:"green1",count:60},{stationId:"purple1",count:0}]);
+    // The legacy cross-board anomaly proves read scoping; remove it before validating new writes.
+    await db.assignment.deleteMany({where:{shiftId:other.id}});
+    await paint("usage-a","13:00","green1");
+    expect(await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1","purple1"]))).toEqual(before);
+    await paint("usage-a","13:00",null);
+    expect(await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1"]))).toEqual([{stationId:"green1",count:45}]);
+  });
 
   it("500 source hours expand to 2000 quarter intents and commit as one receipt",async()=>{
     const ids=Array.from({length:500},(_,n)=>`bulk-${String(n).padStart(3,"0")}`);

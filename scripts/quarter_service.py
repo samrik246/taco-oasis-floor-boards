@@ -21,6 +21,9 @@ def group_alive(pgid):
         os.killpg(pgid, 0); return True
     except ProcessLookupError:
         return False
+    except PermissionError:
+        # macOS can return EPERM for an unreaped zombie. This is never absence.
+        return True
 
 
 def port_idle(port):
@@ -34,31 +37,50 @@ class Service:
         self.run = Path(run).absolute(); self.run.mkdir(parents=True, exist_ok=True)
         self.state = self.app.parent / ('quarter-service-' + str(port) + '.json')
 
+    def owned_group_alive(self, pid):
+        child = getattr(self, "child", None)
+        if child is not None and child.pid == pid:
+            child.poll()  # Reap our child before the process-group probe.
+        return group_alive(pid)
+
     def stop(self):
         if not self.state.exists():
             return
         state = json.loads(self.state.read_text())
         if state['app'] != str(self.app) or state['database'] != str(self.database):
             raise ValueError('SERVICE_IDENTITY_MISMATCH')
-        pid = state['pid']; current = process_start(pid)
+        pid = state['pid']
+        self.owned_group_alive(pid)
+        current = process_start(pid)
         if current is None:
-            if group_alive(pid) or not port_idle(self.port):
+            if self.owned_group_alive(pid) or not port_idle(self.port):
                 raise ValueError('SERVICE_ORPHAN_REQUIRES_REVIEW')
             self.state.unlink(); return
-        if current != state['started'] or os.getpgid(pid) != pid:
+        if current != state['started']:
             raise ValueError('SERVICE_PROCESS_CHANGED')
-        os.killpg(pid, signal.SIGTERM)
+        try:
+            if os.getpgid(pid) != pid:
+                raise ValueError('SERVICE_PROCESS_CHANGED')
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            if self.owned_group_alive(pid) or not port_idle(self.port):
+                raise ValueError('SERVICE_ORPHAN_REQUIRES_REVIEW')
+            self.state.unlink(); return
         deadline = time.monotonic() + 15
-        while group_alive(pid) and time.monotonic() < deadline:
-            if getattr(self,"child",None) and self.child.pid==pid: self.child.poll()
+        while self.owned_group_alive(pid) and time.monotonic() < deadline:
             time.sleep(0.1)
-        if group_alive(pid):
-            os.killpg(pid, signal.SIGKILL)
+        if self.owned_group_alive(pid):
+            leader = process_start(pid)
+            if leader is not None and leader != state['started']:
+                raise ValueError('SERVICE_PROCESS_CHANGED')
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             deadline = time.monotonic() + 5
-            while group_alive(pid) and time.monotonic() < deadline:
-                if getattr(self,"child",None) and self.child.pid==pid: self.child.poll()
+            while self.owned_group_alive(pid) and time.monotonic() < deadline:
                 time.sleep(0.1)
-        if group_alive(pid) or not port_idle(self.port):
+        if self.owned_group_alive(pid) or not port_idle(self.port):
             raise ValueError('SERVICE_DID_NOT_EXIT')
         self.state.unlink()
 

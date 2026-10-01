@@ -1,24 +1,16 @@
-import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoHourStart } from "@/lib/hour-grid";
-import { paintCommandSchema, sourceExpectation, hourExpectation, quarterInstant, type PaintIntent, type PaintCommand } from "./protocol";
+import { paintCommandSchema, quarterInstant, type PaintIntent, type PaintCommand } from "./protocol";
 import { CAPABILITY_SHA256, QuarterRefused, digest, canonical, worldRevision } from "./schema";
 import { quarterWrite, applyPaintCommand, receiptFor, checkExpectations, persistHour, recordMutation, type CommandActor, type PaintReceipt } from "./transaction";
 import { resolvePaintWorld, hourKey, overlaps, HOUR_MS, type Segment } from "./world";
 import { projectSeatNumbers, peerHours, validatePaintWorld, validateObligations } from "./validation";
 
-const envelope=paintCommandSchema.omit({intents:true});
-const reason={reason:z.string().max(200).optional(),moveNote:z.string().max(2000).nullable().optional()};
-export const operationSchema=z.discriminatedUnion("operation",[
-  envelope.extend({operation:z.literal("whole-shift"),shiftId:z.string().min(1),stationId:z.string().min(1).nullable(),...reason}),
-  envelope.extend({operation:z.literal("swap"),leftShiftId:z.string().min(1),rightShiftId:z.string().min(1),quarter:z.string(),granularity:z.enum(["hour","quarter"]),...reason}),
-  envelope.extend({operation:z.literal("copy"),sourceDate:z.iso.date(),sourceSources:z.array(sourceExpectation),sourceHours:z.array(hourExpectation),
-    mode:z.enum(["preview","commit"]),previewSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
-    mapping:z.array(z.strictObject({fromShiftId:z.string().min(1),toShiftId:z.string().min(1)})).min(1).max(500)}),
-]);
-export type QuarterOperation=z.infer<typeof operationSchema>;
+import { operationSchema } from "./action-shapes";
+export { operationSchema } from "./action-shapes";
+export type { QuarterOperation } from "./action-shapes";
 
 /** Whole-shift/swap/copy adapters retain the caller's original expectations, never refresh them. */
 export async function operateV2(input:unknown,actor:CommandActor,now=new Date(),client=prisma) {

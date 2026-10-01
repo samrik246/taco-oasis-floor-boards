@@ -1,4 +1,5 @@
 import type { PaintReceipt } from "../transaction";
+import { operationSchema, removalCommandSchema, tareaCommandSchema } from "../action-shapes";
 import { canonicalJson, contentHash, randomId, sha256 } from "./primitives";
 import {
   assertGeneration, assertHead, assertSubmission, assertReceipt, commandFor, DraftError, emptyBase, generation, newEnvelope,
@@ -12,12 +13,41 @@ export const DRAFT_DATABASE_VERSION = 1;
 export const DRAFT_STORES = ["heads","generations","submissions","v1Archives","clientMeta"] as const;
 type Store = typeof DRAFT_STORES[number];
 type RetainedCommand={actionSha256:string;requestBytes:string;requestSha256:string;state:"pending"|"confirmed"|"rejected";response?:unknown};
-function assertCommand(value:unknown):asserts value is RetainedCommand {
+function assertCommand(value:unknown,key:string):asserts value is RetainedCommand {
   const v=value as RetainedCommand|null;
   if(!v||!["pending","confirmed","rejected"].includes(v.state)||typeof v.requestBytes!=="string"||sha256(v.requestBytes)!==v.requestSha256||typeof v.actionSha256!=="string"||!/^[a-f0-9]{64}$/.test(v.actionSha256))throw new DraftError("COMMAND_REQUIRES_REVIEW");
-  try{const body=JSON.parse(v.requestBytes);if(body.protocol!==2||typeof body.requestId!=="string"||typeof body.expected?.databaseEpoch!=="string"||canonicalJson(body)!==v.requestBytes)throw new Error();}catch{throw new DraftError("COMMAND_REQUIRES_REVIEW");}
+  try{
+    const expectedKeys=["actionSha256","requestBytes","requestSha256","state",...(v.state==="pending"?[]:["response"])].sort();
+    if(canonicalJson(Object.keys(v).sort())!==canonicalJson(expectedKeys)||new TextEncoder().encode(v.requestBytes).length>2*1024*1024)throw new Error();
+    const scope=/^command:(.+):(caja|cocina):(\d{4}-\d{2}-\d{2}):(tareas|shift-removals|assignments\/operations)$/.exec(key);
+    if(!scope)throw new Error();
+    const schema=scope[4]==="tareas"?tareaCommandSchema:scope[4]==="shift-removals"?removalCommandSchema:operationSchema;
+    const body=schema.parse(JSON.parse(v.requestBytes));
+    if(body.date!==scope[3]||("board" in body&&body.board!==scope[2])||canonicalJson(body)!==v.requestBytes)throw new Error();
+  }catch{throw new DraftError("COMMAND_REQUIRES_REVIEW");}
 }
 type Meta = { key:string; value:unknown };
+function commandValue(row:unknown,key:string,scopeKey=key):RetainedCommand {
+  const r=row as Meta|null;
+  if(!r||r.key!==key||canonicalJson(Object.keys(r).sort())!==canonicalJson(["key","value"]))throw new DraftError("COMMAND_REQUIRES_REVIEW");
+  assertCommand(r.value,scopeKey);return r.value;
+}
+
+/** An unexpected schema must be read by its own version, never normalized by writes. */
+function checkDatabaseSchema(db:IDBDatabase) {
+  if(canonicalJson([...db.objectStoreNames].sort())!==canonicalJson([...DRAFT_STORES].sort()))throw new Error("stores");
+  const tx=db.transaction([...DRAFT_STORES],"readonly");
+  for(const name of DRAFT_STORES){
+    const store=tx.objectStore(name);
+    const key=name==="clientMeta"?"key":name==="submissions"?["managerId","requestId"]:["managerId","board","date",...(name==="heads"?[]:[name==="generations"?"generationId":"v1Sha256"])];
+    const indices=name==="clientMeta"?[]:[name==="heads"?"manager":"scope"];
+    if(store.autoIncrement||canonicalJson(store.keyPath)!==canonicalJson(key)||canonicalJson([...store.indexNames])!==canonicalJson(indices))throw new Error("store schema");
+    for(const name of indices){
+      const index=store.index(name),key=name==="manager"?"managerId":["managerId","board","date"];
+      if(index.unique||index.multiEntry||canonicalJson(index.keyPath)!==canonicalJson(key))throw new Error("index schema");
+    }
+  }
+}
 
 /** IDB callbacks are synchronous. Completion, never request success, is the commit boundary. */
 export class DraftDatabase {
@@ -50,7 +80,7 @@ export class DraftDatabase {
       };
       request.onsuccess=()=>{
         if(settled){request.result.close();return;}
-        if(DRAFT_STORES.some(s=>!request.result.objectStoreNames.contains(s))){request.result.close();fail("DRAFT_SCHEMA_REQUIRES_REVIEW");return;}
+        try{checkDatabaseSchema(request.result);}catch{request.result.close();fail("DRAFT_SCHEMA_REQUIRES_REVIEW");return;}
         settled=true;resolve(new DraftDatabase(request.result,onState));
       };
     });
@@ -249,8 +279,8 @@ export class DraftDatabase {
     const result=await this.transaction<typeof command>(["clientMeta"],"readwrite",(tx,finish,fail)=>{
       const store=tx.objectStore("clientMeta"),request=store.get(key);
       request.onsuccess=()=>{
-        const prior=request.result?.value;
-        try{assertCommand({...command,state:"pending"});if(request.result)assertCommand(prior);}catch(e){fail(e as Error);return;}
+        let prior:RetainedCommand|undefined;
+        try{assertCommand({...command,state:"pending"},key);if(request.result)prior=commandValue(request.result,key);}catch(e){fail(e as Error);return;}
         if(prior?.state==="pending"){
           if(prior.actionSha256!==command.actionSha256){fail(new DraftError("ANOTHER_COMMAND_UNCONFIRMED"));return;}
           if(sha256(prior.requestBytes)!==prior.requestSha256){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
@@ -268,7 +298,7 @@ export class DraftDatabase {
     return this.transaction(["clientMeta"],"readonly",(tx,finish,fail)=>{
       const r=tx.objectStore("clientMeta").getAll();r.onsuccess=()=>{
         const scoped=r.result.filter(row=>typeof row.key==="string"&&row.key.startsWith(prefix)&&!row.key.slice(prefix.length).includes(":"));
-        try{for(const row of scoped)assertCommand(row.value);}catch(e){fail(e as Error);return;}
+        try{for(const row of scoped)commandValue(row,row.key);}catch(e){fail(e as Error);return;}
         const rows=scoped.filter(row=>row.value.state==="pending");
         if(rows.some(row=>typeof row.value.requestBytes!=="string"||sha256(row.value.requestBytes)!==row.value.requestSha256)){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
         finish(rows);
@@ -278,13 +308,26 @@ export class DraftDatabase {
   async finishCommand(key:string,bytes:string,state:"confirmed"|"rejected",response:unknown){
     await this.transaction<void>(["clientMeta"],"readwrite",(tx,finish,fail)=>{
       const store=tx.objectStore("clientMeta"),r=store.get(key);r.onsuccess=()=>{
-        try{assertCommand(r.result?.value);}catch(e){fail(e as Error);return;}
+        try{commandValue(r.result,key);}catch(e){fail(e as Error);return;}
         if(r.result?.value?.requestBytes!==bytes){fail(new DraftError("COMMAND_CHANGED"));return;}
-        store.put({key:`${key}:${sha256(bytes)}`,value:{...r.result.value,state,response}});
-        store.put({key,value:{...r.result.value,state,response}});finish();
+        if(r.result.value.state!=="pending"){
+          if(r.result.value.state!==state||canonicalJson(r.result.value.response)!==canonicalJson(response)){fail(new DraftError("COMMAND_OUTCOME_CHANGED"));return;}
+          finish();return;
+        }
+        const archiveKey=`${key}:${sha256(bytes)}`,value={...r.result.value,state,response};
+        const archive=store.get(archiveKey);
+        archive.onsuccess=()=>{
+          try{
+            if(archive.result){
+              const prior=commandValue(archive.result,archiveKey,key);
+              if(canonicalJson(prior)!==canonicalJson(value))throw new DraftError("COMMAND_OUTCOME_CHANGED");
+            }else store.add({key:archiveKey,value});
+            store.put({key,value});finish();
+          }catch(e){fail(e as Error);}
+        };
       };
     });
-    const result=await this.transaction<RetainedCommand|undefined>(["clientMeta"],"readonly",(tx,finish)=>{const r=tx.objectStore("clientMeta").get(`${key}:${sha256(bytes)}`);r.onsuccess=()=>finish(r.result?.value);});
+    const result=await this.transaction<RetainedCommand>(["clientMeta"],"readonly",(tx,finish,fail)=>{const archiveKey=`${key}:${sha256(bytes)}`,r=tx.objectStore("clientMeta").get(archiveKey);r.onsuccess=()=>{try{finish(commandValue(r.result,archiveKey,key));}catch(e){fail(e as Error);}};});
     if(!result||result.requestBytes!==bytes||result.state!==state||canonicalJson(result.response)!==canonicalJson(response))throw new DraftError("COMMAND_READBACK_FAILED");
   }
   async clientInstance():Promise<string> {

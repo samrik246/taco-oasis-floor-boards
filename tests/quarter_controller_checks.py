@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import quarter_guard as guard
 import quarter_release as release
 import quarter_importers as importers
+import quarter_service as service_runtime
+from unittest.mock import Mock
 from datetime import datetime, timezone
 
 
@@ -49,6 +51,34 @@ class ControllerChecks(unittest.TestCase):
     def run_cutover(self, checker, target=lambda *args: {}, fault=lambda phase: None):
         with patch.object(release, 'target', side_effect=target), patch.object(release.artifacts, 'verify', return_value={}), patch.object(release, 'promote', side_effect=lambda *args: self.events.append('promote')):
             return release.cutover(self.packet,self.app,self.db,self.run,'install',self.service,checker,fault)
+
+    def test_service_reaps_owned_zombie_before_group_probe(self):
+        service=service_runtime.Service(self.app,self.db,3100,self.run)
+        service.child=Mock(pid=12345)
+        calls=[]
+        service.child.poll.side_effect=lambda:calls.append('poll')
+        def probe(pid):
+            self.assertEqual(calls.pop(),'poll')
+            self.assertEqual(pid,12345)
+            return False
+        with patch.object(service_runtime,'group_alive',side_effect=probe):
+            self.assertFalse(service.owned_group_alive(12345))
+
+    def test_group_probe_permission_is_not_absence(self):
+        with patch.object(service_runtime.os,'killpg',side_effect=PermissionError(1,'Operation not permitted')):
+            self.assertTrue(service_runtime.group_alive(12345))
+
+    def test_service_exit_race_requires_group_and_port_absence(self):
+        service=service_runtime.Service(self.app,self.db,3100,self.run)
+        state={'app':str(self.app),'database':str(self.db),'pid':12345,'started':'identity'}
+        service.state.write_text(json.dumps(state))
+        with patch.object(service_runtime,'process_start',return_value='identity'), patch.object(service_runtime.os,'getpgid',side_effect=ProcessLookupError()), patch.object(service_runtime,'group_alive',return_value=False), patch.object(service_runtime,'port_idle',return_value=True), patch.object(service_runtime.os,'killpg') as kill:
+            service.stop();kill.assert_not_called()
+        self.assertFalse(service.state.exists())
+        service.state.write_text(json.dumps(state))
+        with patch.object(service_runtime,'process_start',return_value='identity'), patch.object(service_runtime.os,'getpgid',side_effect=ProcessLookupError()), patch.object(service_runtime,'group_alive',return_value=False), patch.object(service_runtime,'port_idle',return_value=False):
+            with self.assertRaisesRegex(ValueError,'SERVICE_ORPHAN_REQUIRES_REVIEW'):service.stop()
+        self.assertTrue(service.state.exists())
 
     def test_guard_excludes_credentials_and_detects_interval_and_schema_change(self):
         before=guard.capture(self.db)

@@ -1,15 +1,11 @@
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assignTarea,setTareaStatus } from "@/lib/tareas/service";
 import { quarterWrite,receiptFor,type CommandActor } from "./transaction";
 import { CAPABILITY_SHA256,QuarterRefused,quarterState,worldRevision,canonical,digest } from "./schema";
 import { quarterInstant } from "./protocol";
-const base={protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.iso.date(),
-  expected:z.strictObject({databaseEpoch:z.string(),worldRevision:z.string().regex(/^(0|[1-9][0-9]*)$/)})};
-export const tareaCommandSchema=z.discriminatedUnion("operation",[
-  z.strictObject({...base,operation:z.literal("assign"),employeeId:z.string().min(1),templateId:z.string().min(1),quarter:z.string(),granularity:z.enum(["hour","quarter"]),forceLemon:z.boolean().optional()}),
-  z.strictObject({...base,operation:z.literal("status"),id:z.string().min(1),status:z.enum(["working","done"])}),
-]);
+import { tareaCommandSchema } from "./action-shapes";
+export { tareaCommandSchema } from "./action-shapes";
+
 /** The task and its original-revision receipt commit together. A return never reconstructs paint. */
 export async function tareaV2(raw:unknown,actor:CommandActor,now=new Date(),client=prisma) {
   const command=tareaCommandSchema.parse(raw);

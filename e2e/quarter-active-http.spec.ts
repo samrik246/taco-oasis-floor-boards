@@ -1,4 +1,6 @@
 import {test,expect,type Page} from "@playwright/test";
+import {createRequire} from "node:module";
+import type {} from "./fixtures/quarter-action";
 import {PrismaClient} from "@prisma/client";
 import {join} from "node:path";
 import {fromZonedTime} from "date-fns-tz";
@@ -134,4 +136,26 @@ test("ordinary HTTP receipt cleanup failure keeps a newer tab intent visible and
     await openEditor(newer);await expect(newer.getByTestId("quarter-private-preview")).toHaveCount(1);
     await expect(newer.getByRole("alert").filter({hasText:"SAVED_COMMAND_CHANGED_EXPECTATIONS"})).toHaveCount(1);
   }finally{release();await newer.close();}
+});
+
+
+test("ordinary HTTP retained whole-shift action replays exact bytes after response loss and reload",async({page})=>{
+ const requireBundle=createRequire(process.cwd()+"/package.json");
+ const {buildSync}=createRequire(requireBundle.resolve("tsx/package.json"))("esbuild") as {buildSync(options:Record<string,unknown>):{outputFiles:{text:string}[]}};
+ const bundle=buildSync({entryPoints:["e2e/fixtures/quarter-action.ts"],bundle:true,write:false,platform:"browser",define:{"process.env.NODE_ENV":'"production"'}}).outputFiles[0].text;
+ await page.goto(`${origin}/__quarter-action-fixture`);await page.addScriptTag({content:bundle});
+ const bodies:string[]=[];
+ await page.route("**/api/v2/assignments/operations",async route=>{
+  const raw=route.request().postData()!;bodies.push(raw);requests.push(JSON.parse(raw).requestId);
+  const result=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});expect(result.status()).toBe(200);await route.abort("failed");
+ });
+ expect(await page.evaluate(()=>window.quarterActionProof.save())).toMatchObject({status:"unconfirmed"});
+ const retained=await page.evaluate(()=>window.quarterActionProof.pending());expect(retained).toHaveLength(1);expect(retained[0].value.requestBytes).toBe(bodies[0]);
+ const requestId=JSON.parse(bodies[0]).requestId;
+ const before=await db.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintMutation WHERE requestId=?",requestId);expect(Number(before[0].n)).toBeGreaterThan(0);
+ await page.unroute("**/api/v2/assignments/operations");await page.reload();await page.addScriptTag({content:bundle});
+ await page.route("**/api/v2/assignments/operations",async route=>{bodies.push(route.request().postData()!);await route.continue();});
+ expect(await page.evaluate(()=>window.quarterActionProof.recover())).toMatchObject({status:"saved"});
+ expect(bodies).toHaveLength(2);expect(bodies[1]).toBe(bodies[0]);expect(await page.evaluate(()=>window.quarterActionProof.pending())).toEqual([]);
+ expect(await db.$queryRawUnsafe("SELECT COUNT(*) n FROM PaintMutation WHERE requestId=?",requestId)).toEqual(before);
 });

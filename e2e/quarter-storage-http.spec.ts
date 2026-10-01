@@ -121,3 +121,55 @@ for(const field of ["intent","unknown","head"])test(`HTTP malformed ${field} rem
  expect(await page.evaluate(()=>window.quarterProof.retain().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_REQUIRES_REVIEW");
  expect(await page.evaluate(()=>window.quarterProof.submit().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_REQUIRES_REVIEW");
 });
+
+async function rawDatabase(page:Page){
+ return page.evaluate(()=>new Promise<unknown>((resolve,reject)=>{
+  const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{
+   const db=r.result,names=[...db.objectStoreNames],tx=db.transaction(names),result:Record<string,unknown>={};
+   for(const name of names){const store=tx.objectStore(name),read=store.getAll();read.onsuccess=()=>{result[name]={keyPath:store.keyPath,autoIncrement:store.autoIncrement,indices:[...store.indexNames].map(name=>{const i=store.index(name);return {name,keyPath:i.keyPath,unique:i.unique,multiEntry:i.multiEntry};}),rows:read.result};};}
+   tx.oncomplete=()=>{db.close();resolve(result);};tx.onabort=()=>reject(tx.error);
+  };
+ }));
+}
+for(const mode of ["heads-key","generations-key","v1Archives-key","submissions-key","clientMeta-key","missing-store","extra-store","auto-increment","missing-index","index-key","index-unique","index-multiEntry"]){
+ test(`HTTP incompatible IDB ${mode} refuses before writes and preserves raw state`,async({page})=>{
+  await page.goto(`${origin}/__quarter-storage-fixture`);await page.addScriptTag({content:bundle});
+  await page.evaluate(mode=>new Promise<void>((resolve,reject)=>{
+   const r=indexedDB.open("taco-oasis-paint-drafts",1);r.onerror=()=>reject(r.error);
+   r.onupgradeneeded=()=>{
+    const names=["heads","generations","submissions","v1Archives","clientMeta",...(mode==="extra-store"?["future"]:[])];
+    for(const name of names){
+     if(mode==="missing-store"&&name==="clientMeta")continue;
+     let keyPath:string|string[]=name==="clientMeta"||name==="future"?"key":name==="submissions"?["managerId","requestId"]:["managerId","board","date",...(name==="heads"?[]:[name==="generations"?"generationId":"v1Sha256"])];
+     if(mode===`${name}-key`)keyPath=name==="clientMeta"?"future":"managerId";
+     const autoIncrement=mode==="auto-increment"&&name==="clientMeta";
+     const store=r.result.createObjectStore(name,{keyPath,autoIncrement});
+     if(name!=="clientMeta"&&name!=="future"&&!(mode==="missing-index"&&name==="heads")){
+      const index=name==="heads"?"manager":"scope";
+      let indexKey:string|string[]=name==="heads"?"managerId":["managerId","board","date"];
+      if(mode==="index-key"&&name==="heads")indexKey="date";
+      store.createIndex(index,indexKey,{unique:mode==="index-unique"&&name==="heads",multiEntry:mode==="index-multiEntry"&&name==="heads"});
+     }
+     store.add({managerId:"preserved-owner",board:"caja",date:"2038-10-11",generationId:"retained",requestId:"retained",v1Sha256:"retained",key:"retained",future:"retained",original:"Do not overwrite this record"});
+    }
+   };r.onsuccess=()=>{r.result.close();resolve();};
+  }),mode);
+  const before=await rawDatabase(page);
+  expect(await page.evaluate(()=>window.quarterProof.open().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_SCHEMA_REQUIRES_REVIEW");
+  expect(await rawDatabase(page)).toEqual(before);
+ });
+}
+for(const mode of ["wrapper","metadata","body","scope"])test(`HTTP incompatible retained command ${mode} refuses replacement and preserves bytes`,async({page})=>{
+ await load(page);await page.evaluate(()=>window.quarterProof.retainCommand());await page.evaluate(mode=>window.quarterProof.corruptCommand(mode),mode);
+ const before=await rawDatabase(page);
+ expect(await page.evaluate(()=>window.quarterProof.retainCommand().then(()=>"unexpected",e=>e.message))).toBe("COMMAND_REQUIRES_REVIEW");
+ expect(await page.evaluate(()=>window.quarterProof.pendingCommands().then(()=>"unexpected",e=>e.message))).toBe("COMMAND_REQUIRES_REVIEW");
+ expect(await rawDatabase(page)).toEqual(before);
+});
+test("HTTP terminal command outcome is immutable across a delayed conflicting completion",async({page})=>{
+ await load(page);const command=await page.evaluate(()=>window.quarterProof.retainCommand());
+ await page.evaluate(bytes=>window.quarterProof.finishCommand(bytes,"confirmed",{ok:true,original:true}),command.requestBytes);
+ const before=await rawDatabase(page);
+ expect(await page.evaluate(bytes=>window.quarterProof.finishCommand(bytes,"rejected",{code:"LATE_REJECTION"}).then(()=>"unexpected",e=>e.message),command.requestBytes)).toBe("COMMAND_OUTCOME_CHANGED");
+ expect(await rawDatabase(page)).toEqual(before);
+});
