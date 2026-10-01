@@ -54,6 +54,7 @@ export type FolderImportResult = {
   dates: DateCounts[];
   /** Refusal codes and how many of each; never the refusal text (it names Employee IDs). */
   refusals: Record<string, number>;
+  originalImport?: ImportRefusedError["originalImport"];
 };
 
 /** Exit code per outcome, for whoever runs the command. */
@@ -209,6 +210,7 @@ export async function runFolderImport(
     if (err instanceof ImportRefusedError) {
       return refused(err.code, {
         rowCount: parsed.shifts.length,
+        ...(err.originalImport?{originalImport:err.originalImport}:{}),
         refusals: tally(err.refusals.map((r) => r.code)),
       });
     }
@@ -221,6 +223,10 @@ export function formatSummary(r: FolderImportResult): string[] {
   const lines = [
     `outcome=${r.outcome} mode=${r.mode} code=${r.code ?? "-"} file=${r.file ?? "-"} rows=${r.rowCount}`,
   ];
+  if(r.originalImport){
+    const original=r.originalImport;
+    lines.push(`originalImportBatchId=${original.importBatchId} originalFilename=${JSON.stringify(original.filename)} importedAt=${original.importedAt} originalRows=${original.rowCount} fingerprint=${original.fingerprint ?? "-"}`);
+  }
   for (const d of r.dates) {
     lines.push(
       `date=${d.date} added=${d.added} changed=${d.changed} replaced=${d.replaced} unchanged=${d.unchanged} removed=${d.removed} openShiftsSkipped=${d.skippedOpenShifts} assignmentsKept=${d.assignmentsKept} assignmentsRemoved=${d.assignmentsToRemove} assignmentsTransferred=${d.assignmentsToTransfer}`,

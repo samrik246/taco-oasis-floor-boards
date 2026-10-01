@@ -22,7 +22,7 @@ function safeDatabasePath(env = process.env) {
   if (rootReal !== root || dbReal !== db || !dbReal.startsWith(rootReal + path.sep)) {
     throw new Error("TEST_DB_OUTSIDE_DISPOSABLE_ROOT");
   }
-  if (dbReal === INSTALLED_DB || (fs.existsSync(dbReal) && fs.lstatSync(dbReal).isSymbolicLink())) {
+  if (dbReal === INSTALLED_DB || fs.lstatSync(dbReal, { throwIfNoEntry: false })?.isSymbolicLink()) {
     throw new Error("TEST_DB_INSTALLED_OR_SYMLINK");
   }
   return dbReal;

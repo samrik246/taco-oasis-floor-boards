@@ -19,12 +19,16 @@ import { readQuarterDay } from "@/lib/quarter/public";
 import { listShiftRemovals } from "@/lib/shifts/remove-restore";
 import { GET as dayGet } from "@/app/api/v2/boards/[board]/days/[date]/route";
 import { GET as removalsGet } from "@/app/api/shift-removals/route";
+import { POST as importPost } from "@/app/api/v2/imports/route";
+import { safeDatabasePath } from "../scripts/test-db-path.cjs";
+import { CAPABILITY_SHA256 } from "@/lib/quarter/schema";
 import { POST as movePost } from "@/app/api/position-moves/route";
 import { logPositionMove, listPositionMoves } from "@/lib/position-moves-service";
 import { cancelOverlay } from "@/lib/overlays/write";
 import { withStaffBreakLock } from "@/lib/breaks/rules";
 import { commitImport, previewImport, fingerprintFor } from "@/lib/import/persist-import";
 import { runFolderImport, formatSummary, EXIT_CODES } from "@/lib/import/folder-import";
+import { ALL_STATIONS } from "@/lib/stations";
 import { startsNextWeek } from "@/lib/wiw-export/run";
 import { parseSchedulesCsv } from "@/lib/parser/schedule-parser";
 import { syntheticCsv } from "./helpers/synthetic-schedule";
@@ -42,7 +46,11 @@ async function activate(){await db.$executeRawUnsafe("UPDATE QuarterSchema SET p
 async function source(id:string,options:{removed?:boolean;superseded?:boolean;board?:string;assigned?:boolean}={}) {
   await db.employee.create({data:{id,externalId:id,firstName:`Name-${id}`,lastName:"Synthetic"}});
   const s=await db.shift.create({data:{id:`source-${id}`,employeeId:id,date,board:options.board??"caja",sourcePosition:"Caja",startAt:new Date(hour),endAt:new Date(hour+3600000),boardRemoved:options.removed??false,supersededAt:options.superseded?now:null}});
-  if(options.assigned)await db.assignment.create({data:{id:`assignment-${id}`,shiftId:s.id,employeeId:id,stationId:options.board==="cocina"?"kitchen":"purple1",hourStart:new Date(hour),hourEnd:new Date(hour+3600000)}});
+  if(options.assigned){
+    const stationId=randomUUID();
+    await db.station.create({data:{id:stationId,board:options.board??"caja",label:stationId,color:"purple",sortOrder:1,maxConcurrent:1}});
+    await db.assignment.create({data:{id:`assignment-${id}`,shiftId:s.id,employeeId:id,stationId,hourStart:new Date(hour),hourEnd:new Date(hour+3600000)}});
+  }
   return s;
 }
 function child(script:string,cwd:string,extra:Record<string,string>={}) {
@@ -56,6 +64,7 @@ beforeAll(async()=>{
   execFileSync("pnpm",["exec","prisma","db","push","--skip-generate"],{cwd:repo,env:process.env,stdio:"pipe"});
   const init=new PrismaClient();
   for(const [id,board] of [["purple1","caja"],["kitchen","cocina"]])await init.station.create({data:{id,board,label:id,color:"purple",sortOrder:1,maxConcurrent:1}});
+  for(const station of ALL_STATIONS)await init.station.upsert({where:{id:station.id},create:station,update:{}});
   await withReleaseLease(()=>migrateQuarterStorage(init),init);await init.$disconnect();
 },60_000);
 beforeEach(()=>{
@@ -112,8 +121,9 @@ describe("quarter foundation review boundaries",()=>{
   it("active compatibility and lease override require canonical disposable roots and the actual configured DB",async()=>{
     await activate();await expect(assertArtifactCompatibility(db)).resolves.toBeUndefined();
     const valid=`file:${file}`;const link=path.join(root,"linked.db");fs.symlinkSync(file,link);
+    const dangling=path.join(root,"dangling.db");const absent=path.join(root,"must-not-open.db");fs.symlinkSync(absent,dangling);
     const directoryLink=path.join(root,"linked-directory");fs.symlinkSync(path.dirname(file),directoryLink);
-    const cases=[{root:path.dirname(testRoot),url:valid},{root:"/private/tmp",url:valid},{root:testRoot,url:`file:${link}`},
+    const cases=[{root:path.dirname(testRoot),url:valid},{root:"/private/tmp",url:valid},{root:testRoot,url:`file:${link}`},{root:testRoot,url:`file:${dangling}`},
       {root:testRoot,url:`file:${directoryLink}/${path.basename(file)}`},{root:testRoot,url:`file:${template}`},
       {root:testRoot,url:"file:/Users/dan/.buzz/COLOR_BOARDS_APP/var/data/floor-boards.db"}];
     for(const item of cases){
@@ -121,6 +131,8 @@ describe("quarter foundation review boundaries",()=>{
       await expect(assertArtifactCompatibility(db)).rejects.toMatchObject({code:"SYNTHETIC_DATABASE_REQUIRED"});
       const run=vi.fn();await expect(withReleaseLease(run,db)).rejects.toMatchObject({code:"SYNTHETIC_DATABASE_REQUIRED"});expect(run).not.toHaveBeenCalled();
     }
+    expect(fs.existsSync(absent)).toBe(false);
+    expect(()=>safeDatabasePath({...process.env,FLOOR_BOARDS_TEST_ROOT:testRoot,DATABASE_URL:`file:${dangling}`})).toThrow("TEST_DB_INSTALLED_OR_SYMLINK");
     process.env.DATABASE_URL=valid;process.env.FLOOR_BOARDS_TEST_ROOT=testRoot;
     expect(await quarterLeaseAppDir(db)).toBe(path.join(testRoot,"app"));
   });
@@ -146,9 +158,16 @@ describe("quarter foundation review boundaries",()=>{
     for(const operation of [()=>previewImport(parsed,{client:db}),()=>commitImport(parsed,"retry.csv",{client:db})]){
       await expect(operation()).rejects.toMatchObject({code:"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",originalImport:{importBatchId:batch.id,filename:"original.csv",importedAt:batch.importedAt.toISOString(),rowCount:1,fingerprint:batch.fingerprint}});
     }
-    expect(await db.shift.count()).toBe(0);await db.importBatch.delete({where:{id:batch.id}});
+    fixture.manager=true;
+    const http=await importPost(new Request("http://local/imports?filename=retry.csv",{method:"POST",headers:{"content-type":"text/csv","x-floor-boards-protocol":"2","x-floor-boards-capability":CAPABILITY_SHA256},body:csv.toString("utf8")}));
+    expect(http.status).toBe(400);expect(await http.json()).toMatchObject({code:"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",originalImport:{importBatchId:batch.id,filename:"original.csv",rowCount:1}});
+    expect(await db.shift.count()).toBe(0);
     const importDir=path.join(root,"exports");fs.mkdirSync(importDir);fs.writeFileSync(path.join(importDir,"Schedule_for_synthetic.csv"),csv);
     const settings={dir:importDir,mode:"apply" as const};
+    const refused=await runFolderImport(settings,{now:new Date(hour-3600000)});
+    expect(refused).toMatchObject({outcome:"refused",originalImport:{importBatchId:batch.id,filename:"original.csv",rowCount:1}});
+    expect(formatSummary(refused).join("\n")).toContain(`originalImportBatchId=${batch.id}`);
+    await db.importBatch.delete({where:{id:batch.id}});
     const first=await runFolderImport(settings,{now:new Date(hour-3600000)});expect(first.outcome).toBe("imported");const revision=await worldRevision(db);
     const replay=await runFolderImport(settings,{now:new Date(hour-3600000)});expect(replay.outcome).toBe("replayed");expect(replay.dates).toEqual(first.dates);
     expect(formatSummary(replay)[0]).toContain("outcome=replayed");expect(EXIT_CODES[replay.outcome]).toBe(0);expect(startsNextWeek(replay)).toBe(true);expect(await worldRevision(db)).toBe(revision);

@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { PrismaClient } from "@prisma/client";
 import type { ImportInitiator } from "@/lib/quarter/import";
 import { quarterState, worldRevision, digest } from "@/lib/quarter/schema";
@@ -83,7 +84,7 @@ export type ImportCommitResult = {
 
 function legacyDuplicate(batch:{id:string;filename:string;importedAt:Date;rowCount:number;fingerprint:string|null}) {
   return new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",[],{
-    importBatchId:batch.id,filename:batch.filename,importedAt:batch.importedAt.toISOString(),rowCount:batch.rowCount,fingerprint:batch.fingerprint,
+    importBatchId:batch.id,filename:basename(batch.filename),importedAt:batch.importedAt.toISOString(),rowCount:batch.rowCount,fingerprint:batch.fingerprint,
   });
 }
 
