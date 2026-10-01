@@ -2,7 +2,6 @@
 import contextlib
 import io
 import json
-import importlib.util
 import py_compile
 import os
 from pathlib import Path
@@ -95,7 +94,7 @@ class PacketTests(unittest.TestCase):
     def test_stale_matching_bytecode_is_never_loaded(self):
         p = packet(self.root / 'packet')
         source = p / 'tools/b4_artifacts.py'; actual = source.read_bytes()
-        cache = Path(importlib.util.cache_from_source(str(source), optimization=''))
+        cache = source.parent / '__pycache__' / ('b4_artifacts.' + sys.implementation.cache_tag + '.pyc')
         cache.parent.mkdir(parents=True, exist_ok=True)
         malicious = b"raise RuntimeError('stale packet bytecode executed')\n#"
         source.write_bytes(malicious + b' ' * (len(actual) - len(malicious)))
