@@ -92,8 +92,15 @@ test("staff signs in, picks a break, and the painted hour shows the stripe", asy
   await page.locator(`[data-testid="break-slot"][data-start="${start}"]`).first().click();
   await expect(page.getByTestId("break-saved")).toHaveCount(0);
   await expect(save).not.toHaveAttribute("data-end", fullEnd);
+  const shortenedEnd = await save.getAttribute("data-end");
+  expect(shortenedEnd).not.toBeNull();
   await save.click();
-  await expect(page.getByTestId("break-saved-title")).toHaveText("Completado");
+  // The real clock can place this interval in the future, present or past.
+  // Verify the successful save and exact interval rather than a nighttime label.
+  await expect(page.getByTestId("break-saved")).toBeVisible();
+  expect(await prisma.staffBreak.findFirst({ where: { employeeId: person.id, date } })).toMatchObject({
+    status: "booked", startAt: new Date(start), endAt: new Date(shortenedEnd!),
+  });
   await page.getByTestId("break-saved-clear").click();
   await expect(page.getByTestId("break-home")).toHaveAttribute("data-phase", "keypad");
   for (const digit of code) await page.getByTestId(`break-key-${digit}`).click();
@@ -246,7 +253,10 @@ test("staff kiosk Descansos returns to that board", async ({ page }) => {
   await page.locator(`[data-testid="break-start"][data-start="${start}"]`).click();
   await expect(page.getByTestId("break-save")).toHaveAttribute("data-end", fullEnd);
   await page.getByTestId("break-save").click();
-  await expect(page.getByTestId("break-saved-title")).toHaveText("Completado");
+  await expect(page.getByTestId("break-saved")).toBeVisible();
+  expect(await prisma.staffBreak.findFirst({ where: { employeeId: person.id, date } })).toMatchObject({
+    status: "booked", startAt: new Date(start), endAt: new Date(fullEnd),
+  });
   await page.getByTestId("break-saved-clear").click();
   await expectQuietBoard();
 
