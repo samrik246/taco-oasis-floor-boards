@@ -1,0 +1,5 @@
+{
+  "generator": "Python json.dumps ensure_ascii=False sort_keys=True separators=(comma,colon)",
+  "object_sha256": "f94b606c4b2cce7dbb54a6892560d9ad757d835c1e401467c4d91d6a02e091d4",
+  "file_sha256": "edca3d07b566a6547b20f10b3e710d25ce8e38c6f2b21df9af9d06df5310f0a9"
+}

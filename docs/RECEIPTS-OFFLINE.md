@@ -259,3 +259,41 @@ No production response is repaired. Eight engine-context negatives N15–N19 and
 N23–N25 remain outside stateless validation acceptance. Synthetic transition and
 browser tests do not establish durable engine, worker ownership or paper proof.
 Production still injects no engine.
+
+## Inventory V1 intake (synthetic dependencies)
+
+`transport-inventory.ts` consumes the accepted inventory/protection V1 convention
+(`7be138e1e08dad3c8ed23209047252c14c71d437d6ebcdccc0b6f90c8940b316`).
+The fixed sidecar is `<release_root>/receipt-application-inventory.json`: its
+canonical object is at most 1,048,576 UTF-8 bytes and its file adds exactly one LF.
+The existing application inventory digest covers the object without LF. Config
+keeps its whole-frame digest and 131,072-byte bound; transport fields and limits
+are unchanged. Noncanonical bytes are refused before acceptance, never repaired.
+
+The closed parser checks safe integers, scalar Unicode, exact interpreter fields,
+unique scalar-sorted paths (including U+E000 before U+10000), three allowed origins
+and executable/config/sidecar separation. It compares the independently reviewed
+release/source bindings. The retained Python-generated golden demonstrates the
+same bytes; it is synthetic, not an engine-worker integration result.
+
+`intakeApplicationInventory` has no default filesystem or closure dependency. It
+requires trusted injected service identity (all effective primary/supplementary
+groups), bounded same-descriptor reads with path/descriptor snapshots and every
+ancestor through `/`, evaluated ACL/replacement authority and explicit closure
+observations. It refuses service ownership even at mode 0400, applicable group or
+other writes, unknown ACL/group/symlink/closure proof, replacement, missing or
+changed files, and unaccounted built-in/native images. A real reader must enforce
+its supplied bound during collection and guarantee that metadata, parsing and
+hashing describe the same opened bytes; post-read checks alone do not do so.
+Config and sidecar are independently rechecked after dependency work. Returned
+parsed inputs are frozen and do not provide a `VerifiedRuntime` or start a child.
+
+Only synthetic reader/metadata/closure dependencies are implemented in tests.
+No production route or supervisor is wired to this intake. Parent H still owes
+actual effective identity/ACL/ancestor protection, complete operation-time
+closure, protected runtime and engine-pair qualification before spawn. READY
+remains correlation only. D1 interpreter protection, D2 release/config placement
+and shared-cache image-to-protected-byte correspondence remain blockers. No
+`system` origin, native-image exception, runtime repair or environment bypass is
+introduced. Production injection, diagnostics, coordinator/O/D and paper stay off;
+the separate Richard decision on the future review button remains required.
