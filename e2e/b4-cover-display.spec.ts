@@ -52,6 +52,14 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     const occupants = page.getByTestId(`station-${payload!.stations[0].id}`).getByTestId("saved-station-occupants");
     await expect(occupants).toContainText("Dan Example"); await expect(occupants).toContainText("9:15 AM–9:45 AM");
     await expect(occupants).toContainText("Dylan Example");
+    const baseOccupant = occupants.locator('[data-employee="primary"]').first();
+    const derivedOccupant = occupants.locator('[data-employee="cover"]');
+    await expect(baseOccupant.getByRole("button", { name: "Clear Dylan Example", exact: true })).toBeVisible();
+    await expect(derivedOccupant.getByRole("button", { name: /^Clear / })).toHaveCount(0);
+    const baseLedger = page.waitForRequest(r => r.url().includes("/api/employees/primary/hours?"));
+    await baseOccupant.getByRole("button", { name: "Dylan Example", exact: true }).click(); await baseLedger;
+    const coverLedger = page.waitForRequest(r => r.url().includes("/api/employees/cover/hours?"));
+    await derivedOccupant.getByRole("button", { name: "Dan Example", exact: true }).click(); await coverLedger;
     await page.screenshot({ path: path.join(screens, `${board}_${locale}_floor.png`), fullPage: true });
     await page.getByTestId("compact-view").selectOption("timeline");
     const editor = page.getByTestId("manager-color-editor"); await expect(editor).toBeVisible();
@@ -59,7 +67,7 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     await expect(editor.getByTestId("paint-headcount-9")).toHaveText("1");
     await expect(editor.getByTestId("cover-row-cover-shift")).toContainText("Dan Example");
     const savedCover = editor.getByTestId("cover-row-cover-shift").locator('[data-hour="9"]');
-    const approvedText = await savedCover.innerText();
+    const approvedText = (await savedCover.textContent())!;
     await page.getByTestId(`paint-palette-${payload!.stations[1].id}`).click();
     await paint.click();
     const paintedCell = paint.locator("xpath=..");
@@ -71,7 +79,70 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     await page.goto(`/?wall=1&board=${board}`);
     await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).toContainText("Dan Example");
     await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).toContainText("9:15 AM–9:45 AM");
+    const wallOccupants = page.getByTestId(`wall-who-${payload!.stations[0].id}`);
+    await expect(wallOccupants).not.toContainText("Dylan Example");
+    expect(await wallOccupants.getByTestId("saved-station-name").evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(36);
+    const wallBreak = page.getByTestId("cover-row-primary-shift").locator('[data-kind="break"]');
+    await expect(wallBreak).toBeVisible();
     await page.screenshot({ path: path.join(screens, `${board}_${locale}_wall.png`), fullPage: true });
+    for (const [clock, present, absent] of [["9:14 am", "Dylan Example", "Dan Example"], ["9:15 am", "Dan Example", "Dylan Example"], ["9:45 am", "Dylan Example", "Dan Example"]]) {
+      await page.clock.setSystemTime(at(clock)); await page.reload();
+      await expect(wallOccupants).toContainText(present);
+      await expect(wallOccupants).not.toContainText(absent);
+    }
     expect(writes).toBe(0);
   });
 }
+
+test("Shuffle keeps both destinations and cross-board wall absence/return consistent", async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.clock.install({ time: at("9:30 am") });
+  let cajaIds: string[] = [], originId = "";
+  await page.route("**/api/boards/*/days/*", async route => {
+    const response = await route.fetch(); if (!response.ok()) { await route.fulfill({ response }); return; }
+    const base: DayBoardDto = await response.json();
+    const otherBoard = base.board === "caja" ? "cocina" : "caja";
+    const otherResponse = await page.request.get(new URL(`/api/boards/${otherBoard}/days/${date}`, route.request().url()).toString());
+    const other: DayBoardDto = await otherResponse.json();
+    const caja = base.board === "caja" ? base : other, cocina = base.board === "cocina" ? base : other;
+    cajaIds = caja.stations.slice(0, 3).map(s => s.id); originId = cocina.stations[0].id;
+    const makeShift = (id: string, board: "caja" | "cocina", stationId: string): CoverDisplayShift => ({
+      id: `${id}-shift`, employeeId: id, date, board, sourcePosition: board === "caja" ? "Caja" : "Cocina",
+      startAt: at("8:00 am"), endAt: at("12:00 pm"), supersededAt: null, boardRemoved: false,
+      employee: { firstName: id, lastName: "Example" }, assignments: [8, 9, 10, 11].map(h => ({ stationId, hourStart: at(`${h}:00 am`), hourEnd: at(h === 11 ? "12:00 pm" : `${h + 1}:00 am`) })),
+    });
+    const shifts = [makeShift("Dylan", "caja", cajaIds[0]), makeShift("Dan", "caja", cajaIds[1]), makeShift("Robin", "cocina", originId)];
+    const booking = { id: "shuffle", employeeId: "Dylan", shiftId: "Dylan-shift", date, board: "caja", status: "booked", startAt: at("9:15 am"), endAt: at("9:45 am"), coverEmployeeId: "Dan", coverShiftId: "Dan-shift", shuffleEmployeeId: "Robin", shuffleShiftId: "Robin-shift", auto: false };
+    const input = { board: base.board, date, now: at("9:30 am"), shifts, bookings: [booking],
+      stations: [...caja.stations.map(s => ({ ...s, board: "caja" })), ...cocina.stations.map(s => ({ ...s, board: "cocina" }))],
+      overlays: [{ board: "caja", kind: "switch", employeeId: "Dylan", partnerEmployeeId: null, stationId: cajaIds[2], fromStationId: cajaIds[0], startAt: at("9:30 am"), endAt: at("10:00 am"), cancelledAt: null }] };
+    await route.fulfill({ response, json: { ...base, auxiliaryShifts: [], overlays: [],
+      shifts: shifts.filter(s => s.board === base.board).map(s => ({ id: s.id, board: s.board, date, sourcePosition: s.sourcePosition,
+        startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString(), employee: { id: s.employeeId, ...s.employee, email: null },
+        assignments: s.assignments.map((a, i) => ({ id: `${s.id}-${i}`, stationId: a.stationId, hourStart: a.hourStart.toISOString(), hourEnd: a.hourEnd.toISOString() })) })),
+      breaks: base.board === "caja" ? [{ ...booking, startAt: booking.startAt.toISOString(), endAt: booking.endAt.toISOString() }] : [],
+      coverDisplay: projectCoverDisplay(input) } });
+  });
+  await page.goto("/?board=caja");
+  await expect(page.getByTestId("schedule-headcount-9")).toHaveText("2");
+  await expect(page.getByTestId("cover-row-Robin-shift")).toContainText("Robin Example");
+  await page.goto("/?wall=1&board=caja");
+  await expect(page.getByTestId("wall-board")).toHaveAttribute("data-board", "caja");
+  await expect(page.getByTestId(`wall-who-${cajaIds[2]}`)).toContainText("Dan Example");
+  await expect(page.getByTestId(`wall-who-${cajaIds[2]}`)).not.toContainText("Dylan Example");
+  await expect(page.getByTestId(`wall-who-${cajaIds[1]}`)).toContainText("Robin Example");
+  await expect(page.getByTestId(`wall-who-${cajaIds[1]}`)).not.toContainText("Dan Example");
+  await expect(page.getByTestId(`wall-station-${cajaIds[0]}`)).toHaveCount(0);
+  const screens = path.join(process.env.FLOOR_BOARDS_TEST_ROOT!, "b4-cover-display-screens"); mkdirSync(screens, { recursive: true });
+  await page.screenshot({ path: path.join(screens, "shuffle_caja.png"), fullPage: true });
+  await page.goto("/?wall=1&board=cocina");
+  await expect(page.getByTestId("cover-row-Robin-shift")).toContainText("Robin Example");
+  await expect(page.getByTestId(`wall-station-${originId}`)).toHaveCount(0);
+  await page.screenshot({ path: path.join(screens, "shuffle_origin.png"), fullPage: true });
+  for (const [clock, count] of [["9:14 am", 1], ["9:15 am", 0], ["9:30 am", 0], ["9:45 am", 1]] as const) {
+    await page.clock.setSystemTime(at(clock)); await page.reload();
+    await expect(page.getByTestId("cover-row-Robin-shift")).toBeVisible();
+    await expect(page.getByTestId(`wall-station-${originId}`)).toHaveCount(count);
+    if (count) await expect(page.getByTestId(`wall-who-${originId}`)).toContainText("Robin Example");
+  }
+});

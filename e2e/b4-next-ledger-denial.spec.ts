@@ -13,6 +13,9 @@ test("ordinary manager sees an honest weekly-hours restriction, never zero hours
   await page.getByTestId("manager-code-input").fill("2468");
   await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
+  // Unlock finishes by selecting Pintar after its date lookup; wait for that
+  // navigation before selecting the legacy station view for this assertion.
+  await expect(page.getByTestId("manager-color-editor")).toBeVisible();
   await page.getByTestId("compact-board").selectOption("cocina");
   await page.getByTestId("compact-view").selectOption("board");
   await page.getByTestId("compact-hour").selectOption("9");

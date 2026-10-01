@@ -1,4 +1,5 @@
 import { formatInTimeZone } from "date-fns-tz";
+import type { ReactNode } from "react";
 import { isAuxiliaryPosition } from "@/lib/board/auxiliary";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoHourStart, formatCompactHour, hourGridHours } from "@/lib/hour-grid";
@@ -35,12 +36,12 @@ export function SavedShiftHour({ day, shiftId, hour, locale }: { day: DayBoardDt
   return segments ? <SavedHour day={day} hour={hour} segments={segments} locale={locale} /> : null;
 }
 
-export function SavedStationOccupants({ rows, locale, date, hour }: { rows: StationInterval[]; locale: Locale; date: string; hour: number }) {
+export function SavedStationOccupants({ rows, locale, date, hour, wall = false, renderPerson }: { rows: StationInterval[]; locale: Locale; date: string; hour: number; wall?: boolean; renderPerson?: (row: StationInterval) => ReactNode }) {
   const start = +chicagoHourStart(date, hour);
-  return <span className="block space-y-1 text-sm font-bold" data-testid="saved-station-occupants">
+  return <span className={`block space-y-1 font-bold ${wall ? "text-4xl md:text-5xl" : "text-sm"}`} data-testid="saved-station-occupants">
     {rows.length ? rows.map((r, i) => <span key={i} className="block rounded border border-neutral-700 bg-white px-2 py-1 text-neutral-950" data-employee={r.employeeId} data-start={r.startAt} data-end={r.endAt}>
-      <span className="block">{r.name}{r.cover ? ` · ${locale === "es" ? "Cubre" : "Cover"}` : ""}</span>
-      <span className="block text-xs">{intervalLabel(r.startAt, r.endAt)}</span>
+      <span className="block" data-testid="saved-station-name">{renderPerson ? renderPerson(r) : <>{r.name}{r.cover ? ` · ${locale === "es" ? "Cubre" : "Cover"}` : ""}</>}</span>
+      <span className={`block ${wall ? "text-lg md:text-xl" : "text-xs"}`}>{intervalLabel(r.startAt, r.endAt)}</span>
       <span className="relative mt-1 block h-2 bg-neutral-200"><span className="absolute inset-y-0 bg-neutral-900" data-testid="station-interval"
         style={{ left: `${(Date.parse(r.startAt) - start) / 36000}%`, width: `${(Date.parse(r.endAt) - Date.parse(r.startAt)) / 36000}%` }} /></span>
     </span>) : <span>{locale === "es" ? "Sin persona" : "Empty"}</span>}
@@ -50,7 +51,8 @@ export function SavedStationOccupants({ rows, locale, date, hour }: { rows: Stat
 /** Rendering a row never adds a primary shift or changes headcounts. */
 function coverTracks(day: DayBoardDto, includePrimary: boolean) {
   return (day.coverDisplay?.tracks ?? []).filter(t => (includePrimary || !day.shifts.some(s => s.id === t.shiftId))
-    && t.segments.some(s => s.kind === "cover" && (s.station?.board === day.board || s.fromStation?.board === day.board || t.board === day.board)));
+    && t.segments.some(s => (includePrimary && s.kind === "break" && t.board === day.board)
+      || (s.kind === "cover" && (s.station?.board === day.board || s.fromStation?.board === day.board || t.board === day.board))));
 }
 
 /** Insert into the existing time table, so its hour boundaries remain aligned. */

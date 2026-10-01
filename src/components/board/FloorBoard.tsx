@@ -1794,7 +1794,20 @@ export function FloorBoard() {
                     )}
 
                     <div className="mt-auto flex flex-col gap-2">
-                      {savedOccupants !== null ? <SavedStationOccupants rows={savedOccupants} locale={locale} date={date} hour={hour} /> : <>
+                      {savedOccupants !== null ? <SavedStationOccupants rows={savedOccupants} locale={locale} date={date} hour={hour} renderPerson={row => {
+                        // Only an actual base assignment at this seat can expose
+                        // mutation controls. Derived cover keeps its real ledger identity.
+                        const base = !row.cover ? occupied.find(item => item.shift.id === row.shiftId && item.shift.employee.id === row.employeeId) : undefined;
+                        return <span className={cn("flex items-center justify-between gap-2", base && swapFirstId === base.assignment.id && "ring-2 ring-amber-700")}>
+                          <button type="button" className="min-h-11 flex-1 text-left text-sm font-bold active:bg-neutral-100" aria-label={row.name} data-testid={`assignee-${station.id}`}
+                            onClick={() => {
+                              setLedgerEmployeeId(row.employeeId); setLedgerEmployeeName(row.name);
+                              if (base && isManager && !editsLocked) void onSwapSelect(base.assignment.id);
+                            }}>{row.name}{row.cover ? ` · ${locale === "es" ? "Cubre" : "Cover"}` : ""}</button>
+                          {base && isManager && !editsLocked && <button type="button" className="touch-target min-h-11 min-w-11 rounded bg-neutral-900 text-sm font-bold text-white active:bg-neutral-700"
+                            onClick={() => requestClear(base.assignment.id, base.shift, station.id)} aria-label={`Clear ${row.name}`} data-testid={`clear-${station.id}`}>✕</button>}
+                        </span>;
+                      }} /> : <>
                       <QuarterRow quarters={openQuarters} />
                       {occupied.length === 0 && (
                         <button

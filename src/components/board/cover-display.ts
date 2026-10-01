@@ -1,4 +1,4 @@
-import { chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
+import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import type { CoverSegment, CoverTrack } from "@/lib/board/cover-display";
 import type { DayBoardDto } from "./types";
 
@@ -32,6 +32,12 @@ export function savedHourSegments(day: DayBoardDto, shiftId: string, hour: numbe
 }
 
 export type StationInterval = { employeeId: string; shiftId: string; name: string; startAt: string; endAt: string; cover: boolean };
+/** The wall shows current occupancy; the floor retains its complete hour summary. */
+export function savedStationOccupantsNow(day: DayBoardDto, stationId: string, now: Date): StationInterval[] | null {
+  const intervals = savedStationIntervals(day, stationId, chicagoHourOf(now));
+  return intervals?.filter(row => Date.parse(row.startAt) <= +now && +now < Date.parse(row.endAt)) ?? null;
+}
+
 export function savedStationIntervals(day: DayBoardDto, stationId: string, hour: number): StationInterval[] | null {
   const start = +chicagoHourStart(day.date, hour), end = +chicagoHourEnd(day.date, hour);
   const tracks = day.coverDisplay?.tracks ?? [];

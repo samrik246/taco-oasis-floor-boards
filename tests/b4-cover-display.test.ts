@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { projectCoverDisplay, type CoverDisplayShift, type CoverDisplayBooking, type CoverDisplayOverlay } from "@/lib/board/cover-display";
 import { chicagoDateTime } from "@/lib/time";
-import { savedHourSegments, savedStationIntervals } from "@/components/board/cover-display";
+import { savedHourSegments, savedStationIntervals, savedStationOccupantsNow } from "@/components/board/cover-display";
 import { SavedCoverPanel, SavedHour } from "@/components/board/SavedCoverDisplay";
 import { slicesForDay } from "@/components/board/day-slice-input";
 import { SchedulePanel } from "@/components/board/SchedulePanel";
@@ -73,6 +73,16 @@ describe("persisted cover identity and complete movement", () => {
     expect(incoming.seats).toContainEqual({ stationId: "purple1", employeeId: "Dan", source: "cover" });
     expect(outgoing.seats).not.toContainEqual(expect.objectContaining({ employeeId: "Dan" }));
     expect(slicesForDay(origin, input.now).slices[26].seats).toContainEqual(expect.objectContaining({ employeeId: "Dan", stationId: "pdf_tq1r" }));
+  });
+  it("filters wall occupancy with half-open bounds and hides the empty origin until return", () => {
+    const input = fixture(); input.shifts[1] = shift("Dan", "cocina", "pdf_tq1r");
+    input.bookings[0].startAt = at("1:15 pm");
+    const target = dayFrom(input), origin = dayFrom(input, "cocina");
+    for (const [clock, targetPerson, originPeople] of [["1:14 pm", "Dylan", ["Dan"]], ["1:15 pm", "Dan", []], ["1:29 pm", "Dan", []], ["1:30 pm", "Dylan", ["Dan"]]] as const) {
+      expect(savedStationOccupantsNow(target, "purple1", at(clock))?.map(r => r.employeeId)).toEqual([targetPerson]);
+      expect(savedStationOccupantsNow(origin, "pdf_tq1r", at(clock))?.map(r => r.employeeId)).toEqual(originPeople);
+    }
+    expect(savedStationIntervals(target, "purple1", 13)).toHaveLength(3);
   });
   it("splits both Shuffle legs when saved destinations change", () => {
     const input = fixture(); input.shifts[1] = shift("Dan", "caja", "green1"); input.shifts.push(shift("Robin", "other"));
