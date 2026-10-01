@@ -45,7 +45,7 @@ describe("application inventory exact bytes", () => {
   });
   it.each(["root", "interpreter", "launcher", "entry"])("refuses unknown %s keys", (location) => {
     const v = inventory(); const target = { root: v, interpreter: v.interpreter, launcher: v.interpreter.launcher, entry: v.files[0] }[location];
-    Object.assign(target, { unknown: true }); expect(() => parse(v)).toThrow();
+    Object.assign(target!, { unknown: true }); expect(() => parse(v)).toThrow();
   });
   it.each(["schema", "version", "team", "origin", "size-string", "negative-size", "hash", "empty", "duplicate", "reversed", "release-outside", "interpreter-hash", "interpreter-origin", "self", "config"])("refuses closed contract defect %s", (kind) => {
     const v = inventory();
@@ -100,9 +100,9 @@ function harness() {
     const b = bytes.get(path); if (!b) throw new Error("missing"); if (b.length > limit) throw new Error("overflow");
     const parts = path.slice(1).split("/"); parts.pop();
     const snapshot = { descriptor: meta(path, b.length, "file"), pathname: meta(path, b.length, "file"), ancestors: ["/", ...parts.map((_, n) => "/" + parts.slice(0, n + 1).join("/"))].map((p) => ({ path: p, metadata: meta(p, 0, "directory") })) };
-    return { bytes: b, before: snapshot, after: structuredClone(snapshot) };
+    return { bytes: Uint8Array.from(b), before: snapshot, after: structuredClone(snapshot) };
   });
-  const dependencies: InventoryDependencies = { read, serviceIdentity: vi.fn(async () => ({ uid: 501, groups: [20, 80], verified: true })), closure: vi.fn(async () => ({ files: v.files.map(({ path, origin }) => ({ path, origin })), builtins: [{ module: "sys", image: "/runtime/framework" }], complete: true, operationClosure: true, supportedImageStorage: true })) };
+  const dependencies: InventoryDependencies = { read, serviceIdentity: vi.fn(async () => ({ uid: 501, groups: [20, 80], verified: true as const })), closure: vi.fn(async () => ({ files: v.files.map(({ path, origin }) => ({ path, origin })), builtins: [{ module: "sys", image: "/runtime/framework" }], complete: true as const, operationClosure: true as const, supportedImageStorage: true as const })) };
   const expected: InventoryIntakeBinding = { releaseRoot: root, packageRoot: root, python: "/runtime/python", configPath, configHash: digest(configBytes), engineSha: v.engine_sha };
   return { expected, dependencies, read, bytes };
 }
