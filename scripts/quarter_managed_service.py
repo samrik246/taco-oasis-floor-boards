@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from quarter_artifacts import MANIFEST, atomic_json
-from quarter_guard import capture, file_hash, regular, synthetic_paths
+from quarter_guard import capture, file_hash, regular, synthetic_paths, release_paths, directory_handle
 from quarter_importers import timer_readback
 from quarter_service import Service, process_start, group_alive
 
@@ -83,13 +83,12 @@ class ManagedService(Service):
                 raise ValueError('SERVICE_PROFILE_ACCEPTANCE_REQUIRED')
         if not Path(p['node']).is_absolute() or not Path(p['node']).is_file():
             raise ValueError('SERVICE_NODE_REQUIRED')
+        app, run = release_paths(app, run)
         super().__init__(app, database, p['port'], run)
         if self.app.resolve(strict=True) != self.app:
             raise ValueError('SERVICE_APP_LINK')
         self.runtime = self.app / 'var/run'
-        self.runtime.mkdir(parents=True, exist_ok=True)
-        if self.runtime.resolve(strict=True) != self.runtime:
-            raise ValueError('SERVICE_STATE_LINK')
+        with directory_handle(self.runtime, create=True): pass
         self.state = self.runtime / 'quarter-owned-service.json'
         self.intent = self.runtime / 'quarter-service-launch-intent.json'
         self.initial_closed = self.runtime / 'quarter-initial-service-closed.json'
@@ -99,6 +98,7 @@ class ManagedService(Service):
         self.configuration()
 
     def configuration(self):
+        release_paths(self.app, self.run)
         if file_hash(regular(self.profile_path)) != self.profile_sha:
             raise ValueError('SERVICE_PROFILE_CHANGED')
         expected = self.profile['configuration']
@@ -160,7 +160,7 @@ class ManagedService(Service):
         return value
 
     def validate_owner(self, value):
-        if not isinstance(value, dict) or type(value.get('pid')) is not int or value['pid'] <= 1 or not isinstance(value.get('started'), str) or not value['started'].strip():
+        if not isinstance(value, dict) or type(value.get('pid')) is not int or value['pid'] <= 1 or value['pid'] == os.getpid() or not isinstance(value.get('started'), str) or not value['started'].strip():
             raise ValueError('SERVICE_OWNER_RECORD_INVALID')
         if value.get('legacyPidFile') and value['legacyPidFile'] != str(self.runtime / 'floor-boards.pid'):
             raise ValueError('SERVICE_LEGACY_PID_FILE_OUTSIDE_RUNTIME')
@@ -187,6 +187,15 @@ class ManagedService(Service):
             raise ValueError('SERVICE_LISTENER_OWNER_CHANGED')
         return True
 
+    def signal_owned(self, pid, sig, child=None):
+        if type(pid) is not int or pid <= 1 or pid == os.getpid():
+            raise ValueError('SERVICE_OWNER_RECORD_INVALID')
+        from quarter_release import record
+        record(self.run / 'service-events.jsonl', 'signal-owned', controllerPid=os.getpid(), targetPid=pid,
+               signal=int(sig), retainedChild=child is not None)
+        if child is not None: child.send_signal(sig)
+        else: os.kill(pid, sig)
+
     def stop(self):
         self.configuration(); value = self.owned()
         initial = not self.state.exists() and not self.intent.exists()
@@ -201,14 +210,14 @@ class ManagedService(Service):
             subprocess.run(['launchctl', 'bootout', self.domain + '/' + self.profile['launch']['public']['Label']], check=True, timeout=10)
         elif alive:
             if self.profile['mode'] == 'launch-agent': raise ValueError('SERVICE_JOB_MISSING_WITH_LIVE_PROCESS')
-            try: os.kill(value['pid'], signal.SIGTERM)
+            try: self.signal_owned(value['pid'], signal.SIGTERM)
             except ProcessLookupError: pass  # The retained identity is still checked below.
         deadline = time.monotonic() + 30
         while self.check_pid(value, draining=True) and time.monotonic() < deadline: time.sleep(.1)
         if self.check_pid(value, draining=True):
             # Signal only the attested PID. The legacy nohup process may share its group.
             if self.check_pid(value):
-                try: os.kill(value['pid'], signal.SIGKILL)
+                try: self.signal_owned(value['pid'], signal.SIGKILL)
                 except ProcessLookupError: pass
             deadline = time.monotonic() + 5
             while self.check_pid(value, draining=True) and time.monotonic() < deadline: time.sleep(.1)
@@ -246,10 +255,11 @@ class ManagedService(Service):
         launched = False
         try:
             if self.profile['mode'] == 'direct':
+                self.child = None  # A previous completed launch is never this attempt's owner.
                 with (self.run / ('managed-server-' + str(time.time_ns()) + '.log')).open('xb') as output:
+                    launched = True  # Interrupted spawn is uncertain even without a returned handle.
                     self.child = subprocess.Popen(self.command(), cwd=self.app, env=dict(os.environ, DATABASE_URL='file:' + str(self.database), NEXT_TELEMETRY_DISABLED='1'), stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
                 pid = self.child.pid
-                launched = True
             else:
                 # A failed/timeout bootstrap can still have loaded the reviewed job.
                 # Cleanup must query its exact public identity before bootout.
@@ -263,6 +273,8 @@ class ManagedService(Service):
                 if pid is None: raise ValueError('SERVICE_LAUNCH_PID_MISSING')
             started = process_start(pid)
             if not started: raise ValueError('SERVICE_START_FAILED')
+            from quarter_release import record
+            record(self.run / 'service-events.jsonl', 'launch-returned', controllerPid=os.getpid(), childPid=pid, started=started)
             self.pending_owner = {'pid': pid, 'started': started, 'app': str(self.app), 'profileSha256': self.profile_sha, 'nonce': contract['nonce']}
             atomic_json(self.state, self.pending_owner)
             self.readback()
@@ -271,9 +283,11 @@ class ManagedService(Service):
             if self.state.exists():
                 self.stop()
             elif launched and self.profile['mode'] == 'direct':
+                if self.child is None:
+                    raise ValueError('SERVICE_UNPUBLISHED_CLEANUP_REQUIRED')
                 for sig, seconds in ((signal.SIGTERM, 30), (signal.SIGKILL, 5)):
                     if self.child.poll() is not None: break
-                    self.child.send_signal(sig)
+                    self.signal_owned(self.child.pid, sig, self.child)
                     try: self.child.wait(timeout=seconds)
                     except subprocess.TimeoutExpired: continue
                     break
@@ -326,6 +340,7 @@ def synthetic_service(app, database, port, run):
     database = disposable(database)
     app = Path(app).absolute()
     synthetic_paths(database, app, run)
+    release_paths(app, run)
     profile = {'version': 1, 'synthetic': True, 'app': str(app), 'database': str(database),
                'port': port, 'host': '127.0.0.1', 'mode': 'direct', 'node': shutil.which('node'),
                'configuration': {'environment': metadata(app / '.env'), 'importer': None}, 'initial': None}

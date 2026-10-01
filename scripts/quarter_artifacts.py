@@ -12,7 +12,7 @@ sys.dont_write_bytecode = True
 sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
 if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
     raise ValueError('Packet bytecode prefix must remain absent')
-from quarter_guard import canonical, capture, file_hash, hash_value, regular
+from quarter_guard import canonical, capture, file_hash, hash_value, regular, mutable_file, directory_handle
 
 MANIFEST = 'QUARTER_ARTIFACT.json'
 ROOTS = json.loads((Path(__file__).resolve().parent.parent / 'src/lib/quarter/artifact-roots.json').read_text())
@@ -21,11 +21,13 @@ VERSIONS = {'reader': 2, 'writer': 2, 'receipt': 2, 'draft': 1, 'cache': 2, 'sch
 
 
 def atomic_json(path, value):
-    path = Path(path)
+    path = mutable_file(path)
     temporary = path.with_name(path.name + '.tmp-' + str(os.getpid()))
-    with temporary.open('x') as stream:
-        stream.write(canonical(value) + '\n'); stream.flush(); os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    with directory_handle(path.parent) as directory:
+        fd = os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(canonical(value) + '\n'); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary.name, path.name, src_dir_fd=directory, dst_dir_fd=directory)
 
 
 def permitted(name):

@@ -1,0 +1,41 @@
+# Compatible quarter runtime R0
+
+R0 reads schema-2 interval paint and preserves browser drafts, receipts and server history through compatible artifact changes. Its editor offers guarded whole-hour convenience changes. Quarter painting and zoom belong to Q1. `docs/QUARTER_FOUNDATION.md` describes the preceding server slice; it is historical, not an activation or recovery runbook.
+
+## Browser storage and edits
+
+`src/lib/quarter/client/` stores immutable draft generations, a compare-and-swap head, conflict branches, exact submitted bytes and receipts in IndexedDB. A single transaction decides each head update. BroadcastChannel accelerates notification; correctness does not depend on it. A denied/blocked/failed storage operation keeps the proposal visible and refuses to claim retention. Receipt cleanup never deletes a newer generation. Known receipts are reconciled without creating a new request identity; an uncertain submission retains its original bytes and ID.
+
+The V2 cache is a closed interval projection with source bounds, epoch, schema/capability and revision identity. Old V1 data is archived and re-observed rather than silently deleted. Active reads use explicit interval ends; current occupancy and duration counts do not round mixed quarters to hours. R0 cannot replace a newer quarter draft with a whole-hour edit. Mixed/obligated hours refuse whole-hour convenience actions. The same boundary applies to floor placement, clear/swap and back-office seating. Removal/restore carries original interval snapshots and factual minutes. Prepared mode retains the accepted hourly UI while collecting compatible V2 reads.
+
+## Artifacts and release controller
+
+`scripts/quarter_artifacts.py` inventories the actual runtime, static assets and dependencies from `src/lib/quarter/artifact-roots.json`. `QUARTER_ARTIFACT.json` binds source, controller, roots and capabilities. Source-only inventories are distinct from runtime inventories. Environment files, database bytes and runtime evidence are outside the promoted roots. Promotion never restores a database backup.
+
+The supported controller is `scripts/quarter_release.py`, with operations `bootstrap`, `bootstrap-resume`, `install`, `rollback` and `activate`. Each takes explicit `--packet`, `--app`, `--database` and `--run`; optional `--port` must agree with the reviewed service profile. The packet pins the loaded controller, current artifact, accepted R0/target manifests and service profile. Normal target/profile acceptance names different builder and reviewer identities and hashes their retained evidence. Merely preserving an artifact on disk does not authorize it to run against a newer store.
+
+`bootstrap` is the explicit bridge from an inventoried hourly artifact to additive prepared schema. It refuses active or partial state before stopping the old runtime, holds the same release lease, verifies the original 20 preservation tables and DDL, promotes only code, and runs the additive migration under the inherited parent claim. It never falls back to hourly code after migration. `bootstrap-resume` requires the bound packet, app and database inode; it takes a fresh expectation for acknowledged compatible writes.
+
+Install/rollback stop the owned runtime before capturing all 26 preservation tables. After promotion they compare the same database inode, epoch, schema and safe-column digests. A failed/rejected/timed-out candidate is stopped before taking a new recovery expectation, preserving writes acknowledged during checker wait. Missing or incompatible recovery targets keep the service stopped. A passing checker is followed by renewed lease and managed-runtime readback before success is recorded. Losing ownership or failing cleanup is unresolved, not a successful stop.
+
+The release lease is the existing sibling `.taco-oasis-floor-boards-release.lock`, shared by Node imports, host commands and Python controller. No alternate lock domain is introduced. The Python holder binds the directory and claim inodes; claim loss blocks promotion or acceptance. Derived runtime/run/lease directories and evidence leaves reject aliases before writes or service actions. Evidence append and lease writes use directory descriptors and no-follow opens. Importers attest the loaded artifact after waiting for the lease, before provider/browser access or commit. Prepared and active imports preserve their separate duplicate/replay semantics.
+
+## Managed service identity
+
+A version-1 service profile binds canonical `app`, `database`, `port`, `host`, absolute Node executable, mode (`direct` or `launch-agent`), configuration observations and optional initial process identity. The packet supplies its file path and SHA-256. Configuration records hold environment-file metadata only; the adapter does not read environment values. A normal profile also pins the importer timer. Launch-agent mode pins the public descriptor fields `Label`, `ProgramArguments`, `WorkingDirectory`, `KeepAlive` and `RunAtLoad`, descriptor metadata, and the loaded job's public identity.
+
+An initial hourly runtime is identified by exact PID, process start, cwd, listener and, when present, the canonical legacy PID-file metadata. It may share a process group, so stopping it never signals that group. A direct successor owns a new session. Ownership is durable before launch and remains authoritative across publication failures and fresh controller invocations. Unknown launch completion or surviving descendants inhibit replacement. Automatic KeepAlive replacement is not silently adopted by a controller holding an older PID identity.
+
+Before the picker timer starts, `src/instrumentation.ts` awaits `service-startup.ts`. The app validates the startup nonce, profile/artifact hashes, configured and actually opened database, device/inode, schema fingerprint and epoch, then publishes a receipt tied to its PID. HTTP capabilities and that receipt form the managed readback. A listening port alone proves no ownership.
+
+Synthetic mode requires a canonical `/private/tmp/color-boards-test-*` root, a regular database inside it, a contained app/run layout and direct loopback service. It supplies no installed-service authority. Fault-injected launch-agent checks demonstrate refusal logic; actual direct synthetic restarts demonstrate a different boundary. Neither counts as installed LaunchAgent or physical-tablet acceptance.
+
+## Measured clients, activation and evidence
+
+The client inventory names retained/retired profiles explicitly. Each retained floor/wall profile must answer a server challenge with its actual loaded build, origin, role, epoch, protocol/cache/draft versions and IndexedDB readback, plus the operator's matching visible observation. Missing, duplicate, stale or mismatched readbacks refuse. Importer inventory must also account for loaded/waiting processes and the reviewed timer.
+
+Normal activation requires the actual accepted Q1 runtime and R0 recovery pins, prepared-empty state, unchanged schema and fresh measured client/importer evidence under the lease. A synthetic R0 self-rehearsal refuses `ACTUAL_Q1_PIN_REQUIRED`; renaming R0 to Q1 is not a supported proof.
+
+`scripts/quarter-rehearse.py` creates a new disposable database and retains the complete case evidence. The composed suite covers genuine hourly bootstrap, repeat migration, measured clients, both importer phases, host command/replay, fixed-time picker cases and eleven R0 self scenarios, including a three-promotion round trip. Controller sub-proofs are not full acceptance unless browser drafts/cache, exact receipts, ledger/cover reads, preservation guards, fresh writes and cleanup also finish. `verify-r0` checks the composed synthetic evidence and records the six real-Q1 cases separately as pending. It does not grant independent acceptance. Evidence must identify the exact source and manifest that ran.
+
+Actual Q1→R0→Q1 artifact/client-bundle crossings remain required after the real Q1 pin exists. Newer browser draft preservation, exact receipt replay, acknowledged writes during checker wait and incompatible-writer refusals remain mandatory across those crossings. Installation, tablet behavior and physical output have their own acceptance boundaries; local regression results do not close them.

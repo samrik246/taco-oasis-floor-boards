@@ -31,7 +31,7 @@ async function main(){
    result={retained,receipt,dump:await page.evaluate(()=>window.quarterRecovery.dump())};
   }else{
    const expected=JSON.parse(readFileSync(prior,"utf8")),dump=await page.evaluate(()=>window.quarterRecovery.dump());
-   if(JSON.stringify(dump)!==JSON.stringify(expected.dump))throw new Error("RECOVERY_BROWSER_BYTES_CHANGED");
+   if(JSON.stringify(dump)!==JSON.stringify(mode==="preserve"?expected.after:expected.dump))throw new Error("RECOVERY_BROWSER_BYTES_CHANGED");
    result=mode==="reconcile"?{preserved:dump,reconciliation:await page.evaluate(scope=>window.quarterRecovery.reconcile(scope),expected.retained.scope),after:await page.evaluate(()=>window.quarterRecovery.dump())}:{preserved:dump};
   }
   writeFileSync(output,JSON.stringify(result)+"\n");

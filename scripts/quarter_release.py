@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import time
 import uuid
 # Ignore all cached application bytecode before importing the pinned source modules.
@@ -14,49 +15,71 @@ sys.dont_write_bytecode = True
 sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
 if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
     raise ValueError('Packet bytecode prefix must remain absent')
-from quarter_guard import canonical, capture, connect, file_hash, hash_value, preserved
+from quarter_guard import canonical, capture, connect, file_hash, hash_value, preserved, mutable_directory, mutable_file, directory_handle, release_paths
 import quarter_artifacts as artifacts
 
 
 def record(log, action, **values):
-    with Path(log).open('a') as stream:
-        stream.write(canonical({'atMs': int(time.time() * 1000), 'action': action, **values}) + '\n'); stream.flush(); os.fsync(stream.fileno())
+    log = mutable_file(log)
+    with directory_handle(log.parent) as directory:
+        fd = os.open(log.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+        with os.fdopen(fd, 'w') as stream:
+            opened = os.fstat(stream.fileno()); current = os.stat(log.name, dir_fd=directory, follow_symlinks=False)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                raise ValueError('MUTABLE_FILE_NOT_REGULAR')
+            stream.write(canonical({'atMs': int(time.time() * 1000), 'action': action, **values}) + '\n'); stream.flush(); os.fsync(stream.fileno())
 
 
 @contextlib.contextmanager
 def release_lease(app, wait_seconds=10):
-    directory = Path(app).absolute().parent / '.taco-oasis-floor-boards-release.lock'
-    directory.mkdir(exist_ok=True)
-    claim = directory / (str(os.getpid()) + '.' + uuid.uuid4().hex)
-    deadline = time.monotonic() + wait_seconds
-    while True:
-        claim.touch(exist_ok=False)
-        others = [p for p in directory.iterdir() if re.fullmatch(r'[1-9][0-9]*\.[A-Za-z0-9]+', p.name) and p != claim]
-        if not others:
-            break
-        claim.unlink()
-        for other in others:
-            try:
-                os.kill(int(other.name.split('.')[0]), 0)
-            except ProcessLookupError:
-                other.unlink(missing_ok=True)
-            except PermissionError:
-                # Exclusion is conservative; an inaccessible process remains an owner.
-                pass
-        if time.monotonic() >= deadline:
-            raise ValueError('RELEASE_BUSY')
-        time.sleep(0.1)
-    try:
-        yield lambda: require_lease(directory, claim)
-    finally:
-        claim.unlink(missing_ok=True)
-
-
-def require_lease(directory, claim):
-    claims = [p.name for p in directory.iterdir() if re.fullmatch(r'[1-9][0-9]*\.[A-Za-z0-9]+', p.name)]
-    if claims != [claim.name]:
-        raise ValueError('RELEASE_LEASE_LOST')
-    return claim.name
+    directory = mutable_directory(Path(app).absolute().parent / '.taco-oasis-floor-boards-release.lock')
+    claim = str(os.getpid()) + '.' + uuid.uuid4().hex
+    with directory_handle(directory, create=True) as folder:
+        identity = os.fstat(folder)
+        deadline = time.monotonic() + wait_seconds
+        def bound():
+            with directory_handle(directory) as current:
+                observed = os.fstat(current)
+                if (observed.st_dev, observed.st_ino) != (identity.st_dev, identity.st_ino):
+                    raise ValueError('RELEASE_LEASE_LOST')
+        def claims():
+            bound()
+            result = {}
+            for name in os.listdir(folder):
+                if not re.fullmatch(r'[1-9][0-9]*\.[A-Za-z0-9]+', name): continue
+                try: info = os.stat(name, dir_fd=folder, follow_symlinks=False)
+                except FileNotFoundError: continue
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError('RELEASE_CLAIM_NOT_REGULAR')
+                result[name] = (info.st_dev, info.st_ino)
+            return result
+        def remove(name, expected):
+            try: current = os.stat(name, dir_fd=folder, follow_symlinks=False)
+            except FileNotFoundError: return
+            if (current.st_dev, current.st_ino) != expected:
+                raise ValueError('RELEASE_LEASE_LOST')
+            os.unlink(name, dir_fd=folder)
+        claim_identity = None
+        try:
+            while True:
+                others = claims()
+                fd = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+                info = os.fstat(fd); os.close(fd); claim_identity = (info.st_dev, info.st_ino)
+                others = {name: value for name, value in claims().items() if name != claim}
+                if not others: break
+                remove(claim, claim_identity); claim_identity = None
+                for name, expected in others.items():
+                    try: os.kill(int(name.split('.')[0]), 0)
+                    except ProcessLookupError: bound(); remove(name, expected)
+                    except PermissionError: pass  # An inaccessible process remains an owner.
+                if time.monotonic() >= deadline: raise ValueError('RELEASE_BUSY')
+                time.sleep(.1)
+            def owned():
+                if claims() != {claim: claim_identity}: raise ValueError('RELEASE_LEASE_LOST')
+                return claim
+            yield owned
+        finally:
+            if claim_identity is not None: remove(claim, claim_identity)
 
 
 def load_packet(path):
@@ -145,6 +168,7 @@ def activate(packet_path, app, database, log):
     packet = load_packet(packet_path)
     if packet.get('syntheticR0SelfRehearsal'):
         raise ValueError('ACTUAL_Q1_PIN_REQUIRED')
+    release_paths(app, Path(log).parent); mutable_file(log)
     with release_lease(app) as owned:
         target(packet, 'r0', database); target(packet, 'candidate', database)
         guard = capture(database)
@@ -172,7 +196,9 @@ def cutover(packet_path, app, database, run, operation, service, checker, fault=
     if synthetic:
         from quarter_guard import synthetic_paths
         synthetic_paths(database, app, run)
-    run = Path(run); run.mkdir(parents=True, exist_ok=True); log = run / 'events.jsonl'
+    app, run = release_paths(app, run)
+    with directory_handle(run, create=True): pass
+    log = run / 'events.jsonl'
     accepted = not synthetic
     chosen = 'r0' if operation == 'rollback' else 'candidate'
     with release_lease(app) as owned:
@@ -208,8 +234,10 @@ def cutover(packet_path, app, database, run, operation, service, checker, fault=
             service.stop(); before = capture(database); record(log, 'recovery-post-stop-guard', guard=before)
             try:
                 owned(); target(packet, 'r0', database, accepted); fault('recovery-verify')
+                record(log, 'recovery-promote-start', controllerPid=os.getpid())
                 promote(packet['r0']['path'], app, packet['r0']['manifestSha256'], run)
                 preserved(before, capture(database)); owned(); artifacts.verify(app, packet['r0']['manifestSha256'], database)
+                record(log, 'recovery-service-start', controllerPid=os.getpid())
                 service.start(); service.readback()
                 if checker('recovery') != 'pass':
                     raise ValueError('RECOVERY_CHECKER_FAILED')

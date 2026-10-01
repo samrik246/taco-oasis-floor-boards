@@ -21,7 +21,7 @@ async function main(){
     return;
   }
   const receipts:unknown[]=[],requests:unknown[]=[];
-  const batches=mode==="fresh"?[[{shiftId,quarter:"11:00",granularity:"quarter",action:"station",stationId:"yellow"}]] as const:[[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],
+  const batches=mode==="fresh"?[[{shiftId,quarter:"11:00",granularity:"hour",action:"station",stationId:"yellow"}]] as const:[[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],
     [{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"blue"}]] as const;
   for(const intents of batches){
     const day=await getDay();const command={protocol:2,requestId:randomUUID(),capabilitySha256:day.capabilitySha256,board:"caja",date,expected:{databaseEpoch:day.databaseEpoch,worldRevision:day.worldRevision},

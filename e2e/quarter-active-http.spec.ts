@@ -8,6 +8,7 @@ import type {PublicDayV2} from "../src/lib/quarter/client/day";
 import {fromZonedTime} from "date-fns-tz";
 import {safeDatabasePath} from "../scripts/test-db-path.cjs";
 const date="2040-10-10",person="r0-http-person",shift="r0-http-source",origin="http://floor-boards.test:3100";
+const apiOrigin="http://127.0.0.1:3100";
 const controlPerson="r0-controls-person",controlShift="r0-controls-source";
 let db:PrismaClient,activated=false;
 const requests:string[]=[];
@@ -180,9 +181,9 @@ function trackControls(page:Page){
  return legacy;
 }
 async function apiDay(page:Page){
- const login=await page.request.post(`${origin}/api/managers`,{data:{code:"e2e-second-owner"}});expect(login.ok()).toBe(true);
+ const login=await page.request.post(`${apiOrigin}/api/managers`,{data:{code:"e2e-second-owner"}});expect(login.ok()).toBe(true);
  const {sessionToken}=await login.json();const headers={"x-manager-session":sessionToken};
- const result=await page.request.get(`${origin}/api/v2/boards/caja/days/${date}`,{headers});expect(result.ok()).toBe(true);
+ const result=await page.request.get(`${apiOrigin}/api/v2/boards/caja/days/${date}`,{headers});expect(result.ok()).toBe(true);
  return {day:await result.json() as PublicDayV2,headers};
 }
 async function desk(page:Page,tab:string){
@@ -196,17 +197,17 @@ test("active floor whole-shift placement, swap and clear use retained V2 control
  await page.getByTestId("compact-view").selectOption("board");await page.getByTestId("compact-hour").selectOption("11");
  await page.getByTestId(`available-${controlPerson}`).click();
  const assigned=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
- await page.getByTestId("station-yellow").click();expect((await assigned).status()).toBe(200);
- await expect(page.getByTestId("assignee-yellow")).toContainText("Controls");
+ await page.getByTestId("station-yellow").locator("button").first().click();expect((await assigned).status()).toBe(200);
+ await expect(page.getByTestId("assignee-yellow").first()).toContainText("Controls");
  const placed=(await apiDay(page)).day.hours.filter(h=>h.shiftId===controlShift);
  expect(placed.flatMap(h=>h.intervals).filter(i=>i.state==="assigned").every(i=>i.stationId==="yellow")).toBe(true);
  expect(placed.flatMap(h=>h.intervals).reduce((n,i)=>n+(i.state==="assigned"?(Date.parse(i.endAt)-Date.parse(i.startAt))/60000:0),0)).toBe(120);
- await page.getByTestId("assignee-green1").click();
+ await page.getByTestId("assignee-green1").first().click();
  const swapped=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/operations")&&r.request().method()==="POST");
- await page.getByTestId("assignee-yellow").click();const swap=await swapped;expect(swap.status()).toBe(200);expect(swap.request().postDataJSON().operation).toBe("swap");
- await expect(page.getByTestId("assignee-green1")).toContainText("Controls");await expect(page.getByTestId("assignee-yellow")).toContainText("R0");
+ await page.getByTestId("assignee-yellow").first().click();const swap=await swapped;expect(swap.status()).toBe(200);expect(swap.request().postDataJSON().operation).toBe("swap");
+ await expect(page.getByTestId("assignee-green1").first()).toContainText("Controls");await expect(page.getByTestId("assignee-yellow").first()).toContainText("R0");
  const erased=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
- await page.getByTestId("clear-yellow").click();expect((await erased).status()).toBe(200);await expect(page.getByTestId("assignee-yellow")).toHaveCount(0);
+ await page.getByTestId("clear-yellow").first().click();expect((await erased).status()).toBe(200);await expect(page.getByTestId("assignee-yellow")).toHaveCount(0);
  const day=(await apiDay(page)).day;
  expect(day.hours.find(h=>h.shiftId===shift&&h.hourStart===fromZonedTime(`${date}T11:00:00`,"America/Chicago").toISOString())?.intervals.every(i=>i.state==="erased")).toBe(true);
  expect(legacy).toEqual([]);
@@ -220,7 +221,7 @@ test("active back-office seat save and mixed-hour refusal preserve exact interva
  await page.getByTestId("seat-save").click();expect((await saved).status()).toBe(200);
  await expect(page.getByTestId("back-office-toast")).toBeVisible();
  const {day,headers}=await apiDay(page),requestId=randomUUID();requests.push(requestId);
- const response=await page.request.put(`${origin}/api/v2/assignments/paint`,{headers:{...headers,"Content-Type":"application/vnd.floor-boards.paint-v2+json","X-Floor-Boards-Protocol":"2"},data:{protocol:2,requestId,capabilitySha256:day.capabilitySha256,board:"caja",date,
+ const response=await page.request.put(`${apiOrigin}/api/v2/assignments/paint`,{headers:{...headers,"Content-Type":"application/vnd.floor-boards.paint-v2+json","X-Floor-Boards-Protocol":"2"},data:{protocol:2,requestId,capabilitySha256:day.capabilitySha256,board:"caja",date,
   expected:{databaseEpoch:day.databaseEpoch,worldRevision:day.worldRevision},sources:day.sources.filter(s=>s.shiftId===controlShift),hours:day.hours.filter(h=>h.shiftId===controlShift).map(h=>({shiftId:h.shiftId,hourStart:h.hourStart,revision:h.revision,...(h.revision===null?{legacySha256:h.legacySha256}:{})})),
   intents:[{shiftId:controlShift,quarter:"12:15",granularity:"quarter",action:"station",stationId:"purple1"}]}});expect(response.status()).toBe(200);
  const before=(await apiDay(page)).day;
@@ -252,4 +253,32 @@ test("active removal and restore show factual minutes and preserve the mixed sav
  await expect(page.getByTestId(`shift-removal-row-${controlShift}`)).toBeVisible();
  const actual=(await apiDay(page)).day.hours.filter(h=>h.shiftId===controlShift).flatMap(h=>h.intervals).map(({startAt,endAt,state,stationId,seatNumber})=>({startAt,endAt,state,stationId,seatNumber}));
  expect(actual).toEqual(intervals);expect(legacy).toEqual([]);
+});
+
+test("active import UI presents interval minutes, original replay and fixed skips from the V2 response",async({page})=>{
+ // Presentation/dispatch fixture; real commit/replay behavior is exercised by
+ // quarter-adapters, quarter-boundaries and both actual importer rehearsal phases.
+ await desk(page,"turnos");await page.getByTestId("back-office-locale").click();
+ const bodies:string[]=[];let legacy=0;
+ page.on("request",r=>{if(r.method()==="POST"&&new URL(r.url()).pathname==="/api/imports")legacy++;});
+ await page.route("**/api/v2/imports",async route=>{
+  const request=route.request(),body=request.postData()!;bodies.push(body);
+  expect(request.headers()["x-floor-boards-protocol"]).toBe("2");expect(request.headers()["x-floor-boards-capability"]).toBeTruthy();
+  const preview=body.includes('\r\n\r\npreview\r\n');
+  const cell={board:"caja",stationId:"green1",hour:11,startAt:fromZonedTime(`${date}T11:15:00`,"America/Chicago").toISOString(),endAt:fromZonedTime(`${date}T11:30:00`,"America/Chicago").toISOString(),minutes:15};
+  const data=preview?{fingerprint:"synthetic-fingerprint",planDigest:"synthetic-plan",needsConfirm:true,refusals:[],dates:[{date,added:0,changed:1,replaced:0,unchanged:0,removed:0,skippedOpenShifts:0,assignmentsKept:5,paintMinutesKept:75,assignmentsToTransfer:[cell],assignmentsToRemove:[{...cell,endAt:fromZonedTime(`${date}T11:20:00`,"America/Chicago").toISOString(),minutes:5}]}]}:
+   {replayed:true,rowCount:1,fixedSkipped:[{shiftId:controlShift,hour:12,reason:"ADOPTED_HOUR"}],originalImport:{filename:"original-synthetic.csv",importedAt:"2040-10-01T12:00:00.000Z",rowCount:1}};
+  await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(data)});
+ });
+ await page.getByTestId("back-office-upload").setInputFiles({name:"synthetic.csv",mimeType:"text/csv",buffer:Buffer.from("synthetic presentation fixture\n")});
+ await expect(page.getByTestId(`import-preview-${date}`)).toContainText("1 changed");
+ await expect(page.getByTestId(`import-preview-${date}`)).toContainText("75 min preserved");
+ await expect(page.getByTestId(`import-preview-${date}`)).toContainText("15 min transferred");
+ await expect(page.getByTestId("import-transfers")).toContainText("11:15 AM–11:30 AM (15 min)");
+ await expect(page.getByTestId("import-removals")).toContainText("11:15 AM–11:20 AM (5 min)");
+ await page.getByTestId("import-preview-confirm").click();
+ await expect(page.getByTestId("back-office-upload-notice")).toHaveText("Already imported; original result recovered.");
+ await expect(page.getByTestId("import-result-detail").filter({hasText:"Fixed placement skipped"})).toContainText(`${controlShift} · 12:00 · ADOPTED_HOUR`);
+ await expect(page.getByTestId("import-result-detail").filter({hasText:"Original import"})).toContainText("original-synthetic.csv");
+ expect(bodies).toHaveLength(2);expect(bodies[1]).toContain("synthetic-fingerprint");expect(bodies[1]).toContain("synthetic-plan");expect(legacy).toBe(0);
 });

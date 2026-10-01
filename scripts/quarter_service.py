@@ -8,7 +8,7 @@ import subprocess
 import time
 import urllib.request
 from quarter_artifacts import atomic_json
-from quarter_guard import canonical, file_hash
+from quarter_guard import canonical, file_hash, directory_handle
 
 
 def process_start(pid):
@@ -34,7 +34,8 @@ def port_idle(port):
 class Service:
     def __init__(self, app, database, port, run):
         self.app = Path(app).absolute(); self.database = Path(database).absolute(); self.port = port
-        self.run = Path(run).absolute(); self.run.mkdir(parents=True, exist_ok=True)
+        self.run = Path(run).absolute()
+        with directory_handle(self.run, create=True): pass
         self.state = self.app.parent / ('quarter-service-' + str(port) + '.json')
 
     def owned_group_alive(self, pid):

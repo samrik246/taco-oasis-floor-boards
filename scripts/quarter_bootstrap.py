@@ -92,7 +92,9 @@ def bootstrap(packet_path, app, database, run, service, checker, resume=False, f
     if synthetic:
         from quarter_guard import synthetic_paths
         synthetic_paths(database, app, run)
-    run.mkdir(parents=True, exist_ok=True)
+    from quarter_guard import release_paths, directory_handle
+    app, run = release_paths(app, run)
+    with directory_handle(run, create=True): pass
     binding = {'packetSha256': file_hash(packet_path), 'app': str(app), 'database': str(database)}
     with release_lease(app) as owned:
         target(packet, 'r0', None, accepted=not synthetic)

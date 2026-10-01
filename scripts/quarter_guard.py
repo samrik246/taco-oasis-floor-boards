@@ -1,10 +1,12 @@
 """Schema-2 preservation guard. Explicit safe-column reads; no database copy/restore."""
 from pathlib import Path
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 import re
 import sqlite3
+import stat
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / 'src/lib/quarter/preservation-columns.json'
@@ -53,6 +55,54 @@ def synthetic_paths(database, *paths):
         if path == root or not path.is_relative_to(root) or path.resolve() != path or (path.exists() and not path.is_dir()):
             raise ValueError('SYNTHETIC_MUTABLE_PATH_OUTSIDE_ROOT')
     return root
+
+
+def mutable_directory(value):
+    """Validate even missing descendants before creating any of them."""
+    path = Path(value).absolute()
+    if path.resolve() != path or (path.exists() and not path.is_dir()):
+        raise ValueError('MUTABLE_DIRECTORY_LINK_OR_TYPE')
+    return path
+
+
+@contextmanager
+def directory_handle(value, create=False):
+    path = mutable_directory(value)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(path.anchor, flags)
+    try:
+        for part in path.parts[1:]:
+            try:
+                child = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create: raise
+                try: os.mkdir(part, dir_fd=fd)
+                except FileExistsError: pass
+                child = os.open(part, flags, dir_fd=fd)
+            os.close(fd); fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def mutable_file(value):
+    path = Path(value).absolute()
+    mutable_directory(path.parent)
+    try: info = path.lstat()
+    except FileNotFoundError: return path
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError('MUTABLE_FILE_NOT_REGULAR')
+    return path
+
+
+def release_paths(app, run):
+    """Known derived paths are checked before profile writes or service actions."""
+    app = mutable_directory(app); run = mutable_directory(run)
+    mutable_directory(app / 'var/run')
+    mutable_directory(app.parent / '.taco-oasis-floor-boards-release.lock')
+    for name in ('events.jsonl', 'bootstrap-events.jsonl', 'bootstrap.json', 'service-events.jsonl'):
+        mutable_file(run / name)
+    return app, run
 
 
 def quote(name):

@@ -15,6 +15,7 @@ def run_scenario(root, manifest_file, scenario):
     root = Path(root); fixture = json.loads((root / 'fixture.json').read_text()); database = Path(fixture['database'])
     base = load_packet(manifest_file)
     self_run = scenario.startswith('r0-self-')
+    roundtrip = scenario in ('normal-r0-q1-r0-q1', 'r0-self-roundtrip')
     if self_run != bool(base.get('syntheticR0SelfRehearsal')):
         raise ValueError('SCENARIO_PACKET_KIND_MISMATCH')
     if not self_run and verify(base['candidate']['path'], base['candidate']['manifestSha256'])['role'] != 'QP_UI_Q1':
@@ -53,14 +54,14 @@ def run_scenario(root, manifest_file, scenario):
             raise ValueError('REHEARSAL_CLIENT_FAILED')
     def picker(label):
         output = run / ('picker-' + label + '.json')
-        command = ['node',str(app / 'node_modules/tsx/dist/cli.mjs'),str(app / 'scripts/quarter-rehearsal-picker.ts'),date,source,str(output),label]
+        command = ['node',str(app / 'node_modules/tsx/dist/cli.mjs'),str(app / 'scripts/quarter-rehearsal-picker.ts'),date,source,str(output),'before' if label == 'before' else 'after']
         result = subprocess.run(command,cwd=app,capture_output=True,text=True)
         (run / ('picker-' + label + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode: raise ValueError('REHEARSAL_PICKER_FAILED:' + label)
     browser_seed = run / 'browser-seed.json'
     profile = run / 'browser-profile'
-    def browser(mode, output):
-        command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-browser.ts'), mode, str(profile), date, source, str(output), str(browser_seed)]
+    def browser(mode, output, prior=browser_seed):
+        command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-browser.ts'), mode, str(profile), date, source, str(output), str(prior)]
         record(run / 'browser-commands.jsonl', 'start', argv=command)
         result = subprocess.run(command, cwd=app, capture_output=True, text=True)
         (run / ('browser-' + mode + '.log')).write_text(result.stdout + result.stderr)
@@ -119,7 +120,7 @@ def run_scenario(root, manifest_file, scenario):
             if fault_phase in ('before-promote', 'after-promote'):
                 acknowledge()  # Fresh expectation includes writes accepted before stopping.
             result = cutover(packet_file, app, database, run / 'cutover', 'install', service, checker, fault)
-            if 'rollback' in scenario:
+            if 'rollback' in scenario or roundtrip:
                 packet['currentManifestSha256'] = file_hash(app / MANIFEST); atomic_json(packet_file, packet)
                 result = cutover(packet_file, app, database, run / 'rollback', 'rollback', service, lambda phase: 'pass')
             if before_recovery is None:
@@ -140,11 +141,28 @@ def run_scenario(root, manifest_file, scenario):
                 client('fresh', run / 'post-recovery-write.json')
                 client('replay', run / 'post-recovery-replay.json', run / 'post-recovery-write.json')
                 atomic_json(run / 'post-recovery-write-guard.json', capture(database))
+                if roundtrip:
+                    # R0 has now read/replayed the candidate writes and accepted a fresh
+                    # command. Return to the actual candidate against that new expectation.
+                    client('read', run / 'r0-post-write-read.json')
+                    current = capture(database)
+                    packet['currentManifestSha256'] = file_hash(app / MANIFEST); atomic_json(packet_file, packet)
+                    if cutover(packet_file, app, database, run / 'return-candidate', 'install', service, lambda phase: 'pass') != 'accepted':
+                        raise ValueError('ROUNDTRIP_RETURN_NOT_ACCEPTED')
+                    preserved(current, capture(database))
+                    client('read', run / 'returned-candidate-read.json')
+                    if json.loads((run / 'r0-post-write-read.json').read_text()) != json.loads((run / 'returned-candidate-read.json').read_text()):
+                        raise ValueError('ROUNDTRIP_INTERVAL_READ_CHANGED')
+                    browser('preserve', run / 'browser-returned-candidate.json', run / 'browser-reconciled.json')
+                    client('replay', run / 'returned-original-replay.json', writes)
+                    client('replay', run / 'returned-r0-replay.json', run / 'post-recovery-write.json')
+                    replay_preserved(current, capture(database)); picker('after-return')
             else:
                 if service.state.exists():
                     raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')
                 browser('inspect', run / 'browser-offline-preserved.json')
         record(root / 'evidence/rehearsal.jsonl', 'scenario-controller-proof', scenario=scenario, outcome='controller-passed', controllerOutcome=result,
-               pending=['expanded-picker-mismatch-cross-board-shuffle-races','full-importer-and-activation-proofs'], browserStores=bool(before_recovery), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
+               pending=['composed-proof-summary','actual-Q1-artifact-crossings'] if self_run else ['composed-proof-summary'],
+               roundtrip=roundtrip, browserStores=bool(before_recovery), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
     finally:
         service.stop()
