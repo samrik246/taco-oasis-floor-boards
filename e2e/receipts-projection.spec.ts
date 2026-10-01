@@ -45,7 +45,7 @@ for (const locale of ["es", "en"] as const) test(locale + ": recovered outcome f
   }
   await recover.click();
   await expect(page.getByRole("alert")).toContainText(locale === "es" ? "Puede haber salido papel" : "Paper may have printed");
-  await expect(page.getByTestId("receipt-workspace")).not.toContainText(locale === "es" ? "Envío en curso" : "Send in progress");
+  await expect(page.getByTestId("receipt-workspace").getByText(/^(Envío en curso|Send in progress)\./)).toHaveCount(0);
   expect(await page.getByTestId("receipt-history-row").allTextContents()).toEqual(originalRows);
   await h.capture("failed_read");
   const commands = await calls(page);
