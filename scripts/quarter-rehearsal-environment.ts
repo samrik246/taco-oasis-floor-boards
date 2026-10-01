@@ -1,6 +1,7 @@
 /** Read-only synthetic installed-layout proof. Never invokes maintenance entrypoints. */
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { artifactAppDir } from "../src/lib/quarter/artifact-root";
 import { safeDatabasePath } from "./test-db-path.cjs";
 
 async function main(){
@@ -16,7 +17,7 @@ async function main(){
     if(!opened||realpathSync(opened)!==target)throw new Error("ENVIRONMENT_PROOF_OPENED_MISMATCH");
     const actual=statSync(opened),intended=statSync(target);
     if(actual.dev!==intended.dev||actual.ino!==intended.ino)throw new Error("ENVIRONMENT_PROOF_IDENTITY_MISMATCH");
-    console.log(JSON.stringify({mode,parentDatabaseAbsent:true,envFileFlag:false,path:target,device:actual.dev,inode:actual.ino}));
+    console.log(JSON.stringify({mode,parentDatabaseAbsent:true,envFileFlag:false,path:target,device:actual.dev,inode:actual.ino,launchDirectory:process.cwd(),app:artifactAppDir()}));
   }finally{await client.$disconnect();}
 }
 main().catch(()=>{console.error("ENVIRONMENT_PROOF_FAILED");process.exitCode=1;});

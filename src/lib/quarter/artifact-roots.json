@@ -42,5 +42,18 @@
   "scripts/quarter_managed_service.py",
   "scripts/quarter_rehearsal_agent.py",
   "scripts/quarter-rehearsal-measurements.ts",
-  "scripts/quarter_rehearsal_measurements.py"
+  "scripts/quarter_rehearsal_measurements.py",
+  "scripts/quarter-rehearsal-environment.ts",
+  "scripts/quarter_rehearsal_environment.py",
+  "scripts/agent-paint.ts",
+  "scripts/seed-ability-columns.ts",
+  "scripts/import-staff-passcodes.ts",
+  "scripts/readiness-check.ts",
+  "scripts/upgrade-home-base.ts",
+  "scripts/seed-position-map.ts",
+  "scripts/set-owner.ts",
+  "scripts/s14-station-colours.ts",
+  "scripts/s15-carne-relleno.ts",
+  "scripts/clear-employee-emails.ts",
+  "prisma/seed.ts"
 ]

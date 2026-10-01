@@ -87,9 +87,10 @@ def verify_r0(root, database, value, packet):
     def read(name): return json.loads((root / 'evidence' / name).read_text())
     bootstrap_records = [json.loads(line) for line in (root / 'evidence' / paths[0]).read_text().splitlines()]
     if bootstrap_records[-1].get('action') != 'accepted': raise ValueError('HOURLY_BOOTSTRAP_PROOF_REQUIRED')
+    from quarter_rehearsal_environment import delivered_files
     environment = read('environment/completed.json')
-    expected_observations = [{'mode': mode, 'parentDatabaseAbsent': True, 'envFileFlag': False, 'path': str(database), 'device': database.stat().st_dev, 'inode': database.stat().st_ino} for mode in ('shared', 'direct')]
-    if environment.get('runtimeManifestSha256') != value['r0']['manifestSha256'] or environment.get('observations') != expected_observations or environment.get('database') != capture(database)['database'] or environment.get('configurationRemoved') is not True:
+    expected_observations = [{'mode': mode, 'parentDatabaseAbsent': True, 'envFileFlag': False, 'path': str(database), 'device': database.stat().st_dev, 'inode': database.stat().st_ino, 'launchDirectory': str(cwd), 'app': str(app)} for cwd in (app, root / 'environment-other-cwd') for mode in ('shared', 'direct')]
+    if environment.get('runtimeManifestSha256') != value['r0']['manifestSha256'] or environment.get('observations') != expected_observations or environment.get('database') != capture(database)['database'] or environment.get('configurationRemoved') is not True or environment.get('deliveredFiles') != delivered_files(app, manifest):
         raise ValueError('ENVIRONMENT_PROOFS_INCOMPLETE')
     measured = read('measurements/completed.json')
     if measured.get('realLoadedProfiles') != 2 or measured.get('activation') != 'actual-Q1-required': raise ValueError('CLIENT_PROOFS_INCOMPLETE')
