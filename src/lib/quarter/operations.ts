@@ -15,6 +15,7 @@ export const operationSchema=z.discriminatedUnion("operation",[
   envelope.extend({operation:z.literal("whole-shift"),shiftId:z.string().min(1),stationId:z.string().min(1).nullable(),...reason}),
   envelope.extend({operation:z.literal("swap"),leftShiftId:z.string().min(1),rightShiftId:z.string().min(1),quarter:z.string(),granularity:z.enum(["hour","quarter"]),...reason}),
   envelope.extend({operation:z.literal("copy"),sourceDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),sourceSources:z.array(sourceExpectation),sourceHours:z.array(hourExpectation),
+    mode:z.enum(["preview","commit"]),previewSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
     mapping:z.array(z.strictObject({fromShiftId:z.string().min(1),toShiftId:z.string().min(1)})).min(1).max(500)}),
 ]);
 export type QuarterOperation=z.infer<typeof operationSchema>;
@@ -92,11 +93,16 @@ export async function operateV2(input:unknown,actor:CommandActor,now=new Date(),
     peerHours(after,touched,targets);projectSeatNumbers(after);
     await validatePaintWorld(db,after,touched);await validateObligations(db,before,after,now);
     const changed=after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs)));
+    const preview={clippedMinutes:clippedMs/60_000,expected:op.expected,mapping:op.mapping,
+      intervals:changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),segments:h.segments.map(({startMs,endMs,state,stationId,seatNumber})=>({startMs,endMs,state,stationId,seatNumber}))}))};
+    const previewSha256=digest(preview);
+    if(op.mode==="preview")return {ok:true,preview:true,previewSha256,...preview};
+    if(op.previewSha256!==previewSha256)throw new QuarterRefused("COPY_PREVIEW_CHANGED");
     for(const h of changed){const original=before.hours.find(o=>hourKey(o.shiftId,o.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!;
       await persistHour(db,h,now);await recordMutation(db,actor.id,op.requestId,original,h,now,{operation:"copy"});}
     await resolvePaintWorld(db,op.date);
-    const response={ok:true as const,requestId:op.requestId,requestSha256:hash,databaseEpoch:op.expected.databaseEpoch,committedRevision:await worldRevision(db),
-      clippedMinutes:clippedMs/60_000,hours:changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision!})),refreshRequired:true as const};
+    const response={dates:[op.date,op.sourceDate],ok:true as const,requestId:op.requestId,requestSha256:hash,databaseEpoch:op.expected.databaseEpoch,committedRevision:await worldRevision(db),
+      ...(op.draftSubmission?{draftSubmission:op.draftSubmission}:{}),previewSha256,clippedMinutes:clippedMs/60_000,hours:changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision!})),refreshRequired:true as const};
     await db.$executeRawUnsafe("INSERT INTO PaintCommandReceipt VALUES (?,?,?,?,?,?,?,?)",actor.id,op.requestId,hash,op.expected.databaseEpoch,op.expected.worldRevision,response.committedRevision,canonical(response),+now);
     return response;
   });

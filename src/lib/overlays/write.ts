@@ -1,3 +1,4 @@
+import { quarterState } from "@/lib/quarter/schema";
 import { decisionPaints } from "@/lib/quarter/decision-paint";
 import { formatInTimeZone } from "date-fns-tz";
 import type { Prisma } from "@prisma/client";
@@ -188,6 +189,7 @@ async function starAcceptsNamedCover(
   const extra = marks.map((mark) => mark.stationId).filter((id) => !isDefaultMandatory(id));
   const starStationIds = [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra];
   const paints: SlicePaint[] = await decisionPaints(tx, input.date);
+  const canonical=(await quarterState(tx))?.phase === "active";
   const stored = await tx.staffBreak.findMany({
     where: { date: input.date },
     select: {
@@ -198,6 +200,8 @@ async function starAcceptsNamedCover(
       endAt: true,
       status: true,
       coverEmployeeId: true,
+      coverShiftId: true,
+      shuffleShiftId: true,
       shuffleEmployeeId: true,
       auto: true,
     },
@@ -213,6 +217,7 @@ async function starAcceptsNamedCover(
       endAt: row.endAt,
       status: row.status,
       coverEmployeeId: row.coverEmployeeId,
+      ...(canonical?{coverShiftId:row.coverShiftId,shuffleShiftId:row.shuffleShiftId}:{}),
       shuffleEmployeeId: row.shuffleEmployeeId,
       auto: row.auto,
     }];

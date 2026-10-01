@@ -109,11 +109,13 @@ export async function POST(request: Request) {
       meta.fingerprint && meta.planDigest
         ? { fingerprint: meta.fingerprint, planDigest: meta.planDigest }
         : undefined;
-    const result = await commitImport(parsed, meta.filename, { expected });
+    const result = await commitImport(parsed, meta.filename, { expected,initiator:{kind:"manager",managerId:auth.manager.id} });
 
     return NextResponse.json({
       importBatchId: result.importBatchId,
       rowCount: result.rowCount,
+      ...(result.fixedSkipped?{fixedSkipped:result.fixedSkipped}:{}),
+      ...(result.replayed?{replayed:true}:{}),
       bucketCounts: parsed.bucketCounts,
       dates: parsed.dates,
       preview: result.dates,

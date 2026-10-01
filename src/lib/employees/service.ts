@@ -1,3 +1,4 @@
+import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
 import type { AbilityLevel } from "@/lib/rules/types";
 
@@ -91,12 +92,13 @@ export type UpdateEmployeeInput = {
 };
 
 export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
-  const existing = await prisma.employee.findUnique({ where: { id } });
+  return boardWrite(prisma, async tx => {
+  const existing = await tx.employee.findUnique({ where: { id } });
   if (!existing) {
     return { ok: false as const, status: 404 as const, error: "Not found" };
   }
 
-  const stationIds = await knownStationIds();
+  const stationIds = new Set((await tx.station.findMany({select:{id:true}})).map(s=>s.id));
 
   if (input.abilities) {
     const seen = new Set<string>();
@@ -117,10 +119,10 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
         };
       }
     }
-    await prisma.employeeStationAbility.deleteMany({
+    await tx.employeeStationAbility.deleteMany({
       where: { employeeId: id },
     });
-    await prisma.employeeStationAbility.createMany({
+    await tx.employeeStationAbility.createMany({
       data: input.abilities.map((a) => ({
         employeeId: id,
         stationId: a.stationId,
@@ -129,7 +131,7 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
     });
   }
 
-  const employee = await prisma.employee.update({
+  const employee = await tx.employee.update({
     where: { id },
     data: {
       ...(input.firstName != null
@@ -144,4 +146,5 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput) {
   });
 
   return { ok: true as const, employee };
+  });
 }

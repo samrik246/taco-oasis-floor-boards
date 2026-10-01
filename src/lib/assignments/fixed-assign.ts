@@ -1,3 +1,5 @@
+import { boardWrite, acquireBoardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { createShiftAssignment, type AssignmentTx } from "./service";
@@ -38,6 +40,7 @@ export async function placeFixedAssignments(
   params: FixedAssignParams,
 ): Promise<FixedAssignResult> {
   const run = async (tx: AssignmentTx): Promise<FixedAssignResult> => {
+    await requireLegacy(tx);
     const maps = await tx.positionStationMap.findMany({
       where: { stationId: { not: null } },
       include: { station: true },
@@ -108,8 +111,8 @@ export async function placeFixedAssignments(
     }
     return { ok: true as const, summary };
   };
-  if (params.db) return run(params.db);
-  return prisma.$transaction(run);
+  if (params.db) {await acquireBoardWrite(params.db);return run(params.db); }
+  return boardWrite(prisma,run);
 }
 
 /**

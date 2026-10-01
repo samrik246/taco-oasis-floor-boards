@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { isAbilityLevel } from "@/lib/employees/service";
@@ -85,12 +85,13 @@ export async function setAbilityColumn(input: {
   if (!column) return { ok: false, status: 400, error: "Invalid column" };
   if (!isAbilityLevel(input.level)) return { ok: false, status: 400, error: "Invalid level" };
   const level: AbilityLevel = input.level;
-  const employee = await prisma.employee.findUnique({
+  return boardWrite(prisma, async tx => {
+  const employee = await tx.employee.findUnique({
     where: { id: input.employeeId },
     select: { id: true },
   });
   if (!employee) return { ok: false, status: 404, error: "Not found" };
-  const stations = await prisma.station.findMany({
+  const stations = await tx.station.findMany({
     where: { id: { in: [...column.stationIds] } },
     select: { id: true },
   });
@@ -98,7 +99,6 @@ export async function setAbilityColumn(input: {
     return { ok: false, status: 400, error: "Unknown station" };
   }
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     for (const stationId of column.stationIds) {
       await tx.employeeStationAbility.upsert({
         where: { employeeId_stationId: { employeeId: input.employeeId, stationId } },
@@ -111,6 +111,6 @@ export async function setAbilityColumn(input: {
       stationId: column.key,
       count: column.stationIds.length,
     });
-  });
   return { ok: true, written: column.stationIds.length };
+  });
 }

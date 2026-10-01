@@ -1,3 +1,4 @@
+import { boardWrite } from "@/lib/shared-write";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -47,7 +48,8 @@ export async function POST(req: Request) {
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = createSchema.parse(json);
-    const existing = await prisma.station.findMany({
+    return await boardWrite(prisma, async tx => {
+    const existing = await tx.station.findMany({
       select: { id: true, shortCode: true },
     });
     const checked = validateStationWrite(body, {
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     if (!checked.ok) {
       return NextResponse.json({ error: checked.error }, { status: 422 });
     }
-    const station = await prisma.station.create({
+    const station = await tx.station.create({
       data: {
         id: checked.value.id,
         label: checked.value.label,
@@ -73,6 +75,7 @@ export async function POST(req: Request) {
       },
     });
     return NextResponse.json({ station }, { status: 201 });
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Station fields are required." }, { status: 422 });

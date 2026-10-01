@@ -36,6 +36,9 @@ export type SliceBreak = {
   endAt: Date;
   status: "booked" | "pending";
   coverEmployeeId?: string | null;
+  /** Canonical readers require the persisted identity; undefined retains the V1 contract. */
+  coverShiftId?: string | null;
+  shuffleShiftId?: string | null;
   /** Second Shuffle move. Takes the seat the cover left. */
   shuffleEmployeeId?: string | null;
   /** The five-minute pick named the cover. */
@@ -144,12 +147,23 @@ function paintOnShifts(
 ): string | null {
   if (shiftIds.size === 0) return null;
   const t = at.getTime();
-  for (const paint of paints) {
-    if (paint.employeeId !== employeeId || !shiftIds.has(paint.shiftId)) continue;
-    const start = paint.hourStart.getTime();
-    if (t >= start && (paint.intervalEnd ? t + 15 * 60_000 <= +paint.intervalEnd : t < start + HOUR_MS)) return paint.stationId;
+  const mine=paints.filter(p=>p.employeeId===employeeId&&shiftIds.has(p.shiftId));
+  for(const paint of mine) {
+    const start=+paint.hourStart;
+    if(!paint.intervalEnd&&t>=start&&t<start+HOUR_MS)return paint.stationId;
   }
-  return null;
+  // A quarter may contain adjacent storage fragments. Require continuous coverage by one
+  // station on one recorded source, never infer fifteen minutes from the first fragment.
+  const stations=new Set<string>();
+  for(const shiftId of shiftIds)for(const stationId of new Set(mine.filter(p=>p.shiftId===shiftId).map(p=>p.stationId))) {
+    let cursor=t;
+    for(const p of mine.filter(p=>p.shiftId===shiftId&&p.stationId===stationId&&p.intervalEnd).sort((a,b)=>+a.hourStart-+b.hourStart)) {
+      if(+p.hourStart>cursor)break;
+      if(+p.intervalEnd!>cursor)cursor=+p.intervalEnd!;
+    }
+    if(cursor>=t+15*60_000)stations.add(stationId);
+  }
+  return stations.size===1?[...stations][0]:null;
 }
 
 function liveCovering(shifts: readonly SliceShift[], start: Date, end: Date): SliceShift[] {
@@ -158,6 +172,41 @@ function liveCovering(shifts: readonly SliceShift[], start: Date, end: Date): Sl
       && !shift.boardRemoved
       && windowCovers(shift.startAt, shift.endAt, start, end);
   });
+}
+
+/** Every recorded leg is validated before either board applies a canonical move. */
+function canonicalMoves(input:DaySliceInput,row:SliceBreak,start:Date,end:Date) {
+  const exact=(employeeId:string|null|undefined,shiftId:string|null|undefined)=>{
+    const matches=input.shifts.filter(s=>!s.superseded&&!s.boardRemoved&&s.employeeId===employeeId&&s.startAt<row.endAt&&s.endAt>row.startAt);
+    return matches.length===1 && matches[0].id===shiftId && windowCovers(matches[0].startAt,matches[0].endAt,row.startAt,row.endAt)?matches[0]:null;
+  };
+  const requester=exact(row.employeeId,row.shiftId),cover=exact(row.coverEmployeeId,row.coverShiftId);
+  if(!requester||requester.board!==row.board||!cover||cover.employeeId===requester.employeeId)return [];
+  const position=(shift:SliceShift)=>{
+    const overlay=input.overlays.find(o=>!o.cancelledAt&&windowCovers(o.startAt,o.endAt,start,end)&&(o.employeeId===shift.employeeId||o.partnerEmployeeId===shift.employeeId));
+    let stationId=paintOnShifts(input.paints,shift.employeeId,new Set([shift.id]),start);
+    if(overlay?.kind==='remove'&&overlay.employeeId===shift.employeeId)stationId=null;
+    else if(overlay?.kind==='switch')stationId=overlay.employeeId===shift.employeeId?overlay.stationId:overlay.fromStationId??null;
+    else if(overlay?.kind==='add'&&overlay.partnerEmployeeId===shift.employeeId)stationId=overlay.stationId;
+    return {stationId,overlay};
+  };
+  const destination=position(requester),origin=position(cover);
+  if(!destination.stationId)return [];
+  if(origin.overlay){
+    const family=familyForStation(destination.stationId);
+    if(!family||!isDefaultMandatory(destination.stationId)||PAINT_FAMILIES[family][0]!==destination.stationId||PAINT_FAMILIES[family][1]!==origin.stationId)return [];
+  }
+  const result=[{employeeId:cover.employeeId,stationId:destination.stationId,board:row.board}];
+  if(Boolean(row.shuffleEmployeeId)!==Boolean(row.shuffleShiftId))return [];
+  if(row.shuffleEmployeeId){
+    const partner=exact(row.shuffleEmployeeId,row.shuffleShiftId);
+    if(!partner||partner.employeeId===requester.employeeId||partner.employeeId===cover.employeeId||!origin.stationId||origin.stationId===destination.stationId)return [];
+    // A base origin on another board cannot be the second destination; a reviewed numbered
+    // overlay is the only cross-board origin override accepted above.
+    if(cover.board!==row.board&&!origin.overlay)return [];
+    result.push({employeeId:partner.employeeId,stationId:origin.stationId,board:row.board});
+  }
+  return result;
 }
 
 /**
@@ -213,6 +262,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
         return row.status === "booked"
           && row.employeeId === employeeId
           && row.board === input.board
+          && (row.coverShiftId===undefined || mine.some(sh=>sh.id===row.shiftId&&windowCovers(sh.startAt,sh.endAt,row.startAt,row.endAt)))
           && windowCovers(row.startAt, row.endAt, start, end);
       });
       const overlay = input.overlays.find((row) => {
@@ -268,11 +318,24 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       if (stationId && source) seats.set(stationId, { stationId, employeeId, source });
     }
 
+    // Incoming and outgoing passes apply exactly the same complete saved movement plan.
+    for(const row of input.breaks) {
+      if(row.coverShiftId===undefined||row.status!=="booked"||!windowCovers(row.startAt,row.endAt,start,end))continue;
+      for(const move of canonicalMoves(input,row,start,end)) {
+        for(const [seatId,seat] of seats)if(seat.employeeId===move.employeeId)seats.delete(seatId);
+        let person=people.find(p=>p.employeeId===move.employeeId);
+        const incoming=move.board===input.board;
+        if(!person && incoming){person={employeeId:move.employeeId,counts:false,onBreak:false,stationId:null,paintStationId:null,cell:"move"};people.push(person);}
+        if(person){person.counts=incoming;person.stationId=incoming?move.stationId:null;person.cell="move";person.onBreak=false;if(row.auto)person.autoMove=true;}
+        if(incoming)seats.set(move.stationId,{stationId:move.stationId,employeeId:move.employeeId,source:"cover"});
+      }
+    }
+
     for (const row of input.breaks) {
-      if (row.status !== "booked" || row.board !== input.board || !row.coverEmployeeId) continue;
+      if (row.coverShiftId !== undefined || row.status !== "booked" || row.board !== input.board || !row.coverEmployeeId) continue;
       if (!windowCovers(row.startAt, row.endAt, start, end)) continue;
       const breakerIds = new Set(
-        live.filter((shift) => shift.employeeId === row.employeeId).map((shift) => shift.id),
+        live.filter((shift) => shift.employeeId === row.employeeId && (row.coverShiftId === undefined || shift.id === row.shiftId)).map((shift) => shift.id),
       );
       const breakerOverlay = input.overlays.find(overlay => !overlay.cancelledAt
         && windowCovers(overlay.startAt, overlay.endAt, start, end)
@@ -284,7 +347,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
           : breakerOverlay?.kind === "remove" && breakerOverlay.employeeId === row.employeeId
             ? null : paintOnShifts(input.paints, row.employeeId, breakerIds, start);
       if (!stationId) continue;
-      if (!live.some((shift) => shift.employeeId === row.coverEmployeeId)) continue;
+      if (!live.some((shift) => shift.employeeId === row.coverEmployeeId && (row.coverShiftId === undefined || shift.id === row.coverShiftId))) continue;
       const coverOverlay = input.overlays.find((overlay) => {
         return !overlay.cancelledAt
           && windowCovers(overlay.startAt, overlay.endAt, start, end)
@@ -330,7 +393,7 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
         });
       }
       if (!row.shuffleEmployeeId || !vacatedStation || vacatedStation === stationId) continue;
-      if (!live.some((shift) => shift.employeeId === row.shuffleEmployeeId)) continue;
+      if (!live.some((shift) => shift.employeeId === row.shuffleEmployeeId && (row.shuffleShiftId === undefined || shift.id === row.shuffleShiftId))) continue;
       for (const [seatId, seat] of [...seats]) {
         if (seat.employeeId === row.shuffleEmployeeId) seats.delete(seatId);
       }

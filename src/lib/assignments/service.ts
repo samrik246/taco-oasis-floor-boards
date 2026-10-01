@@ -1,3 +1,5 @@
+import { boardWrite, acquireBoardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { validateAssignment } from "@/lib/rules/assign";
@@ -115,6 +117,7 @@ export async function createAssignment(
   const hourStart = chicagoHourStart(params.date, params.hour);
   const hourEnd = chicagoHourEnd(params.date, params.hour);
   const write = async (tx: AssignmentTx): Promise<AssignResult> => {
+      await requireLegacy(tx);
       const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
       if (!shift) return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] } as const;
       if (shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] } as const;
@@ -157,8 +160,8 @@ export async function createAssignment(
       return { ok: true, assignment: toDto(assignment) } as const;
   };
   try {
-    if (params.db) return await write(params.db);
-    return await prisma.$transaction(write);
+    if (params.db) { await acquireBoardWrite(params.db); return await write(params.db); }
+    return await boardWrite(prisma, write);
   } catch (error) {
     if (isUniqueConflict(error)) {
       return { ok: false, status: 422, violations: [conflictViolation("STATION_FULL")] };
@@ -209,6 +212,7 @@ export async function createShiftAssignment(
   params: ShiftAssignParams,
 ): Promise<ShiftAssignResult> {
   const run = async (tx: AssignmentTx): Promise<ShiftAssignResult> => {
+    await requireLegacy(tx);
     const shift = await tx.shift.findUnique({ where: { id: params.shiftId } });
     if (!shift) {
       return { ok: false, status: 404, violations: [{ code: "SHIFT_NOT_FOUND", message: "Shift not found" }] };
@@ -290,8 +294,8 @@ export async function createShiftAssignment(
     return { ok: true, summary };
   };
 
-  if (params.db) return run(params.db);
-  return prisma.$transaction(run);
+  if (params.db) { await acquireBoardWrite(params.db); return run(params.db); }
+  return boardWrite(prisma, run);
 }
 
 export type CopyDayParams = {
@@ -332,7 +336,8 @@ export async function copyDayAssignments(
   if (params.sourceDate === params.targetDate) {
     return { ok: false, status: 422, error: "Source and target day must differ" };
   }
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
     const dayStart = chicagoHourStart(params.sourceDate, HOUR_GRID_START);
     const dayEnd = chicagoHourStart(params.sourceDate, HOUR_GRID_END);
     const sourceAssignments = await tx.assignment.findMany({
@@ -424,7 +429,9 @@ export async function deleteAssignment(
   | { ok: true; id: string }
   | { ok: false; status: 404 | 422; violations: RuleViolation[] }
 > {
-  const existing = await prisma.assignment.findUnique({ where: { id }, include: { shift: true } });
+  return boardWrite(prisma, async tx => {
+  await requireLegacy(tx);
+  const existing = await tx.assignment.findUnique({ where: { id }, include: { shift: true } });
   if (!existing) {
     return {
       ok: false,
@@ -435,8 +442,9 @@ export async function deleteAssignment(
     };
   }
   if (existing.shift.boardRemoved) return { ok: false, status: 422, violations: [removedViolation] };
-  await prisma.assignment.delete({ where: { id } });
+  await tx.assignment.delete({ where: { id } });
   return { ok: true, id };
+  });
 }
 
 export type ClearAssignmentParams = {
@@ -462,7 +470,9 @@ export type ClearAssignmentResult =
 export async function clearAssignment(
   params: ClearAssignmentParams,
 ): Promise<ClearAssignmentResult> {
-  const existing = await prisma.assignment.findUnique({ where: { id: params.id }, include: { shift: true } });
+  return boardWrite(prisma, async tx => {
+  await requireLegacy(tx);
+  const existing = await tx.assignment.findUnique({ where: { id: params.id }, include: { shift: true } });
   if (!existing) {
     return { ok: false, status: 404, error: "Assignment not found" };
   }
@@ -471,7 +481,6 @@ export async function clearAssignment(
   }
   const now = params.now ?? new Date();
   if (isFutureHour(existing.hourStart, now)) {
-    await prisma.$transaction(async (tx) => {
       await tx.assignment.delete({ where: { id: params.id } });
       if (params.actor) {
         await writeBoardChange(tx, params.actor, {
@@ -481,7 +490,6 @@ export async function clearAssignment(
           count: 1,
         });
       }
-    });
     return { ok: true, id: params.id };
   }
   const reason = params.reason ?? "";
@@ -500,7 +508,6 @@ export async function clearAssignment(
       error: "This assignment has no employee on record and cannot be logged",
     };
   }
-  await prisma.$transaction(async (tx) => {
     await tx.positionMoveLog.create({
       data: {
         date: chicagoYmd(existing.hourStart),
@@ -522,8 +529,8 @@ export async function clearAssignment(
         count: 1,
       });
     }
-  });
   return { ok: true, id: params.id };
+  });
 }
 
 /**
@@ -552,6 +559,7 @@ export async function swapAssignments(
     };
   }
 
+  await requireLegacy(prisma);
   const [a, b] = await Promise.all([
     prisma.assignment.findUnique({
       where: { id: assignmentIdA },
@@ -577,7 +585,8 @@ export async function swapAssignments(
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
       const current = await tx.assignment.findMany({
         where: { id: { in: [a.id, b.id] } }, include: { shift: true, station: true },
       });

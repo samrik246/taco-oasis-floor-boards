@@ -133,6 +133,7 @@ function tally(codes: string[]): Record<string, number> {
 }
 
 export type FolderImportOptions = {
+  initiator?: "folder" | "hourly";
   now?: Date;
   /**
    * Import this file by its own path instead of the newest in the folder.
@@ -188,6 +189,7 @@ export async function runFolderImport(
       return { ...base, ...shown, outcome: "held", file: name, code: "NEEDS_CONFIRM" };
     }
     const result = await commitImport(parsed, name, {
+      initiator:{kind:opts.initiator??"folder"},
       now,
       expected: preview.needsConfirm
         ? { fingerprint: preview.fingerprint, planDigest: preview.planDigest }

@@ -1,3 +1,6 @@
+import { boardWrite } from "@/lib/shared-write";
+import { quarterState } from "@/lib/quarter/schema";
+import { assignedIntervals, resolvePaintWorld } from "@/lib/quarter/world";
 import { prisma } from "@/lib/db";
 import { draftReturnPrompts } from "@/lib/return-to-station";
 import { chicagoHourStart } from "@/lib/hour-grid";
@@ -16,16 +19,20 @@ export async function processReturnToStation(args: {
   hour: number;
   board?: FloorBoardId;
 }): Promise<{ created: number; unassigned: number }> {
-  const config = await prisma.trafficSimulatorConfig.findUnique({
+  return boardWrite(prisma, async tx => {
+  const config = await tx.trafficSimulatorConfig.findUnique({
     where: { id: "default" },
   });
   if (!config?.enabled) {
     return { created: 0, unassigned: 0 };
   }
-  const meters = await prisma.loadStationMeter.findMany();
+  const meters = await tx.loadStationMeter.findMany();
   const hourStart = chicagoHourStart(args.date, args.hour);
 
-  const assignments = await prisma.assignment.findMany({
+  const active=(await quarterState(tx))?.phase === "active";
+  const now = new Date();
+  if(active && (+now<+hourStart || +now>=+hourStart+3600000))return {created:0,unassigned:0};
+  const assignments = active ? [] : await tx.assignment.findMany({
     where: { hourStart },
     include: {
       shift: { include: { employee: true } },
@@ -33,7 +40,7 @@ export async function processReturnToStation(args: {
     },
   });
 
-  const seatAssignees = assignments
+  let seatAssignees = assignments
     .filter((a) => {
       if (a.shift.date !== args.date) return false;
       if (!isFloorBoardId(a.shift.board)) return false;
@@ -46,7 +53,14 @@ export async function processReturnToStation(args: {
       displayName: `${a.shift.employee.firstName} ${a.shift.employee.lastName}`.trim(),
     }));
 
-  const working = await prisma.tareaAssignment.findMany({
+  if(active) {
+    const world=await resolvePaintWorld(tx,args.date);
+    const rows=assignedIntervals(world).filter(s=>s.startMs<=+now&&s.endMs>+now&&(!args.board||s.board===args.board));
+    const employees=await tx.employee.findMany({where:{id:{in:[...new Set(rows.map(s=>s.employeeId))]}},select:{id:true,firstName:true,lastName:true}});
+    seatAssignees=rows.map(r=>({employeeId:r.employeeId,seatId:r.stationId!,displayName:employees.filter(e=>e.id===r.employeeId).map(e=>`${e.firstName} ${e.lastName}`.trim())[0]??r.employeeId}));
+  }
+
+  const working = await tx.tareaAssignment.findMany({
     where: { date: args.date, status: "working", unassignedAt: null },
     include: { template: true },
   });
@@ -73,11 +87,10 @@ export async function processReturnToStation(args: {
   });
 
   let unassigned = 0;
-  const now = new Date();
 
   for (const draft of drafts) {
     if (draft.tareaIds.length) {
-      const result = await prisma.tareaAssignment.updateMany({
+      const result = await tx.tareaAssignment.updateMany({
         where: {
           id: { in: draft.tareaIds },
           status: "working",
@@ -92,7 +105,7 @@ export async function processReturnToStation(args: {
       unassigned += result.count;
     }
 
-    const existing = await prisma.returnPrompt.findFirst({
+    const existing = await tx.returnPrompt.findFirst({
       where: {
         date: args.date,
         employeeId: draft.employeeId,
@@ -101,7 +114,7 @@ export async function processReturnToStation(args: {
       },
     });
     if (!existing) {
-      await prisma.returnPrompt.create({
+      await tx.returnPrompt.create({
         data: {
           date: args.date,
           employeeId: draft.employeeId,
@@ -114,6 +127,7 @@ export async function processReturnToStation(args: {
   }
 
   return { created: drafts.length, unassigned };
+  });
 }
 
 export async function listOpenReturnPrompts(date: string) {
@@ -127,8 +141,8 @@ export async function listOpenReturnPrompts(date: string) {
 }
 
 export async function acknowledgeReturnPrompt(id: string) {
-  return prisma.returnPrompt.update({
+  return boardWrite(prisma, tx => tx.returnPrompt.update({
     where: { id },
     data: { acknowledgedAt: new Date() },
-  });
+  }));
 }

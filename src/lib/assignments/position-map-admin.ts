@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export type PositionMapRow = {
@@ -14,13 +16,13 @@ export type PositionMapRow = {
  * still shows its saved value). A position is only eligible for a dropdown
  * when its shifts sit on exactly one real board.
  */
-export async function listPositionMapRows(): Promise<PositionMapRow[]> {
+export async function listPositionMapRows(db:Prisma.TransactionClient=prisma): Promise<PositionMapRow[]> {
   const [shiftGroups, mapRows] = await Promise.all([
-    prisma.shift.groupBy({
+    db.shift.groupBy({
       by: ["sourcePosition", "board"],
       where: { supersededAt: null, boardRemoved: false },
     }),
-    prisma.positionStationMap.findMany(),
+    db.positionStationMap.findMany(),
   ]);
 
   const boardsByPosition = new Map<string, Set<string>>();
@@ -58,8 +60,9 @@ export async function savePositionMapRow(
   position: string,
   stationId: string | null,
 ): Promise<SavePositionMapResult> {
+  return boardWrite(prisma, async tx=>{
   if (stationId !== null) {
-    const rows = await listPositionMapRows();
+    const rows = await listPositionMapRows(tx);
     const row = rows.find((r) => r.position === position);
     if (!row || !row.eligible) {
       return {
@@ -68,7 +71,7 @@ export async function savePositionMapRow(
         error: "This position isn't on one board and can't be mapped",
       };
     }
-    const station = await prisma.station.findUnique({ where: { id: stationId } });
+    const station = await tx.station.findUnique({ where: { id: stationId } });
     if (!station) {
       return { ok: false, status: 404, error: "Station not found" };
     }
@@ -76,10 +79,11 @@ export async function savePositionMapRow(
       return { ok: false, status: 422, error: "That station is on the other board" };
     }
   }
-  await prisma.positionStationMap.upsert({
+  await tx.positionStationMap.upsert({
     where: { position },
     create: { position, stationId },
     update: { stationId },
   });
   return { ok: true };
+  });
 }

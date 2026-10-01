@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
@@ -44,7 +44,8 @@ export async function setMandatoryMark(input: {
   if (isDefaultMandatory(input.stationId)) {
     return { ok: false, status: 400, error: "That station is already mandatory" };
   }
-  const station = await prisma.station.findUnique({
+  return boardWrite(prisma, async tx => {
+  const station = await tx.station.findUnique({
     where: { id: input.stationId },
     select: { id: true, board: true },
   });
@@ -56,10 +57,9 @@ export async function setMandatoryMark(input: {
   const where = {
     board_date_stationId: { board, date: input.date, stationId: input.stationId },
   };
-  const existing = await prisma.mandatoryMark.findUnique({ where, select: { id: true } });
+  const existing = await tx.mandatoryMark.findUnique({ where, select: { id: true } });
   if (input.on === Boolean(existing)) return { ok: true, changed: false };
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     if (input.on) {
       await tx.mandatoryMark.create({
         data: {
@@ -78,6 +78,6 @@ export async function setMandatoryMark(input: {
       count: 1,
       mark: input.on ? "on" : "off",
     });
-  });
   return { ok: true, changed: true };
+  });
 }

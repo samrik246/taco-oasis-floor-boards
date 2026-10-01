@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
 import { abilityColumn } from "@/lib/abilities/levels";
@@ -75,7 +76,8 @@ export async function setAbilityColumnSetting(input: {
     return { ok: false, status: 400, error: "Invalid level" };
   }
 
-  const existing = await prisma.abilityColumnSetting.findUnique({ where: { key: input.key } });
+  return boardWrite(prisma, async tx => {
+  const existing = await tx.abilityColumnSetting.findUnique({ where: { key: input.key } });
   const hidden = input.hidden ?? existing?.hidden ?? false;
   const defaultLevel = input.defaultLevel ?? (
     existing && isColumnDefaultLevel(existing.defaultLevel) ? existing.defaultLevel : "ok"
@@ -91,7 +93,6 @@ export async function setAbilityColumnSetting(input: {
     ? input.defaultLevel
     : undefined;
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.abilityColumnSetting.upsert({
       where: { key: input.key },
       create: { key: input.key, hidden, defaultLevel },
@@ -104,8 +105,8 @@ export async function setAbilityColumnSetting(input: {
       columnHidden,
       columnDefault,
     });
-  });
   return { ok: true, changed: true };
+  });
 }
 
 /**
@@ -119,7 +120,7 @@ export async function seedAbilityColumnSettings(actor: BoardChangeActor): Promis
   unchanged: number;
   okToForbidden: { pdf_pstl: number; pdf_rngn: number };
 }> {
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async (tx) => {
     let written = 0;
     let unchanged = 0;
     for (const row of ABILITY_COLUMN_INSTALL_SEED) {

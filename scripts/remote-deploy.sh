@@ -137,6 +137,12 @@ EOF
 fi
 
 DB_PATH="$(read_database_url)"
+# This hourly deployment entry cannot promote or recover a quarter database.
+if [[ -f "${DB_PATH}" ]]; then
+  command -v sqlite3 >/dev/null || die "sqlite3 is required for schema preflight"
+  QUARTER_SCHEMA_COUNT="$(sqlite3 -readonly "${DB_PATH}" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='QuarterSchema';")"
+  [[ "${QUARTER_SCHEMA_COUNT}" == 0 ]] || die "QUARTER_COMPATIBLE_RELEASE_REQUIRED; service remains untouched"
+fi
 mkdir -p "$(dirname "${DB_PATH}")"
 stop_app
 

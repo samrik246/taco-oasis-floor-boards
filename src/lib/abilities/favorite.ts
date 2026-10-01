@@ -1,3 +1,4 @@
+import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
 import type { AbilityLevel } from "@/lib/rules/types";
 
@@ -17,16 +18,17 @@ export async function toggleFavorite(
   employeeId: string,
   stationId: string,
 ): Promise<ToggleFavoriteResult> {
-  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  return boardWrite(prisma, async tx => {
+  const employee = await tx.employee.findUnique({ where: { id: employeeId } });
   if (!employee) {
     return { ok: false, status: 404, error: "Employee not found" };
   }
-  const station = await prisma.station.findUnique({ where: { id: stationId } });
+  const station = await tx.station.findUnique({ where: { id: stationId } });
   if (!station) {
     return { ok: false, status: 404, error: "Station not found" };
   }
 
-  const existing = await prisma.employeeStationAbility.findUnique({
+  const existing = await tx.employeeStationAbility.findUnique({
     where: { employeeId_stationId: { employeeId, stationId } },
   });
 
@@ -35,16 +37,17 @@ export async function toggleFavorite(
   }
 
   if (!existing) {
-    await prisma.employeeStationAbility.create({
+    await tx.employeeStationAbility.create({
       data: { employeeId, stationId, level: "preferred" },
     });
     return { ok: true, level: "preferred" };
   }
 
   const next: AbilityLevel = existing.level === "preferred" ? "ok" : "preferred";
-  await prisma.employeeStationAbility.update({
+  await tx.employeeStationAbility.update({
     where: { employeeId_stationId: { employeeId, stationId } },
     data: { level: next },
   });
   return { ok: true, level: next };
+  });
 }

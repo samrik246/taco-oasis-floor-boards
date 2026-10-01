@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
 import type { ReconcilePlan } from "@/lib/import/reconcile";
 import type { RemovalDecision } from "@/lib/import/removal-identity";
@@ -12,27 +13,30 @@ import { persistHour,recordMutation,receiptFor } from "./transaction";
 import { peerHours,projectSeatNumbers,validatePaintWorld,validateObligations } from "./validation";
 
 const ACTOR={id:"system:import-v2",name:"Import"};
-const importRequest=(epoch:string,fingerprint:string)=>({operation:"import-v2",databaseEpoch:epoch,parsedFingerprint:fingerprint});
+export type ImportInitiator={kind:"manager"|"folder"|"hourly";managerId?:string};
+const semanticRows=(parsed:ParseResult)=>parsed.shifts.map(s=>({externalId:s.externalId,date:s.date,startAt:s.startAt.toISOString(),endAt:s.endAt.toISOString(),sourcePosition:s.sourcePosition,board:s.board})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+const importRequest=(epoch:string,fingerprint:string,rows:unknown)=>({operation:"import-v2",databaseEpoch:epoch,parsedFingerprint:fingerprint,rows});
 const importId=(epoch:string,fingerprint:string)=>`import-v2:${epoch}:${fingerprint}`;
 export async function importReceipt(db:QuarterDb,fingerprint:string,batchId:string):Promise<ImportCommitResult|null> {
   const schema=await quarterState(db);if(!schema)return null;
   const receipt=await receiptFor(db,ACTOR.id,importId(schema.databaseEpoch,fingerprint));
   if(!receipt)return null;
-  if(receipt.databaseEpoch!==schema.databaseEpoch || receipt.requestSha256!==digest(importRequest(schema.databaseEpoch,fingerprint)))throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
   const response=JSON.parse(receipt.responseJson);
+  if(receipt.databaseEpoch!==schema.databaseEpoch || !Array.isArray(response.canonicalRows) || createHash("sha256").update(JSON.stringify(response.canonicalRows)).digest("hex")!==fingerprint || receipt.requestSha256!==digest(importRequest(schema.databaseEpoch,fingerprint,response.canonicalRows)))throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
   if(response.fingerprint!==fingerprint||response.result?.importBatchId!==batchId)throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
   return response.result;
 }
-export async function saveImportReceipt(db:QuarterDb,input:{fingerprint:string;filename:string;planDigest:string;revisionBefore:string;result:ImportCommitResult;now:Date}) {
+export async function saveImportReceipt(db:QuarterDb,input:{parsed:ParseResult;initiator?:ImportInitiator;fingerprint:string;filename:string;planDigest:string;revisionBefore:string;result:ImportCommitResult;now:Date}) {
   const schema=(await quarterState(db))!;
-  const response={fingerprint:input.fingerprint,filename:input.filename,parserProtocol:2,initiator:"authorized-import-entry",planDigest:input.planDigest,
+  const rows=semanticRows(input.parsed);
+  const response={canonicalRows:rows,fingerprint:input.fingerprint,filename:input.filename,parserProtocol:2,initiator:input.initiator??{kind:"folder"},planDigest:input.planDigest,
     dates:input.result.dates.map(d=>d.date),worldRevision:input.revisionBefore,result:input.result};
   await db.$executeRawUnsafe("INSERT INTO PaintCommandReceipt VALUES (?,?,?,?,?,?,?,?)",ACTOR.id,importId(schema.databaseEpoch,input.fingerprint),
-    digest(importRequest(schema.databaseEpoch,input.fingerprint)),schema.databaseEpoch,input.revisionBefore,await worldRevision(db),canonical(response),+input.now);
+    digest(importRequest(schema.databaseEpoch,input.fingerprint,rows)),schema.databaseEpoch,input.revisionBefore,await worldRevision(db),canonical(response),+input.now);
 }
 
 export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult;filename:string;fingerprint:string;
-  plan:ReconcilePlan & {removalDecisions:RemovalDecision[]};now:Date;revisionBefore:string}):Promise<ImportCommitResult> {
+  plan:ReconcilePlan & {removalDecisions:RemovalDecision[]};now:Date;revisionBefore:string;initiator?:ImportInitiator}):Promise<ImportCommitResult> {
   const {parsed,filename,fingerprint,plan,now}=input;
   const schema=(await quarterState(db))!;
   const requestId=importId(schema.databaseEpoch,fingerprint);
@@ -99,11 +103,18 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
       after.hours=after.hours.filter(h=>hourKey(h.shiftId,h.hourStartMs)!==hourKey(source.id,origin.hourStartMs));
       after.hours.push(destination);transfers.push(destination);touched.add(hourKey(source.id,origin.hourStartMs));
     }
+    const targets=transfers.flatMap(h=>h.segments.flatMap(s=>s.stationId?[{hourStartMs:h.hourStartMs,stationId:s.stationId}]:[]));
+    projectSeatNumbers(before);
+    peerHours(before,touched,targets);
+    for(const h of after.hours.filter(h=>!transfers.includes(h))) {
+      const prior=before.hours.find(p=>hourKey(p.shiftId,p.hourStartMs)===hourKey(h.shiftId,h.hourStartMs));
+      if(prior)h.segments=structuredClone(prior.segments);
+    }
     projectSeatNumbers(after);
     await validatePaintWorld(db,after,touched);
     await validateObligations(db,before,after,now);
-    for(const h of transfers) {
-      const original=legacyHour(source,h.hourStartMs,[]);
+    for(const h of after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs)))) {
+      const original=before.hours.find(p=>hourKey(p.shiftId,p.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))??legacyHour(source,h.hourStartMs,[]);
       await persistHour(db,h,now);
       await recordMutation(db,ACTOR.id,requestId,original,h,now,{operation:"import-takeover"});
     }
@@ -130,7 +141,7 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
           peerHours(proposal,proposedKeys,[{hourStartMs:hour.hourStartMs,stationId}]);projectSeatNumbers(proposal);
           await validatePaintWorld(db,proposal,proposedKeys);await validateObligations(db,before,proposal,now);
           staged=proposal;for(const key of proposedKeys)touched.add(key);
-        }catch(error){if(!(error instanceof QuarterRefused))throw error;reason=error.code;}
+        }catch(error){if(!(error instanceof QuarterRefused) || !["STATION_FULL","PERSON_ALREADY_ASSIGNED","FORBIDDEN_ABILITY","STATION_BOARD_MISMATCH","SEAT_NUMBER_CONFLICT","PERSISTED_COVER_CONFLICT","OVERLAY_CONFLICT"].includes(error.code))throw error;reason=error.code;}
       }
       if(reason)fixedSkipped.push({shiftId:original.shiftId,hour:chicagoHourOf(new Date(original.hourStartMs)),reason});
     }
@@ -143,6 +154,6 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
   }
   fixedSkipped.sort((a,b)=>a.shiftId.localeCompare(b.shiftId)||a.hour-b.hour||a.reason.localeCompare(b.reason));
   const result={importBatchId:batch.id,rowCount:parsed.shifts.length,dates:plan.dates,fixedSkipped};
-  await saveImportReceipt(db,{fingerprint,filename,planDigest:plan.digest,revisionBefore:input.revisionBefore,result,now});
+  await saveImportReceipt(db,{parsed,initiator:input.initiator,fingerprint,filename,planDigest:plan.digest,revisionBefore:input.revisionBefore,result,now});
   return result;
 }

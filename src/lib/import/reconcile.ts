@@ -145,7 +145,8 @@ function pairGroup(
 }
 
 function planPair(old: ExistingShift, next: ParsedShift, now: Date): PlanAction {
-  if (sameWindow(old, next)) return { kind: "unchanged", old };
+  if (sameWindow(old, next) && old.board === next.board) return { kind: "unchanged", old };
+  if (old.board !== next.board) return {kind:"replaced",old,next,removeAssignments:old.assignments.filter(a=>!hasStarted(a,now))};
   const started = old.assignments.filter((a) => hasStarted(a, now));
   const future = old.assignments.filter((a) => !hasStarted(a, now));
   if (started.every((a) => stillOnShift(a, next))) {

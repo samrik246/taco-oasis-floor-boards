@@ -7,7 +7,8 @@ import { assignedIntervals, assertPartition, hourKey, overlaps, type PaintWorld,
 
 /** Infer legacy null seats once, respecting actual overlap. Persisted numbers always win. */
 export function projectSeatNumbers(world: PaintWorld): void {
-  const assigned = world.hours.flatMap(h => h.segments.filter(s => s.state === "assigned").map(s => ({ h,s })));
+  const live = new Set(world.sources.filter(s=>!s.supersededAt&&!s.boardRemoved).map(s=>s.id));
+  const assigned = world.hours.filter(h=>live.has(h.shiftId)).flatMap(h => h.segments.filter(s => s.state === "assigned").map(s => ({ h,s })));
   assigned.sort((a,b) => (a.s.seatNumber === null ? 1:0) - (b.s.seatNumber === null ? 1:0) ||
     familySeatIndex(a.s.stationId!) - familySeatIndex(b.s.stationId!) || (a.s.assignmentId ?? a.s.id).localeCompare(b.s.assignmentId ?? b.s.id) || a.s.startMs-b.s.startMs);
   const processed: typeof assigned = [];
@@ -32,6 +33,8 @@ export function peerHours(world: PaintWorld, touched: Set<string>, targets: { ho
   while (changed) {
     changed = false;
     for (const h of world.hours) {
+      const source=world.sources.find(s=>s.id===h.shiftId)!;
+      if(source.supersededAt||source.boardRemoved)continue;
       const key = hourKey(h.shiftId,h.hourStartMs);
       const groups = h.segments.flatMap(s => { const f = s.stationId && familyForStation(s.stationId); return f ? [`${h.hourStartMs}|${f}`] : []; });
       if (touched.has(key) || groups.some(g => families.has(g))) {
@@ -52,6 +55,8 @@ export async function validatePaintWorld(db: QuarterDb, world: PaintWorld, touch
   const defaults = await loadColumnDefaults(db);
   const levels = new Map(abilities.map(a => [`${a.employeeId}|${a.stationId}`,a.level]));
   for (const h of world.hours.filter(h => touched.has(hourKey(h.shiftId,h.hourStartMs)))) {
+    const source=sources.get(h.shiftId)!;
+    if(source.supersededAt||source.boardRemoved)continue;
     for (const s of h.segments.filter(s => s.state === "assigned")) {
       const station = world.stations.find(st => st.id === s.stationId);
       if (!station || station.board !== h.board) throw new QuarterRefused("STATION_BOARD_MISMATCH",422);

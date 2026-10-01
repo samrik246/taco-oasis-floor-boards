@@ -90,9 +90,9 @@ describe("quarter foundation, isolated prepared migration and active transaction
     expect((await db.$queryRawUnsafe<{n:bigint}[]>("SELECT COUNT(*) n FROM PaintCommandReceipt WHERE requestId=?",body.requestId))[0].n).toBe(BigInt(0));
   });
   it("old Assignment DML and source-only changes cannot bypass protocol guards",async()=>{
-    await expect(db.assignment.delete({where:{id:"legacy-a"}})).rejects.toThrow("QUARTER_PROTOCOL_REQUIRED");
-    await expect(db.shift.update({where:{id:"shift-a"},data:{board:"cocina"}})).rejects.toThrow("QUARTER_SOURCE_IDENTITY_IMMUTABLE");
-    await expect(db.shift.update({where:{id:"shift-a"},data:{endAt:new Date(hour+20*60_000)}})).rejects.toThrow("QUARTER_SOURCE_RECONCILE_REQUIRED");
+    await expect(db.$executeRawUnsafe("DELETE FROM Assignment WHERE id='legacy-a'")).rejects.toThrow("QUARTER_PROTOCOL_REQUIRED");
+    await expect(db.$executeRawUnsafe("UPDATE Shift SET board='cocina' WHERE id='shift-a'")).rejects.toThrow("QUARTER_SOURCE_IDENTITY_IMMUTABLE");
+    await expect(db.$executeRawUnsafe("UPDATE Shift SET endAt=? WHERE id='shift-a'",hour+20*60_000)).rejects.toThrow("QUARTER_SOURCE_RECONCILE_REQUIRED");
   });
   it("source shrink/extension preserves factual minutes, erasures and old snapshots",async()=>{
     const s=(await db.shift.findUnique({where:{id:"shift-a"}}))!;

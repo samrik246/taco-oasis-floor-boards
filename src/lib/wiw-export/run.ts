@@ -346,7 +346,7 @@ export async function runWiwExport(
 
     const runImport: ImportRunner =
       deps.runImport ??
-      ((dir, at, one) => runFolderImport({ dir, mode: settings.importMode }, { now: at, file: one?.file, week: one?.week }));
+      ((dir, at, one) => runFolderImport({ dir, mode: settings.importMode }, { now: at, file: one?.file, week: one?.week, initiator:"hourly" }));
     let result: FolderImportResult;
     try {
       result = await runImport(settings.importDir, now(), { file: target });

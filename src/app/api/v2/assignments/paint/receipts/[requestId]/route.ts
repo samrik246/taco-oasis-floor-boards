@@ -12,7 +12,10 @@ export async function GET(request:Request,{params}:{params:Promise<{requestId:st
     const row=await receiptFor(prisma,auth.manager.id,requestId);
     if (!row)return NextResponse.json({code:"SAVE_UNCONFIRMED"},{status:404});
     const mutations=await prisma.$queryRawUnsafe<{date:string}[]>("SELECT DISTINCT date FROM PaintMutation WHERE actorId=? AND requestId=?",auth.manager.id,requestId);
-    for(const {date} of mutations){const access=await requireDayAccess(request,date);if(!access.ok)return access.response;}
-    return NextResponse.json(JSON.parse(row.responseJson),{headers:{"Cache-Control":"no-store"}});
+    const response=JSON.parse(row.responseJson);
+    const dates=new Set<string>([...mutations.map(m=>m.date),...(Array.isArray(response.dates)?response.dates:[])]);
+    if(!dates.size)return NextResponse.json({code:"SAVE_RECEIPT_SCOPE_UNAVAILABLE"},{status:409});
+    for(const date of dates){const access=await requireDayAccess(request,date);if(!access.ok)return access.response;}
+    return NextResponse.json(response,{headers:{"Cache-Control":"no-store"}});
   }catch(error){return quarterError(error);}
 }

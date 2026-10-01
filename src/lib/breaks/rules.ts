@@ -1,3 +1,4 @@
+import { quarterState } from "@/lib/quarter/schema";
 import { decisionPaints } from "@/lib/quarter/decision-paint";
 import { chicagoToday } from "@/lib/upcoming/source";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
@@ -241,6 +242,7 @@ export async function starWorld(
     where: { date, supersededAt: null, boardRemoved: false },
   });
   const paints = await decisionPaints(tx, date);
+  const canonical = (await quarterState(tx))?.phase === "active";
   const marks = await tx.mandatoryMark.findMany({
     where: { board, date },
     select: { stationId: true },
@@ -258,6 +260,8 @@ export async function starWorld(
       endAt: true,
       status: true,
       coverEmployeeId: true,
+      coverShiftId: true,
+      shuffleShiftId: true,
       shuffleEmployeeId: true,
       auto: true,
     },
@@ -294,6 +298,7 @@ export async function starWorld(
         endAt: row.endAt,
         status,
         coverEmployeeId: row.coverEmployeeId,
+        ...(canonical ? { coverShiftId: row.coverShiftId, shuffleShiftId: row.shuffleShiftId } : {}),
         shuffleEmployeeId: row.shuffleEmployeeId,
         auto: row.auto,
       }];

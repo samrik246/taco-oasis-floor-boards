@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
@@ -52,7 +54,8 @@ export async function removeShift(input: {
   const reason = input.reason.trim();
   if (!reason) throw new ShiftRemovalError("REASON_REQUIRED", "A reason is required.", 400);
   const now = input.now ?? new Date();
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
     const shift = await tx.shift.findUnique({
       where: { id: input.shiftId },
       include: { employee: { select: { externalId: true } }, assignments: true, removalOverride: true },
@@ -100,7 +103,8 @@ export async function restoreShift(input: {
   const reason = input.reason.trim();
   if (!reason) throw new ShiftRemovalError("REASON_REQUIRED", "A reason is required.", 400);
   const now = input.now ?? new Date();
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
     const override = await tx.shiftRemoval.findUnique({ where: { id: input.id } });
     if (!override) throw new ShiftRemovalError("NOT_FOUND", "Removed shift not found.", 404);
     if (override.state !== "removed" || override.revision !== input.expectedRevision) {
@@ -171,7 +175,8 @@ export async function resolveMissingRemoval(input: {
 }) {
   const reason = input.reason.trim();
   if (!reason) throw new ShiftRemovalError("REASON_REQUIRED", "A reason is required.", 400);
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
     const override = await tx.shiftRemoval.findUnique({ where: { id: input.id } });
     if (!override) throw new ShiftRemovalError("NOT_FOUND", "Removed shift not found.", 404);
     if (override.state !== "removed" || override.shiftId !== null ||

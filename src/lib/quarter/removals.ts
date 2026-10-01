@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { canonical,digest,QuarterRefused,quarterState,worldRevision,CAPABILITY_SHA256 } from "./schema";
-import { resolvePaintWorld,sourceSnapshot,hourKey,legacyHour,type PaintHour } from "./world";
+import { resolvePaintWorld,sourceSnapshot,hourKey,legacyHour,assertPartition,type PaintHour } from "./world";
 import { reconcileSource } from "./reconcile";
-import { quarterWrite,receiptFor,replaceHourSegments,recordMutation,type CommandActor } from "./transaction";
-import { validatePaintWorld,validateObligations,projectSeatNumbers } from "./validation";
+import { quarterWrite,receiptFor,persistHour,replaceHourSegments,recordMutation,type CommandActor } from "./transaction";
+import { validatePaintWorld,validateObligations,projectSeatNumbers,peerHours } from "./validation";
 
 export const removalCommandSchema=z.strictObject({protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.string(),board:z.enum(["caja","cocina"]),
   expected:z.strictObject({databaseEpoch:z.string(),worldRevision:z.string(),sourceSha256:z.string(),removalRevision:z.number().int().nonnegative()}),
@@ -14,6 +14,7 @@ type Snapshot={version:2;source:ReturnType<typeof sourceSnapshot>;hours:{before:
 export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Date(),client=prisma) {
   const command=removalCommandSchema.parse(raw);
   return quarterWrite(client,async db=>{
+    if(command.operation==="restore"&&!command.positions)throw new QuarterRefused("RESTORE_REQUIRES_REVIEW");
     const hash=digest(command),prior=await receiptFor(db,actor.id,command.requestId);
     if(prior){if(prior.requestSha256!==hash||prior.databaseEpoch!==command.expected.databaseEpoch)throw new QuarterRefused("REQUEST_ID_REUSE");return JSON.parse(prior.responseJson);}
     const schema=await quarterState(db);
@@ -52,6 +53,12 @@ export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Dat
       }
       if(snapshot.version!==2||!Array.isArray(snapshot.hours)||canonical({...snapshot.source,boardRemoved:true})!==canonical(sourceSnapshot(source)))
         throw new QuarterRefused("RESTORE_REQUIRES_REVIEW");
+      try {
+        for(const saved of snapshot.hours){
+          if(!saved.before || !Array.isArray(saved.before.segments) || !(saved.postRevision===null||/^[1-9][0-9]*$/.test(saved.postRevision)))throw new Error("invalid snapshot");
+          assertPartition(saved.before,{...source,boardRemoved:false});
+        }
+      }catch{throw new QuarterRefused("RESTORE_REQUIRES_REVIEW");}
       for(const saved of snapshot.hours){const current=before.hours.find(h=>h.shiftId===source.id&&h.hourStartMs===saved.before.hourStartMs);
         if(!current||current.revision!==saved.postRevision)throw new QuarterRefused("RESTORE_REQUIRES_REVIEW");}
       await reconcileSource(db,{shiftId:source.id,expectedSourceSha256:command.expected.sourceSha256,patch:{boardRemoved:false},actor,requestId:command.requestId,now});
@@ -61,12 +68,17 @@ export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Dat
           const hour=after.hours.find(h=>h.shiftId===source.id&&h.hourStartMs===saved.before.hourStartMs)!;
           hour.segments=structuredClone(saved.before.segments);touched.add(hourKey(hour.shiftId,hour.hourStartMs));
         }
+        projectSeatNumbers(world);
+        const targets=after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs))).flatMap(h=>h.segments.flatMap(s=>s.stationId?[{hourStartMs:h.hourStartMs,stationId:s.stationId}]:[]));
+        peerHours(world,touched,targets);
+        for(const h of after.hours.filter(h=>h.shiftId!==source.id))h.segments=structuredClone(world.hours.find(p=>hourKey(p.shiftId,p.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!.segments);
         projectSeatNumbers(after);await validatePaintWorld(db,after,touched);await validateObligations(db,world,after,now);
         for(const h of after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs)))){
           const original=world.hours.find(o=>hourKey(o.shiftId,o.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!;
           // Source reconciliation already advanced this command's revision. Replace exact
           // segments inside the same transaction without incrementing it a second time.
-          await replaceHourSegments(db,h);
+          if(h.shiftId===source.id)await replaceHourSegments(db,h);
+          else await persistHour(db,h,now);
           await recordMutation(db,actor.id,command.requestId,original,h,now,{operation:"restore",reason:command.reason});
         }
       }
@@ -78,7 +90,7 @@ export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Dat
     await db.shiftRemovalEvent.create({data:{overrideId:row.id,action:command.operation,revision:row.revision,managerId:actor.id,managerName:actor.name,
       reason:command.reason,sourceJson:canonical(sourceSnapshot(source)),cellsJson}});
     await resolvePaintWorld(db,command.date);
-    const response={ok:true,id:row.id,revision:row.revision,requestId:command.requestId,requestSha256:hash,databaseEpoch:schema.databaseEpoch,committedRevision:await worldRevision(db),refreshRequired:true};
+    const response={dates:[command.date],ok:true,id:row.id,revision:row.revision,requestId:command.requestId,requestSha256:hash,databaseEpoch:schema.databaseEpoch,committedRevision:await worldRevision(db),refreshRequired:true};
     await db.$executeRawUnsafe("INSERT INTO PaintCommandReceipt VALUES (?,?,?,?,?,?,?,?)",actor.id,command.requestId,hash,schema.databaseEpoch,command.expected.worldRevision,response.committedRevision,canonical(response),+now);
     return response;
   });

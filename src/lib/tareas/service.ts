@@ -1,3 +1,6 @@
+import { boardWrite } from "@/lib/shared-write";
+import { QuarterRefused, quarterState, worldRevision } from "@/lib/quarter/schema";
+import { assignedIntervals, resolvePaintWorld, overlaps } from "@/lib/quarter/world";
 import { prisma } from "@/lib/db";
 import {
   isLemonWarnTemplate,
@@ -89,17 +92,19 @@ export async function assignTarea(args: {
   templateId: string;
   hour: number;
   forceLemon?: boolean;
+  interval?: {startAt:string;endAt:string;databaseEpoch:string;worldRevision:string};
 }): Promise<AssignTareaResult> {
   await ensureTareaTemplates();
 
-  const employee = await prisma.employee.findUnique({
+  return boardWrite(prisma, async tx => {
+  const employee = await tx.employee.findUnique({
     where: { id: args.employeeId },
   });
   if (!employee) {
     return { ok: false, status: 404, error: "Employee not found" };
   }
 
-  const template = await prisma.tareaTemplate.findUnique({
+  const template = await tx.tareaTemplate.findUnique({
     where: { id: args.templateId },
   });
   if (!template) {
@@ -107,7 +112,18 @@ export async function assignTarea(args: {
   }
 
   const hourStart = chicagoHourStart(args.date, args.hour);
-  const seat = await prisma.assignment.findFirst({
+  const schema=await quarterState(tx);
+  let seat: {stationId:string}|null;
+  if(schema?.phase === "active") {
+    const interval=args.interval;
+    if(!interval || interval.databaseEpoch!==schema.databaseEpoch || interval.worldRevision!==await worldRevision(tx)) throw new QuarterRefused("REVISION_CONFLICT");
+    const startMs=+new Date(interval.startAt),endMs=+new Date(interval.endAt);
+    if(!Number.isFinite(startMs)||!Number.isFinite(endMs)||startMs<+hourStart||endMs>+hourStart+3600000||endMs<=startMs)throw new QuarterRefused("INVALID_INTERVAL",422);
+    const rows=assignedIntervals(await resolvePaintWorld(tx,args.date)).filter(s=>s.employeeId===args.employeeId && overlaps(s,{startMs,endMs}));
+    const stations=new Set(rows.map(s=>s.stationId));
+    if(stations.size>1)throw new QuarterRefused("HOUR_NEEDS_QUARTER");
+    seat=rows[0]?{stationId:rows[0].stationId!}:null;
+  } else seat = await tx.assignment.findFirst({
     where: {
       hourStart,
       shift: { employeeId: args.employeeId, date: args.date },
@@ -140,7 +156,7 @@ export async function assignTarea(args: {
     }
   }
 
-  const created = await prisma.tareaAssignment.create({
+  const created = await tx.tareaAssignment.create({
     data: {
       date: args.date,
       employeeId: args.employeeId,
@@ -157,17 +173,19 @@ export async function assignTarea(args: {
   });
 
   return { ok: true, assignment: created, lemonWarning };
+  });
 }
 
 export async function setTareaStatus(args: {
   id: string;
   status: "working" | "done";
 }) {
-  const existing = await prisma.tareaAssignment.findUnique({
+  return boardWrite(prisma, async tx => {
+  const existing = await tx.tareaAssignment.findUnique({
     where: { id: args.id },
   });
   if (!existing) return null;
-  return prisma.tareaAssignment.update({
+  return tx.tareaAssignment.update({
     where: { id: args.id },
     data: {
       status: args.status,
@@ -180,6 +198,7 @@ export async function setTareaStatus(args: {
       },
     },
   });
+  });
 }
 
 export async function buildTareaSuggestions(args: {
@@ -190,6 +209,7 @@ export async function buildTareaSuggestions(args: {
   board?: FloorBoardId;
 }): Promise<SuggestionSlot[]> {
   await ensureTareaTemplates();
+  if ((await quarterState(prisma))?.phase === "active") throw new QuarterRefused("CLIENT_UPGRADE_REQUIRED",426);
   const hourStart = chicagoHourStart(args.date, args.hour);
 
   const template = await prisma.tareaTemplate.findUnique({

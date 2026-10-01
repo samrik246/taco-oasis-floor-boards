@@ -1,3 +1,5 @@
+import type { PrismaClient } from "@prisma/client";
+import type { ImportInitiator } from "@/lib/quarter/import";
 import { quarterState, worldRevision, digest } from "@/lib/quarter/schema";
 import { resolvePaintWorld } from "@/lib/quarter/world";
 import { withReleaseLease, assertReleaseLease } from "@/lib/quarter/lease";
@@ -159,19 +161,21 @@ function assertImportable(parsed: ParseResult) {
 /** Preview: counts per date, what would be removed, and refusals. Writes nothing. */
 export async function previewImport(
   parsed: ParseResult,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; client?:PrismaClient } = {},
 ): Promise<ImportPreview> {
+  const client=opts.client??prisma;
   assertImportable(parsed);
   const fingerprint = fingerprintFor(parsed);
-  const duplicate = await prisma.importBatch.findUnique({ where: { fingerprint } });
+  return client.$transaction(async tx => {
+  const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
   if (duplicate) {
-    const schema=await quarterState(prisma);
+    const schema=await quarterState(tx);
     if (!schema) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
-    const replay=await importReceipt(prisma,fingerprint,duplicate.id);
+    const replay=await importReceipt(tx,fingerprint,duplicate.id);
     if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
     return {fingerprint,planDigest:"receipt-replay",needsConfirm:false,dates:replay.dates,refusals:[],rowCount:replay.rowCount};
   }
-  const plan = await buildPlan(prisma, parsed, fingerprint, opts.now ?? new Date());
+  const plan = await buildPlan(tx, parsed, fingerprint, opts.now ?? new Date());
   return {
     fingerprint,
     planDigest: plan.digest,
@@ -180,6 +184,7 @@ export async function previewImport(
     refusals: plan.refusals,
     rowCount: parsed.shifts.length,
   };
+  });
 }
 
 /** Schedule rows and fixed seats share this transaction. The timeout covers a week of hourly seat writes; exceeding it rolls the fingerprint back. */
@@ -197,8 +202,9 @@ const IMPORT_TX = { maxWait: 5_000, timeout: 60_000 } as const;
 export async function commitImport(
   parsed: ParseResult,
   filename: string,
-  opts: { now?: Date; expected?: { fingerprint: string; planDigest: string } } = {},
+  opts: { now?: Date; expected?: { fingerprint: string; planDigest: string };client?:PrismaClient;initiator?:ImportInitiator } = {},
 ): Promise<ImportCommitResult> {
+  const client=opts.client??prisma;
   assertImportable(parsed);
   const fingerprint = fingerprintFor(parsed);
   const now = opts.now ?? new Date();
@@ -211,8 +217,8 @@ export async function commitImport(
 
   const committed = await withReleaseLease(async () => {
     await assertReleaseLease();
-    await assertArtifactCompatibility(prisma);
-    return prisma.$transaction(async (tx) => {
+    await assertArtifactCompatibility(client);
+    return client.$transaction(async (tx) => {
     await tx.staffBreakLock.upsert({where:{id:1},create:{id:1},update:{updatedAt:now}});
     const schema=await quarterState(tx);
     const revisionBefore=schema ? await worldRevision(tx) : null;
@@ -245,7 +251,7 @@ export async function commitImport(
       );
     }
 
-    if (schema?.phase === "active") return commitQuarterImport(tx,{parsed,filename,fingerprint,plan,now,revisionBefore:revisionBefore!});
+    if (schema?.phase === "active") return commitQuarterImport(tx,{parsed,filename,fingerprint,plan,now,revisionBefore:revisionBefore!,initiator:opts.initiator});
     const batch = await tx.importBatch.create({
       data: { filename, fingerprint, rowCount: parsed.shifts.length },
     });
@@ -446,7 +452,7 @@ export async function commitImport(
     await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx);
 
     const result={ importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
-    if(schema)await saveImportReceipt(tx,{fingerprint,filename,planDigest:plan.digest,revisionBefore:revisionBefore!,result,now});
+    if(schema)await saveImportReceipt(tx,{parsed,initiator:opts.initiator,fingerprint,filename,planDigest:plan.digest,revisionBefore:revisionBefore!,result,now});
     return result;
   }, IMPORT_TX);
   });

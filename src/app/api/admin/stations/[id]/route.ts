@@ -1,3 +1,4 @@
+import { boardWrite } from "@/lib/shared-write";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -26,11 +27,12 @@ export async function PATCH(req: Request, context: RouteContext) {
     const secret = rejectManagerSecrets(json);
     if (secret) return NextResponse.json({ error: secret }, { status: 422 });
     const body = patchSchema.parse(json);
-    const existing = await prisma.station.findUnique({ where: { id } });
+    return await boardWrite(prisma, async tx => {
+    const existing = await tx.station.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: "Station not found." }, { status: 404 });
     }
-    const others = await prisma.station.findMany({
+    const others = await tx.station.findMany({
       select: { id: true, shortCode: true },
     });
     const checked = validateStationWrite(body, {
@@ -47,7 +49,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (!checked.ok) {
       return NextResponse.json({ error: checked.error }, { status: 422 });
     }
-    const station = await prisma.station.update({
+    const station = await tx.station.update({
       where: { id },
       data: {
         label: checked.value.label,
@@ -67,6 +69,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         sortOrder: station.sortOrder,
         maxConcurrent: station.maxConcurrent,
       },
+    });
     });
   } catch (err) {
     if (err instanceof z.ZodError) {

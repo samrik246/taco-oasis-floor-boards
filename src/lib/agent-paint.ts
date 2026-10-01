@@ -1,3 +1,4 @@
+import { requireLegacy } from "@/lib/quarter/schema";
 /**
  * Host-side colour edits. Preflight resolves and checks a packet without
  * writing. Apply holds the release lock, re-reads RELEASE_SHA, then resolves,
@@ -310,6 +311,7 @@ async function readInstalledRelease(appDir: string): Promise<string> {
 }
 
 async function resolveRequest(packet: RequestPacket): Promise<{ packet: ResolvedPacket; cells: CellView[] }> {
+  await requireLegacy(prisma);
   const edits: ResolvedEdit[] = [];
   const cells: CellView[] = [];
   for (const edit of packet.edits) {
@@ -369,6 +371,7 @@ async function resolveRequest(packet: RequestPacket): Promise<{ packet: Resolved
 }
 
 async function confirmResolved(packet: ResolvedPacket): Promise<ResolvedPacket> {
+  await requireLegacy(prisma);
   for (const edit of packet.edits) {
     const shift = await prisma.shift.findFirst({
       where: {

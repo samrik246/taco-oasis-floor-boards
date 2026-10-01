@@ -1,3 +1,6 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { chicagoHourStart, chicagoHourEnd } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
@@ -24,16 +27,17 @@ export async function freeFavoriteFor(params: {
   date: string;
   hour: number;
   stationId: string;
-}): Promise<FreeFavorite | null> {
+}, db:Prisma.TransactionClient=prisma): Promise<FreeFavorite | null> {
+  await requireLegacy(db);
   const hourStart = chicagoHourStart(params.date, params.hour);
   const hourEnd = chicagoHourEnd(params.date, params.hour);
 
-  const stationTaken = await prisma.assignment.count({
+  const stationTaken = await db.assignment.count({
     where: { stationId: params.stationId, hourStart },
   });
   if (stationTaken > 0) return null;
 
-  const shifts = await prisma.shift.findMany({
+  const shifts = await db.shift.findMany({
     where: { date: params.date, board: params.board, supersededAt: null, boardRemoved: false },
     include: { employee: true },
   });
@@ -42,7 +46,7 @@ export async function freeFavoriteFor(params: {
   );
   if (covering.length === 0) return null;
 
-  const abilities = await prisma.employeeStationAbility.findMany({
+  const abilities = await db.employeeStationAbility.findMany({
     where: {
       stationId: params.stationId,
       level: "preferred",
@@ -53,7 +57,7 @@ export async function freeFavoriteFor(params: {
   const candidates = covering.filter((s) => preferredIds.has(s.employeeId));
   if (candidates.length === 0) return null;
 
-  const busyRows = await prisma.assignment.findMany({
+  const busyRows = await db.assignment.findMany({
     where: { hourStart, employeeId: { in: candidates.map((c) => c.employeeId) } },
     select: { employeeId: true },
   });
@@ -83,6 +87,7 @@ export async function freeFavoritesForHour(params: {
   date: string;
   hour: number;
 }): Promise<Record<string, FreeFavorite | null>> {
+  await requireLegacy(prisma);
   const hourStart = chicagoHourStart(params.date, params.hour);
   const hourEnd = chicagoHourEnd(params.date, params.hour);
 
@@ -161,11 +166,10 @@ export async function suggestAssign(params: {
   shiftId: string;
   actor?: BoardChangeActor;
 }): Promise<SuggestAssignResult> {
-  const best = await freeFavoriteFor(params);
-  if (!best || best.shiftId !== params.shiftId) {
-    return { ok: false, status: 422, error: "Not a free favorite" };
-  }
-  return prisma.$transaction(async (tx) => {
+  return boardWrite(prisma, async tx => {
+    await requireLegacy(tx);
+    const best=await freeFavoriteFor(params,tx);
+    if(!best||best.shiftId!==params.shiftId)return {ok:false as const,status:422 as const,error:"Not a free favorite"};
     const result = await createShiftAssignment({
       shiftId: params.shiftId,
       stationId: params.stationId,

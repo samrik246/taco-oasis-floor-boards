@@ -1,3 +1,4 @@
+import { assertPreservationColumns } from "./preservation";
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { assertReleaseLease } from "./lease";
@@ -50,6 +51,7 @@ export async function migrateQuarterStorage(client: PrismaClient): Promise<{ dat
   await assertReleaseLease();
   return client.$transaction(async db => {
     await db.staffBreakLock.upsert({ where: { id: 1 }, create: { id: 1 }, update: { updatedAt: new Date() } });
+    await assertPreservationColumns(db,false);
     const prior = await quarterState(db);
     if (prior) {
       await verifyQuarterSchema(db);

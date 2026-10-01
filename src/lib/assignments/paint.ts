@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { isValidMoveReason, type MoveReason } from "@/lib/position-moves";
@@ -90,9 +92,10 @@ export async function paintAssignments(
   actor?: BoardChangeActor,
   options?: PaintRunOptions,
 ): Promise<PaintResult> {
-  if (request.edits.length === 0) return { ok: true, saved: 0 };
   try {
-    return await prisma.$transaction(async (tx): Promise<PaintResult> => {
+    return await boardWrite(prisma, async (tx): Promise<PaintResult> => {
+      await requireLegacy(tx);
+      if (request.edits.length === 0) return { ok: true, saved: 0 };
       const shifts = await tx.shift.findMany({
         where: { id: { in: request.edits.map((e) => e.shiftId) } },
       });

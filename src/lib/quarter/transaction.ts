@@ -1,3 +1,4 @@
+import { boardWrite } from "@/lib/shared-write";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
@@ -9,15 +10,12 @@ import { HOUR_MS, QUARTER_MS, hourKey, resolvePaintWorld, sourceSnapshot, overla
 import { peerHours, projectSeatNumbers, validatePaintWorld, validateObligations } from "./validation";
 
 export type CommandActor = { id:string; name:string };
-export type PaintReceipt = { ok:true; requestId:string; requestSha256:string; databaseEpoch:string; committedRevision:string;
-  draftSubmission?:PaintCommand["draftSubmission"]; hours:{ shiftId:string; hourStart:string; revision:string }[]; refreshRequired:true };
+export type PaintReceipt = { dates:string[]; ok:true; requestId:string; requestSha256:string; databaseEpoch:string; committedRevision:string;
+  draftSubmission?:PaintCommand["draftSubmission"]; hours:{ shiftId:string; hourStart:string; revision:string }[]; intervals?:{shiftId:string;startAt:string;endAt:string}[]; refreshRequired:true };
 export async function quarterWrite<T>(client:PrismaClient, run:(tx:QuarterDb)=>Promise<T>):Promise<T> {
   for (let attempt=0; attempt<3; attempt++) {
     try {
-      return await client.$transaction(async tx => {
-        await tx.staffBreakLock.upsert({ where:{id:1},create:{id:1},update:{updatedAt:new Date()} });
-        return run(tx);
-      },{timeout:30_000,maxWait:10_000});
+      return await boardWrite(client,run);
     } catch (error) {
       const busy = error instanceof Error && /SQLITE_BUSY|database is locked|P2034/.test(error.message);
       if (!busy) throw error;
@@ -32,17 +30,25 @@ export async function receiptFor(db:QuarterDb, actorId:string, requestId:string)
     "SELECT requestSha256,databaseEpoch,responseJson FROM PaintCommandReceipt WHERE actorId=? AND requestId=?",actorId,requestId);
   return rows[0] ?? null;
 }
+const writtenHours=new WeakMap<QuarterDb,Map<string,string>>();
+
 export async function persistHour(db:QuarterDb, h:PaintHour, now:Date):Promise<void> {
+  const written=writtenHours.get(db)??new Map<string,string>();
+  writtenHours.set(db,written);
+  if(written.size>=500&&(!h.id||!written.has(h.id)))throw new QuarterRefused("TOO_MANY_HOURS",422);
   if (!h.id) {
     h.id=randomUUID(); h.revision="1";
     await db.$executeRawUnsafe(`INSERT INTO PaintHour (id,shiftId,employeeId,date,board,hourStartMs,revision,sourceJson,sourceSha256,legacyJson,legacySha256,adoptedAtMs,updatedAtMs) VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?)`,
       h.id,h.shiftId,h.employeeId,h.date,h.board,h.hourStartMs,h.sourceJson,h.sourceSha256,h.legacyJson,h.legacySha256,+now,+now);
   } else {
     const prior=h.revision!;
-    const changed=await db.$executeRawUnsafe("UPDATE PaintHour SET revision=revision+1,sourceJson=?,sourceSha256=?,updatedAtMs=? WHERE id=? AND revision=CAST(? AS INTEGER)",h.sourceJson,h.sourceSha256,+now,h.id,prior);
+    const repeated=written.has(h.id);
+    if(repeated && written.get(h.id)!==prior)throw new QuarterRefused("REVISION_CONFLICT");
+    const changed=await db.$executeRawUnsafe(`UPDATE PaintHour SET revision=revision+${repeated?0:1},sourceJson=?,sourceSha256=?,updatedAtMs=? WHERE id=? AND revision=CAST(? AS INTEGER)`,h.sourceJson,h.sourceSha256,+now,h.id,prior);
     if (changed!==1) throw new QuarterRefused("REVISION_CONFLICT");
-    h.revision=(BigInt(prior)+BigInt(1)).toString();
+    h.revision=(BigInt(prior)+BigInt(repeated?0:1)).toString();
   }
+  written.set(h.id!,h.revision!);
   await replaceHourSegments(db,h);
 }
 export async function replaceHourSegments(db:QuarterDb,h:PaintHour):Promise<void> {
@@ -58,7 +64,7 @@ export async function recordMutation(db:QuarterDb, actorId:string,requestId:stri
   detail:{operation:string;reason?:string;moveNote?:string|null;startMs?:number;endMs?:number}) {
   await db.$executeRawUnsafe(`INSERT INTO PaintMutation VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, randomUUID(),actorId,requestId,after.date,after.board,after.shiftId,
     detail.startMs??after.hourStartMs,detail.endMs??after.hourStartMs+HOUR_MS,detail.operation,detail.reason??null,detail.moveNote??null,
-    canonical(before.segments),canonical(after.segments),+now);
+    canonical({source:JSON.parse(before.sourceJson),segments:before.segments}),canonical({source:JSON.parse(after.sourceJson),segments:after.segments}),+now);
 }
 
 export function checkExpectations(command:Pick<PaintCommand,"expected"|"sources"|"hours">, world:PaintWorld) {
@@ -166,8 +172,8 @@ export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:
   // Read back the entire canonical world before allowing the transaction to commit.
   await resolvePaintWorld(db,command.date);
   const committedRevision=await worldRevision(db);
-  const response:PaintReceipt={ok:true,requestId:command.requestId,requestSha256,databaseEpoch:command.expected.databaseEpoch,committedRevision,
-    ...(command.draftSubmission?{draftSubmission:command.draftSubmission}:{}),hours:changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision!})),refreshRequired:true};
+  const response:PaintReceipt={dates:[command.date],ok:true,requestId:command.requestId,requestSha256,databaseEpoch:command.expected.databaseEpoch,committedRevision,
+    ...(command.draftSubmission?{draftSubmission:command.draftSubmission}:{}),intervals:windows.map(w=>({shiftId:w.h.shiftId,startAt:new Date(w.startMs).toISOString(),endAt:new Date(w.endMs).toISOString()})),hours:changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision!})),refreshRequired:true};
   await db.$executeRawUnsafe("INSERT INTO PaintCommandReceipt VALUES (?,?,?,?,?,?,?,?)",actor.id,command.requestId,requestSha256,command.expected.databaseEpoch,command.expected.worldRevision,committedRevision,canonical(response),+now);
   await db.boardChangeLog.create({data:{managerId:actor.id,managerName:actor.name,date:command.date,route:"PUT /api/v2/assignments/paint",summary:`${command.date} board=${command.board} command=${command.requestId} intervals=${windows.map(w=>`${w.startMs}-${w.endMs}`).join(",")}`}});
   return response;

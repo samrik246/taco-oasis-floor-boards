@@ -1,3 +1,4 @@
+import { quarterState } from "@/lib/quarter/schema";
 import { decisionPaints } from "@/lib/quarter/decision-paint";
 import type { Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
@@ -82,6 +83,7 @@ async function loadPickWorld(
     include: { employee: { select: { firstName: true } } },
   });
   const paints = await decisionPaints(tx, date);
+  const canonical = (await quarterState(tx))?.phase === "active";
   const marks = await tx.mandatoryMark.findMany({
     where: { board, date },
     select: { stationId: true },
@@ -99,6 +101,8 @@ async function loadPickWorld(
       endAt: true,
       status: true,
       coverEmployeeId: true,
+      coverShiftId: true,
+      shuffleShiftId: true,
       shuffleEmployeeId: true,
       auto: true,
     },
@@ -120,6 +124,7 @@ async function loadPickWorld(
       endAt: row.endAt,
       status,
       coverEmployeeId: row.coverEmployeeId,
+        ...(canonical ? { coverShiftId: row.coverShiftId, shuffleShiftId: row.shuffleShiftId } : {}),
       shuffleEmployeeId: row.shuffleEmployeeId,
       auto: row.auto,
     }];

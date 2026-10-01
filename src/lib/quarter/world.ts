@@ -64,10 +64,10 @@ export async function resolvePaintWorld(db: QuarterDb, date: string): Promise<Pa
     sourcePosition:true, startAt:true, endAt:true, supersededAt:true, boardRemoved:true } });
   const assignments = await db.assignment.findMany({ where: { shift: { date } } });
   const stations = await db.station.findMany();
-  const rawHours = state ? await db.$queryRawUnsafe<(Omit<PaintHour,"segments" | "hourStartMs"> & { hourStartMs: bigint })[]>(
-    "SELECT id,shiftId,employeeId,date,board,hourStartMs,CAST(revision AS TEXT) revision,sourceJson,sourceSha256,legacyJson,legacySha256 FROM PaintHour WHERE date=?", date) : [];
+  const rawHours = state ? await db.$queryRawUnsafe<(Omit<PaintHour,"segments" | "hourStartMs"> & { hourStartMs: string })[]>(
+    "SELECT id,shiftId,employeeId,date,board,CAST(hourStartMs AS TEXT) hourStartMs,CAST(revision AS TEXT) revision,sourceJson,sourceSha256,legacyJson,legacySha256 FROM PaintHour WHERE date=?", date) : [];
   const rawSegments = state ? await db.$queryRawUnsafe<(Segment & { paintHourId:string })[]>(
-    "SELECT s.* FROM PaintSegment s JOIN PaintHour h ON h.id=s.paintHourId WHERE h.date=? ORDER BY s.startMs",date) : [];
+    "SELECT s.id,s.paintHourId,CAST(s.quarterStartMs AS TEXT) quarterStartMs,CAST(s.startMs AS TEXT) startMs,CAST(s.endMs AS TEXT) endMs,s.state,s.stationId,s.seatNumber FROM PaintSegment s JOIN PaintHour h ON h.id=s.paintHourId WHERE h.date=? ORDER BY s.startMs",date) : [];
   if (state?.phase === "prepared" && rawHours.length) throw new QuarterRefused("QUARTER_PREPARED_HAS_PAINT",503);
   const adopted = new Map(rawHours.map(h => [hourKey(h.shiftId,Number(h.hourStartMs)),h]));
   const hours: PaintHour[] = [];
