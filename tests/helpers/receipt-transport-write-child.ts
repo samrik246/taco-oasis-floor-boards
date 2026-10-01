@@ -28,7 +28,7 @@ async function main() {
             if (mode === "throw") throw new Error("synthetic synchronous write failure");
             return Promise.reject(new Error("synthetic rejected write"));
           }
-          events.stdout(line({ schema: "receipt-adapter-ready/v1", generation, pid: 1234, engine_sha: config.engine_sha, application_inventory_sha256: config.application_inventory_sha256, config_sha256: digest(configBytes), capability: "association-only/v1" }, LIMITS.header));
+          events.stdout(line({ schema: "receipt-adapter-ready/v1", generation, pid: 1234, engine_sha: config.engine_sha, application_inventory_sha256: config.application_inventory_sha256, config_sha256: digest(configBytes), capability: "schema7-association-only/v1" }, LIMITS.header));
           return Promise.resolve();
         },
         signalOwnedGroup: (signal) => { signals.push(signal); },

@@ -34,7 +34,7 @@ export function workerHarness() {
     write: vi.fn(async (bytes: Uint8Array) => {
       const command = JSON.parse(Buffer.from(bytes).toString()); inputs.push(command);
       if (command.schema === "receipt-adapter-start/v1") {
-        if (h.ready) events.stdout(line({ schema: "receipt-adapter-ready/v1", generation: launch.generation, pid: h.child.pid, engine_sha: config.engine_sha, application_inventory_sha256: config.application_inventory_sha256, config_sha256: digest(configBytes), capability: "association-only/v1" }, LIMITS.header));
+        if (h.ready) events.stdout(line({ schema: "receipt-adapter-ready/v1", generation: launch.generation, pid: h.child.pid, engine_sha: config.engine_sha, application_inventory_sha256: config.application_inventory_sha256, config_sha256: digest(configBytes), capability: "schema7-association-only/v1" }, LIMITS.header));
       } else {
         const bytes = h.response(command);
         if (bytes.length) events.stdout(bytes);

@@ -62,7 +62,7 @@ it("wrong startup identity, unsolicited bytes and stderr overflow poison a gener
   const write = wrong.child.write;
   wrong.child.write = vi.fn(async (bytes) => {
     const v = JSON.parse(Buffer.from(bytes).toString());
-    if (v.schema === "receipt-adapter-start/v1") wrong.emit(line({ schema: "receipt-adapter-ready/v1", generation: v.generation, pid: 999, engine_sha: "b".repeat(40), application_inventory_sha256: "c".repeat(64), config_sha256: v.config_sha256, capability: "association-only/v1" }, LIMITS.header));
+    if (v.schema === "receipt-adapter-start/v1") wrong.emit(line({ schema: "receipt-adapter-ready/v1", generation: v.generation, pid: 999, engine_sha: "b".repeat(40), application_inventory_sha256: "c".repeat(64), config_sha256: v.config_sha256, capability: "schema7-association-only/v1" }, LIMITS.header));
     else await write(bytes);
   });
   await expect(wrong.supervisor.start()).rejects.toBeInstanceOf(HistoryUnavailable);

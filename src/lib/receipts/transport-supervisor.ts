@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { parseWorkerConfig, type WorkerConfig } from "./transport-config";
-import { digest, hashSchema, LIMITS, line, prepareCall, ReadyCollector, ReplyCollector, type CallInput, type Frame } from "./transport-codec";
+import { digest, hashSchema, LIMITS, line, prepareCall, readySchema, ReadyCollector, ReplyCollector, type CallInput, type Frame, type ReadyObservation } from "./transport-codec";
 
 export class HistoryUnavailable extends Error { constructor() { super("history_unavailable"); } }
 export class UnknownCompletion extends Error { constructor() { super("result_unconfirmed"); } }
-export type LifecycleRecord = { adapter_worker: "ok" | "unavailable" | "unresolved"; generation: string | null; pid: number | null; owned_worker: 0 | 1 | "unknown" };
+export type LifecycleRecord = { adapter_worker: "ok" | "unavailable" | "unresolved"; generation: string | null; pid: number | null; owned_worker: 0 | 1 | "unknown"; last_ready: ReadyObservation | null };
 export type ExitProof = { exited: boolean; reaped: boolean; groupAbsent: boolean };
 export type WorkerEvents = { stdout(bytes: Uint8Array): void; stderr(bytes: Uint8Array): void; closed(): void; error(): void };
 export type Worker = {
@@ -36,8 +36,8 @@ export type SupervisorDependencies = {
 };
 
 type Queued = { prepared: ReturnType<typeof prepareCall>; expires: number; timer: ReturnType<typeof setTimeout>; resolve(frame: Frame): void; reject(error: Error): void };
-const absent = (): LifecycleRecord => ({ adapter_worker: "unavailable", generation: null, pid: null, owned_worker: 0 });
-const unknown = (): LifecycleRecord => ({ adapter_worker: "unresolved", generation: null, pid: null, owned_worker: "unknown" });
+const absent = (last_ready: ReadyObservation | null = null): LifecycleRecord => ({ adapter_worker: "unavailable", generation: null, pid: null, owned_worker: 0, last_ready });
+const unknown = (): LifecycleRecord => ({ adapter_worker: "unresolved", generation: null, pid: null, owned_worker: "unknown", last_ready: null });
 const runtimeChecks = z.object({ interpreter: z.literal(true), importClosure: z.literal(true), protectedAncestorsAndACLs: z.literal(true), environmentAndCache: z.literal(true), acceptedConstructor: z.literal(true) }).strict();
 const absolute = (value: string) => { if (!value.startsWith("/") || value.includes("\0")) throw new Error("trusted path"); return value; };
 
@@ -70,12 +70,14 @@ export class ReceiptWorkerSupervisor {
   private async record(value: LifecycleRecord) {
     if (this.journalFailed) throw new HistoryUnavailable();
     const epoch = this.epoch;
-    const copy = Object.freeze({ ...value });
+    // One bounded historical observation, never current ownership or READY proof.
+    // Its own generation/PID/config identities distinguish it from a later failure.
+    const copy = Object.freeze({ ...value, last_ready: value.last_ready ? Object.freeze(readySchema.parse(value.last_ready)) : null });
     const next = this.journal.then(() => this.dependencies.writeLifecycle(copy));
     this.journal = next.catch(() => {});
     // Keep the actual write in the serial chain. A timeout cannot make a later
     // write overtake it or let its eventual completion reopen this supervisor.
-    try { await bounded(next, 2000); if (epoch === this.epoch) this.state = { ...value }; }
+    try { await bounded(next, 2000); if (epoch === this.epoch) this.state = { ...copy }; }
     catch { this.journalFailed = true; this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; throw new HistoryUnavailable(); }
   }
 
@@ -92,7 +94,7 @@ export class ReceiptWorkerSupervisor {
     try {
       const prior = await bounded(this.dependencies.readLifecycle(), 10000);
       if (await bounded(this.dependencies.provePriorAbsence(prior), 10000) !== true) { await this.record({ ...(prior ?? unknown()), adapter_worker: "unresolved", owned_worker: "unknown" }); throw new HistoryUnavailable(); }
-      await this.record(absent());
+      await this.record(absent(prior?.last_ready ?? null));
       const runtime = await bounded(this.dependencies.verifyRuntime(), 10000);
       runtimeChecks.parse(runtime.checks);
       const bytes = Uint8Array.from(runtime.configBytes);
@@ -103,7 +105,7 @@ export class ReceiptWorkerSupervisor {
       const generation = hashSchema.parse((this.dependencies.nonce ?? ((n) => randomBytes(n).toString("hex")))(32));
       this.config = config;
       this.stderrBytes = 0;
-      await this.record({ adapter_worker: "unresolved", generation, pid: null, owned_worker: "unknown" });
+      await this.record({ adapter_worker: "unresolved", generation, pid: null, owned_worker: "unknown", last_ready: this.state.last_ready });
       if (this.epoch !== epoch) throw new HistoryUnavailable();
       const configHash = digest(bytes);
       const launch = Object.freeze({ executable: runtime.python,
@@ -127,7 +129,7 @@ export class ReceiptWorkerSupervisor {
       const child = this.worker;
       if (!Number.isSafeInteger(child.pid) || child.pid < 1 || child.pgid !== child.pid) throw new Error("spawn provenance");
       this.spawnProvenance = true;
-      await this.record({ adapter_worker: "unavailable", generation, pid: child.pid, owned_worker: 1 });
+      await this.record({ adapter_worker: "unavailable", generation, pid: child.pid, owned_worker: 1, last_ready: this.state.last_ready });
       if (epoch !== this.epoch) throw new HistoryUnavailable();
       const startBytes = line({ schema: "receipt-adapter-start/v1", generation, config_sha256: configHash }, LIMITS.header);
       const startupWrite = new Promise<void>((resolve) => resolve(child.write(startBytes)));
@@ -135,7 +137,7 @@ export class ReceiptWorkerSupervisor {
       const checked = raw as ReturnType<ReadyCollector["push"]>;
       if (!checked || checked.generation !== generation || checked.pid !== child.pid || checked.config_sha256 !== configHash || checked.engine_sha !== config.engine_sha || checked.application_inventory_sha256 !== config.application_inventory_sha256 || epoch !== this.epoch) throw new Error("ready identity");
       this.startup = null;
-      await this.record({ adapter_worker: "ok", generation, pid: child.pid, owned_worker: 1 });
+      await this.record({ adapter_worker: "ok", generation, pid: child.pid, owned_worker: 1, last_ready: checked });
       if (epoch !== this.epoch) throw new HistoryUnavailable();
     } catch {
       if (this.worker) await this.retire();
@@ -220,7 +222,7 @@ export class ReceiptWorkerSupervisor {
         const remaining = Math.max(0, 2000 - (this.dependencies.monotonic() - started));
         if (remaining) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
       }
-      if (ended) { this.worker = null; this.config = null; await this.record(absent()); }
+      if (ended) { this.worker = null; this.config = null; await this.record(absent(this.state.last_ready)); }
       else { this.retirementUnresolved = true; await this.record({ ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }); }
     }).catch(() => { if (this.worker) this.retirementUnresolved = true; this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; });
     this.cleanup = work;

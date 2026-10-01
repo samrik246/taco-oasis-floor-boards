@@ -189,7 +189,8 @@ export class ReplyCollector {
   }
 }
 
-export const readySchema = z.object({ schema: z.literal("receipt-adapter-ready/v1"), generation: hashSchema, pid: safeInteger.min(1), engine_sha: sha1Schema, application_inventory_sha256: hashSchema, config_sha256: hashSchema, capability: z.literal("association-only/v1") }).strict();
+export const readySchema = z.object({ schema: z.literal("receipt-adapter-ready/v1"), generation: hashSchema, pid: safeInteger.min(1), engine_sha: sha1Schema, application_inventory_sha256: hashSchema, config_sha256: hashSchema, capability: z.literal("schema7-association-only/v1") }).strict();
+export type ReadyObservation = Readonly<z.infer<typeof readySchema>>;
 export class ReadyCollector {
   private bytes = Buffer.alloc(LIMITS.header);
   private used = 0;

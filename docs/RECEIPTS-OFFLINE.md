@@ -117,8 +117,8 @@ dispatch. Arrays, nulls and all authenticated browser fields remain unchanged.
 `transport-config.ts` validates config bytes, both retained inventories, their
 canonical hashes, root/catalog agreement and closed schemas. It does not inspect
 the filesystem or authenticate a caller's claimed integrity result. The trusted
-release config selects a compatible accepted schema5 ControlStore with both
-retained attestations. It cannot initialize, migrate, refresh an inventory or
+release config selects the separately judged schema7 BatchStore worker with both
+retained attestations under the V4 successor below. It cannot initialize, migrate, refresh an inventory or
 choose an older constructor dynamically.
 
 `transport-supervisor.ts` requires injected runtime verification, spawning,
@@ -159,11 +159,52 @@ cannot release queued work before the facade notices it.
 The production route continues to inject no engine. The Python worker belongs to
 the engine owner; no Python main, socket, sender, second ledger, environment
 activation switch or service change is supplied here. Real Node/Python golden
-bytes and persistence, schema5 constructor behavior, hard worker self-deadline,
+bytes and persistence, schema7 constructor behavior, hard worker self-deadline,
 parent death and actual group reaping require the independently judged pair and
 real OS tests. Protected-release provisioning, legacy-sender exclusion, trusted
 content/grants and paper activation remain separate gates. The adopted projection boundary is described below.
 
+
+## Schema7 worker V4 capability and evidence
+
+The accepted private successor is
+`1c72d9692f3db283cc91e17be3a7ec448254733b47235057f73d70639bff777e`.
+READY must name exactly `schema7-association-only/v1`; the previous
+`association-only/v1` and any other capability refuse. The public browser fields,
+private frame fields and size limits stay unchanged.
+
+After the complete startup write and validated READY agree with actual injected
+PID, generation, config and release identities, lifecycle evidence retains one
+immutable `last_ready` snapshot of that observed frame. Fixed fields and validated
+lengths bound the record. It survives proven stop and failed later startup as
+historical evidence with its own generation/identity. It is never current
+readiness, execution ownership, store health or printer proof. A new successful
+READY replaces it. Missing/wrong READY, integrity failure and failed writes cannot
+invent a new observation from config. Failed lifecycle persistence still inhibits
+this supervisor instance. The real trusted persistence dependency must preserve
+the record across host restart; tests continue to inject that dependency.
+
+The first worker contract selects a pre-initialized BatchStore/schema7, both
+retained inventories and a fresh store per call with no coordinator or O/D. The
+engine owner supplies its independently judged worker-containing pin and complete
+Python/native closure; accepted library 92a2796 has no worker entry point.
+History lookup/replay remains first. Valid bound unconfirmed history keeps full
+BatchData; unavailable history keeps its distinct null-data outcome. New
+prepare/prepare_test and defaults work use normal library checks. New re_review
+and submit retain the library's actual durable refusals: missing reservation
+before coordinator for re_review, current DB gate before coordinator for submit,
+with earlier authentication/resolution/history boundaries unchanged. No host
+refusal substitution, new request ID, automatic retry or accepted batch follows.
+Diagnostic refresh remains fixed off. A future coordinator-capable worker must
+enforce host inhibition in authoritative acceptance and receive its own review.
+
+Before proposing production injection without a coordinator, Richard must decide
+what staff see and can do at “Review pending tickets.” Phoenix owns that later
+concrete product card. Gate:
+`227d0b770062a58045210e45fa82c88b03dccc84aa1544be4a0651299c7ce74e`.
+The offline refusal choice does not settle that production behavior and requires
+no owner action now. PRJ-T1 suppression after a genuine successful successor
+review remains independent. Production still supplies no engine.
 
 ## Unfinished and closed-send projection
 
