@@ -14,7 +14,7 @@ function localeOf(req: Request): Locale {
   return value === "en" ? "en" : "es";
 }
 
-/** One tap starts the same LaunchAgent the 7:00 and 16:00 timer runs. */
+/** One tap starts the same LaunchAgent the hourly 06:00-21:00 timer runs. */
 export async function POST(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;

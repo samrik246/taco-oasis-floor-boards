@@ -1,6 +1,6 @@
 /**
- * The LaunchAgent for the When I Work export: 07:00 and 16:00 local time, for
- * the user that runs the boards, in that user's logged-in GUI session (the
+ * The LaunchAgent for the When I Work export: every hour on the hour from 06:00
+ * through 21:00 local time (16 runs a day), for the user that runs the boards, in that user's logged-in GUI session (the
  * browser is headed). If the Mac is asleep at a slot, launchd runs the job on
  * wake, and missed slots become one run.
  *
@@ -13,6 +13,9 @@ import { DIR_ENV, MODE_ENV } from "@/lib/import/folder-import";
 import { LOGIN_FILE_ENV, PROFILE_DIR_ENV } from "./run";
 
 export const WIW_EXPORT_LABEL = "com.taco-oasis.wiw-export";
+
+/** Start hours, local time: 06:00 through 21:00 inclusive, at minute 0. */
+export const WIW_EXPORT_HOURS: readonly number[] = Array.from({ length: 16 }, (_, i) => 6 + i);
 
 export type LaunchAgentInput = {
   appDir: string;
@@ -55,7 +58,7 @@ export function launchAgentPlist(input: LaunchAgentInput): string {
     "<key>EnvironmentVariables</key><dict>",
     ...env.map(([k, v]) => `<key>${k}</key>${str(v)}`),
     "</dict>",
-    `<key>StartCalendarInterval</key><array>${slot(7)}${slot(16)}</array>`,
+    `<key>StartCalendarInterval</key><array>${WIW_EXPORT_HOURS.map(slot).join("")}</array>`,
     "<key>RunAtLoad</key><false/>",
     "<key>LimitLoadToSessionType</key><string>Aqua</string>",
     `<key>StandardOutPath</key>${str(log)}`,
