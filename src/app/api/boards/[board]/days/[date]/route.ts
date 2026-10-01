@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { loadCoverDisplay } from "@/lib/board/load-cover-display";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
@@ -31,6 +32,8 @@ export async function GET(request: Request, context: RouteContext) {
     const { board, date } = paramsSchema.parse(raw);
     const access = await requireDayAccess(request, date);
     if (!access.ok) return access.response;
+    const upgrade = await legacyHttpGuard();
+    if (upgrade) return upgrade;
     const manager = await optionalManager(request);
     const owner = manager ? await requestIsOwner(request) : false;
 

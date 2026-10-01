@@ -24,6 +24,8 @@ export type SlicePaint = {
   shiftId: string;
   stationId: string;
   hourStart: Date;
+  /** Present for canonical V2 fragments; absence preserves legacy hour semantics. */
+  intervalEnd?: Date;
 };
 
 export type SliceBreak = {
@@ -145,7 +147,7 @@ function paintOnShifts(
   for (const paint of paints) {
     if (paint.employeeId !== employeeId || !shiftIds.has(paint.shiftId)) continue;
     const start = paint.hourStart.getTime();
-    if (t >= start && t < start + HOUR_MS) return paint.stationId;
+    if (t >= start && (paint.intervalEnd ? t + 15 * 60_000 <= +paint.intervalEnd : t < start + HOUR_MS)) return paint.stationId;
   }
   return null;
 }

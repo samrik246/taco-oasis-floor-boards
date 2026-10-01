@@ -278,6 +278,11 @@ def run(app, packet_path, expected_packet_sha, apply):
         return {"mode": "preflight", "release": packet["release"], "packet_sha256": packet_sha,
                 "changes": changes, "changed": 0}
     connection = sqlite3.connect(db, timeout=10, isolation_level=None)
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='QuarterSchema'").fetchone():
+        phase = connection.execute("SELECT phase FROM QuarterSchema WHERE id=1").fetchone()
+        if not phase or phase[0] != "prepared":
+            connection.close()
+            raise RuntimeError("QUARTER_PROTOCOL_REQUIRED: use the V2 board workflow")
     try:
         connection.execute("PRAGMA busy_timeout=10000")
         connection.execute("PRAGMA foreign_keys=ON")

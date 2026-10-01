@@ -1,3 +1,4 @@
+import { decisionPaints } from "@/lib/quarter/decision-paint";
 import { formatInTimeZone } from "date-fns-tz";
 import type { Prisma } from "@prisma/client";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
@@ -186,18 +187,7 @@ async function starAcceptsNamedCover(
   });
   const extra = marks.map((mark) => mark.stationId).filter((id) => !isDefaultMandatory(id));
   const starStationIds = [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra];
-  const paints: SlicePaint[] = input.shifts.length === 0 ? [] : (await tx.assignment.findMany({
-    where: { shiftId: { in: input.shifts.map((shift) => shift.id) } },
-    select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
-  })).flatMap((row) => {
-    if (!row.employeeId) return [];
-    return [{
-      employeeId: row.employeeId,
-      shiftId: row.shiftId,
-      stationId: row.stationId,
-      hourStart: row.hourStart,
-    }];
-  });
+  const paints: SlicePaint[] = await decisionPaints(tx, input.date);
   const stored = await tx.staffBreak.findMany({
     where: { date: input.date },
     select: {
@@ -307,16 +297,8 @@ async function handStar(
   for (const row of breaks) {
     if (row.employeeId === input.arrivingId) continue;
     if (input.start.getTime() > row.startAt.getTime() || input.end.getTime() < row.endAt.getTime()) continue;
-    const paint = await tx.assignment.findFirst({
-      where: {
-        employeeId: row.employeeId,
-        shiftId: row.shiftId,
-        hourStart: { lte: row.startAt },
-        hourEnd: { gt: row.startAt },
-      },
-      select: { stationId: true },
-    });
-    if (paint?.stationId !== input.stationId) continue;
+    const paints = await decisionPaints(tx, input.date);
+    if (paintStationAt(paints,row.employeeId,row.shiftId,row.startAt) !== input.stationId) continue;
     const coverShift = coveringShift(input.shifts, input.arrivingId, row.startAt, row.endAt, input.board);
     if (!coverShift) continue;
     const named = {
@@ -428,19 +410,7 @@ export async function saveOverlay(input: {
     if (!coveringShift(shifts, input.employeeId, window.startAt, window.endAt, input.board)) {
       throw new OverlayRefused("WINDOW");
     }
-    const shiftIds = shifts.map((shift) => shift.id);
-    const paints: SlicePaint[] = shiftIds.length === 0 ? [] : (await tx.assignment.findMany({
-      where: { shiftId: { in: shiftIds } },
-      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
-    })).flatMap((row) => {
-      if (!row.employeeId) return [];
-      return [{
-        employeeId: row.employeeId,
-        shiftId: row.shiftId,
-        stationId: row.stationId,
-        hourStart: row.hourStart,
-      }];
-    });
+    const paints: SlicePaint[] = await decisionPaints(tx, input.date);
     const marks = await tx.mandatoryMark.findMany({
       where: { board: input.board, date: input.date },
       select: { stationId: true },

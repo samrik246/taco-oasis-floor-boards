@@ -1,3 +1,8 @@
+import { quarterState, worldRevision, digest } from "@/lib/quarter/schema";
+import { resolvePaintWorld } from "@/lib/quarter/world";
+import { withReleaseLease, assertReleaseLease } from "@/lib/quarter/lease";
+import { assertArtifactCompatibility } from "@/lib/quarter/compatibility";
+import { commitQuarterImport, importReceipt, saveImportReceipt } from "@/lib/quarter/import";
 import { placeFixedForImportedDates } from "@/lib/assignments/fixed-assign";
 import { prisma } from "@/lib/db";
 import { createHash } from "node:crypto";
@@ -47,7 +52,7 @@ export function fingerprintFor(parsed: ParseResult): string {
 export class ImportRefusedError extends Error {
   constructor(
     message: string,
-    readonly code: "DUPLICATE" | "EMPTY" | "REFUSED" | "PREVIEW_REQUIRED" | "FINGERPRINT_MISMATCH" | "BOARD_CHANGED",
+    readonly code: "DUPLICATE" | "EMPTY" | "REFUSED" | "PREVIEW_REQUIRED" | "FINGERPRINT_MISMATCH" | "BOARD_CHANGED" | "DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",
     readonly refusals: Refusal[] = [],
   ) {
     super(message);
@@ -69,6 +74,8 @@ export type ImportCommitResult = {
   importBatchId: string;
   rowCount: number;
   dates: DatePreview[];
+  fixedSkipped?: { shiftId:string;hour:number;reason:string }[];
+  replayed?: boolean;
 };
 
 const DUPLICATE_MESSAGE =
@@ -92,15 +99,13 @@ async function loadExisting(tx: Tx | typeof prisma, dates: string[]): Promise<Ex
       assignments: { select: { id: true, stationId: true, hourStart: true, hourEnd: true } },
     },
   });
+  const active = (await quarterState(tx))?.phase === "active";
+  const worlds = active ? await Promise.all(dates.map(date => resolvePaintWorld(tx,date))) : [];
   return rows.map((r) => ({
-    id: r.id,
-    externalId: r.employee.externalId,
-    date: r.date,
-    startAt: r.startAt,
-    endAt: r.endAt,
-    sourcePosition: r.sourcePosition,
-    board: r.board,
-    assignments: r.assignments,
+    id:r.id, externalId:r.employee.externalId, date:r.date, startAt:r.startAt,endAt:r.endAt,sourcePosition:r.sourcePosition,board:r.board,
+    assignments: active ? worlds.find(w=>w.date===r.date)!.hours.filter(h=>h.shiftId===r.id).flatMap(h=>h.segments.filter(s=>s.state==="assigned").map(s=>({
+      id:s.assignmentId ?? s.id,stationId:s.stationId!,hourStart:new Date(s.startMs),hourEnd:new Date(s.endMs),canonicalHourStart:new Date(h.hourStartMs),
+    }))) : r.assignments,
   }));
 }
 
@@ -140,6 +145,8 @@ async function buildPlan(
     identity.decisions.map((d) => [d.overrideId, d.action,
       d.next?.startAt.toISOString(), d.next?.endAt.toISOString()]).sort(),
   ])).digest("hex");
+  const schema = await quarterState(tx);
+  if (schema) plan.digest = digest([plan.digest,schema.databaseEpoch,await worldRevision(tx)]);
   return Object.assign(plan, { removalDecisions: identity.decisions });
 }
 
@@ -157,7 +164,13 @@ export async function previewImport(
   assertImportable(parsed);
   const fingerprint = fingerprintFor(parsed);
   const duplicate = await prisma.importBatch.findUnique({ where: { fingerprint } });
-  if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
+  if (duplicate) {
+    const schema=await quarterState(prisma);
+    if (!schema) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
+    const replay=await importReceipt(prisma,fingerprint,duplicate.id);
+    if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
+    return {fingerprint,planDigest:"receipt-replay",needsConfirm:false,dates:replay.dates,refusals:[],rowCount:replay.rowCount};
+  }
   const plan = await buildPlan(prisma, parsed, fingerprint, opts.now ?? new Date());
   return {
     fingerprint,
@@ -196,9 +209,20 @@ export async function commitImport(
     );
   }
 
-  const committed = await prisma.$transaction(async (tx) => {
+  const committed = await withReleaseLease(async () => {
+    await assertReleaseLease();
+    await assertArtifactCompatibility(prisma);
+    return prisma.$transaction(async (tx) => {
+    await tx.staffBreakLock.upsert({where:{id:1},create:{id:1},update:{updatedAt:now}});
+    const schema=await quarterState(tx);
+    const revisionBefore=schema ? await worldRevision(tx) : null;
     const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
-    if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
+    if (duplicate) {
+      if (!schema) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
+      const replay=await importReceipt(tx,fingerprint,duplicate.id);
+      if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
+      return {...replay,replayed:true};
+    }
 
     const plan = await buildPlan(tx, parsed, fingerprint, now);
     if (plan.refusals.length > 0) {
@@ -221,6 +245,7 @@ export async function commitImport(
       );
     }
 
+    if (schema?.phase === "active") return commitQuarterImport(tx,{parsed,filename,fingerprint,plan,now,revisionBefore:revisionBefore!});
     const batch = await tx.importBatch.create({
       data: { filename, fingerprint, rowCount: parsed.shifts.length },
     });
@@ -420,8 +445,11 @@ export async function commitImport(
     await endImportedOverlays(tx, { supersededShiftIds, boardRemovedShiftIds });
     await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx);
 
-    return { importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
+    const result={ importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
+    if(schema)await saveImportReceipt(tx,{fingerprint,filename,planDigest:plan.digest,revisionBefore:revisionBefore!,result,now});
+    return result;
   }, IMPORT_TX);
+  });
   return committed;
 }
 

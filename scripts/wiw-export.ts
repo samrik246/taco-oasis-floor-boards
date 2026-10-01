@@ -1,3 +1,5 @@
+import { withClaimedReleaseLease } from "../src/lib/quarter/lease";
+import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
 /**
  * When I Work schedule export for the floor boards (B2), run by a LaunchAgent
  * every hour on the hour from 06:00 through 21:00 on the boards Mac. No AI agent is in the loop.
@@ -163,6 +165,8 @@ async function main() {
     onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
   });
   try {
+    await withClaimedReleaseLease(appDir, async () => {
+    await assertArtifactCompatibility(prisma);
     const result = await runWiwExport(settings, {
       exporter: playwrightExporter({ profileDir: settings.profileDir, nextWeek: nextWeekDialog() }),
       readLogin: () =>
@@ -171,6 +175,7 @@ async function main() {
         }),
     });
     process.exitCode = result.exitCode;
+    });
   } finally {
     await releaseReleaseLock(appDir, process.pid);
   }

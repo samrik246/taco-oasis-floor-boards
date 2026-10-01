@@ -1,3 +1,5 @@
+import { withReleaseLease } from "../src/lib/quarter/lease";
+import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
 /**
  * Schedule import from a folder (C2). Takes the newest `Schedule_for_*` export in
  * FLOOR_BOARDS_IMPORT_DIR and runs it through the C1 preview and Confirm path.
@@ -19,7 +21,10 @@ import {
 
 async function main() {
   const settings = settingsFromEnv();
-  const result = await runFolderImport(settings);
+  const result = await withReleaseLease(async () => {
+    await assertArtifactCompatibility(prisma);
+    return runFolderImport(settings);
+  });
   console.log(`import-from-folder ${new Date().toISOString()}`);
   for (const line of formatSummary(result)) console.log(line);
   process.exitCode = EXIT_CODES[result.outcome];

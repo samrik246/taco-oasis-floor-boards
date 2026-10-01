@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -28,6 +29,8 @@ const querySchema = z.object({
 export async function GET(request: Request) {
   const auth = await requireManagerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const url = new URL(request.url);
     const params = querySchema.parse({
@@ -72,6 +75,8 @@ const bodySchema = z.object({
 export async function PUT(request: Request) {
   const auth = await requireManagerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const json = await request.json();
     const body = bodySchema.parse(json);

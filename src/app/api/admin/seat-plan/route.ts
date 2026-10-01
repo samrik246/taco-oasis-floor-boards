@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { requireDayAccess, requireAssignmentDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -18,6 +19,8 @@ const postSchema = z.object({
 export async function POST(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const json = await req.json();
     const secret = rejectManagerSecrets(json);
@@ -52,6 +55,8 @@ const deleteSchema = z.object({
 export async function DELETE(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const json = await req.json();
     const secret = rejectManagerSecrets(json);

@@ -1,3 +1,4 @@
+import { decisionPaints } from "@/lib/quarter/decision-paint";
 import { chicagoToday } from "@/lib/upcoming/source";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import type { Prisma } from "@prisma/client";
@@ -239,12 +240,7 @@ export async function starWorld(
   const shifts = await tx.shift.findMany({
     where: { date, supersededAt: null, boardRemoved: false },
   });
-  const paints = shifts.length === 0
-    ? []
-    : await tx.assignment.findMany({
-      where: { shiftId: { in: shifts.map((shift) => shift.id) } },
-      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
-    });
+  const paints = await decisionPaints(tx, date);
   const marks = await tx.mandatoryMark.findMany({
     where: { board, date },
     select: { stationId: true },
@@ -284,6 +280,7 @@ export async function starWorld(
         shiftId: row.shiftId,
         stationId: row.stationId,
         hourStart: row.hourStart,
+        ...(row.intervalEnd ? { intervalEnd: row.intervalEnd } : {}),
       }];
     }),
     breaks: breaks.flatMap((row) => {

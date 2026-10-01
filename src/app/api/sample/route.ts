@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,6 +18,8 @@ const SAMPLE_FILENAME = "wheniwork-restaurant-export-sample.xlsx";
 export async function GET(request: Request) {
   const auth = await requireOwnerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const fixturePath = path.join(
       process.cwd(),

@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { requireAssignmentDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -22,6 +23,8 @@ const bodySchema = z.object({
 export async function DELETE(request: Request, context: RouteContext) {
   const auth = await requireManagerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const { id } = await context.params;
     const dayAccess = await requireAssignmentDayAccess(request, [id]);

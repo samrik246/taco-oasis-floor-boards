@@ -1,3 +1,5 @@
+import { quarterState } from "@/lib/quarter/schema";
+import { resolvePaintWorld, assignedIntervals } from "@/lib/quarter/world";
 import { TIMEZONE } from "@/lib/constants";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { shiftOverlapMinutes } from "@/lib/rules/shift-window";
@@ -80,38 +82,34 @@ export async function getEmployeeWeekHours(
 
   const employee = await prisma.employee.findUnique({
     where: { id: employeeId },
+    select: { id:true, firstName:true, lastName:true },
   });
   if (!employee) return null;
 
   const { weekStart, weekEnd, rangeStart, rangeEnd } =
     chicagoWeekBounds(weekOfDate);
 
-  const assignments = await prisma.assignment.findMany({
-    where: {
-      shift: { employeeId },
-      hourStart: { gte: rangeStart, lte: rangeEnd },
-    },
-    include: { station: true, shift: { select: { startAt: true, endAt: true } } },
-  });
-
-  const byStationMap = new Map<
-    string,
-    { stationId: string; stationLabel: string; minutes: number }
-  >();
-
-  for (const a of assignments) {
-    const mins = assignmentLedgerMinutes(a, a.shift);
-    const prev = byStationMap.get(a.stationId);
-    if (prev) {
-      prev.minutes += mins;
+  const byStationMap = new Map<string,{stationId:string;stationLabel:string;minutes:number}>();
+  await prisma.$transaction(async tx => {
+    if ((await quarterState(tx))?.phase === "active") {
+      const dates=await tx.shift.findMany({where:{employeeId,date:{gte:weekStart,lte:weekEnd}},select:{date:true},distinct:["date"]});
+      const totals=new Map<string,{label:string;ms:number}>();
+      for(const {date} of dates) {
+        const world=await resolvePaintWorld(tx,date);
+        for(const interval of assignedIntervals(world,false).filter(s=>s.employeeId===employeeId)) {
+          const id=interval.stationId!;const total=totals.get(id)??{label:world.stations.find(s=>s.id===id)!.label,ms:0};
+          total.ms+=interval.endMs-interval.startMs;totals.set(id,total);
+        }
+      }
+      for(const [stationId,total] of totals)byStationMap.set(stationId,{stationId,stationLabel:total.label,minutes:Math.round(total.ms/60_000)});
     } else {
-      byStationMap.set(a.stationId, {
-        stationId: a.stationId,
-        stationLabel: a.station.label,
-        minutes: mins,
-      });
+      const assignments=await tx.assignment.findMany({where:{shift:{employeeId},hourStart:{gte:rangeStart,lte:rangeEnd}},include:{station:true,shift:{select:{startAt:true,endAt:true}}}});
+      for(const a of assignments) {
+        const prior=byStationMap.get(a.stationId)??{stationId:a.stationId,stationLabel:a.station.label,minutes:0};
+        prior.minutes+=assignmentLedgerMinutes(a,a.shift);byStationMap.set(a.stationId,prior);
+      }
     }
-  }
+  });
 
   const byStation: LedgerStationRow[] = [...byStationMap.values()]
     .map((r) => ({

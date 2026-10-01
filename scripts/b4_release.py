@@ -52,9 +52,17 @@ def metadata(path):
     return [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_mode]
 
 
+def require_hourly_packet_database(database):
+    """Foundation is not the reviewed V2 recovery controller. Refuse before changing services."""
+    with sqlite3.connect(Path(database).as_uri() + '?mode=ro', uri=True) as db:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='QuarterSchema'").fetchone():
+            raise ValueError('QUARTER_COMPATIBLE_RECOVERY_PACKET_REQUIRED')
+
+
 def guard(database):
     """Read only safe invariant columns. No credential selection, row export or DB copy."""
     database = Path(database)
+    require_hourly_packet_database(database)
     identity = metadata(database)[:2]
     with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
         db.execute('PRAGMA query_only=ON')
@@ -239,6 +247,7 @@ def cutover(packet, operation):
         verify_live_runtime(APP, packet, 'old', dependencies=False, prior_installed=True)
     if DATABASE.resolve() != DATABASE:
         raise ValueError('Database path must match the reviewed fixed installation path')
+    require_hourly_packet_database(DATABASE)
     env_before = metadata(APP / '.env')
     timer_before = timer_state()
     record(run, 'configuration-before', environmentMetadata=env_before, timer=timer_before)

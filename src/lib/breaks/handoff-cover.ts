@@ -23,7 +23,7 @@ export function paintStationAt(
   for (const paint of paints) {
     if (paint.employeeId !== employeeId || paint.shiftId !== shiftId) continue;
     const start = paint.hourStart.getTime();
-    if (t >= start && t < start + HOUR_MS) return paint.stationId;
+    if (t >= start && t < (paint.intervalEnd?.getTime() ?? start + HOUR_MS)) return paint.stationId;
   }
   return null;
 }

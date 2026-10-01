@@ -5,6 +5,9 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  const { prisma } = await import("@/lib/db");
+  const { assertArtifactCompatibility } = await import("@/lib/quarter/compatibility");
+  await assertArtifactCompatibility(prisma);
   const { startBreakPickTimer } = await import("@/lib/breaks/auto-pick");
   startBreakPickTimer();
 }

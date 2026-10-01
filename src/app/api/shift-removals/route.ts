@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { prisma } from "@/lib/db";
 import { requireDayAccess } from "@/lib/managers/day-access";
 import { NextResponse } from "next/server";
@@ -32,6 +33,8 @@ const bodySchema = z.discriminatedUnion("action", [removeSchema, restoreSchema, 
 export async function GET(request: Request) {
   const auth = await requireManagerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   const url = new URL(request.url);
   const parsed = z.object({ board: boardSchema, date: dateSchema }).safeParse({
     board: url.searchParams.get("board"), date: url.searchParams.get("date"),
@@ -59,6 +62,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireManagerSession(request);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ code: "INVALID_REQUEST", error: "Invalid removal request" }, { status: 400 });
   try {

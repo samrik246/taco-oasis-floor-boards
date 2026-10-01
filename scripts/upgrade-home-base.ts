@@ -1,3 +1,4 @@
+import { refuseSchemaPush } from "../src/lib/quarter/compatibility";
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 
@@ -135,6 +136,7 @@ async function enforce() {
 }
 
 async function main() {
+  await refuseSchemaPush(prisma);
   const mode = process.argv[2];
   if (mode === "preflight") await preflight();
   else if (mode === "prepare") await prepare();

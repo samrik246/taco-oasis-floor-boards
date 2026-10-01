@@ -11,9 +11,9 @@
     "test:watch": "sh scripts/validate-test-db-isolation.sh --watch",
     "test:e2e": "playwright test",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push --accept-data-loss",
+    "db:push": "tsx scripts/quarter-schema-guard.ts && prisma db push --accept-data-loss",
     "db:seed": "tsx prisma/seed.ts",
-    "db:setup": "prisma db push && tsx prisma/seed.ts",
+    "db:setup": "tsx scripts/quarter-schema-guard.ts && prisma db push && tsx prisma/seed.ts",
     "fixture:xlsx": "TZ=America/Chicago tsx scripts/build-sample-xlsx.ts",
     "postinstall": "prisma generate"
   },

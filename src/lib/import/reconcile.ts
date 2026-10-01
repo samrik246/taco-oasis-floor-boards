@@ -23,6 +23,8 @@ export type ExistingAssignment = {
   stationId: string;
   hourStart: Date;
   hourEnd: Date;
+  /** V2 planning interval: provenance id, never an Assignment write target. */
+  canonicalHourStart?: Date;
 };
 
 export type ExistingShift = {
@@ -88,11 +90,13 @@ function sameWindow(a: { startAt: Date; endAt: Date }, b: { startAt: Date; endAt
 }
 
 function hasStarted(a: ExistingAssignment, now: Date): boolean {
-  return ms(now) >= ms(a.hourStart);
+  return ms(now) >= ms(a.canonicalHourStart ?? a.hourStart);
 }
 
 function stillOnShift(a: ExistingAssignment, next: { startAt: Date; endAt: Date }): boolean {
-  return isHourInShift(a.hourStart, next.startAt, next.endAt, a.hourEnd);
+  return a.canonicalHourStart
+    ? a.hourStart >= next.startAt && a.hourEnd <= next.endAt
+    : isHourInShift(a.hourStart, next.startAt, next.endAt, a.hourEnd);
 }
 
 /**

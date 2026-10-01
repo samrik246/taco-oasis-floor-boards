@@ -1,3 +1,4 @@
+import { decisionPaints } from "@/lib/quarter/decision-paint";
 import type { Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { firstAutoCover } from "@/lib/breaks/covers";
@@ -80,13 +81,7 @@ async function loadPickWorld(
     where: { date, supersededAt: null, boardRemoved: false },
     include: { employee: { select: { firstName: true } } },
   });
-  const shiftIds = shifts.map((shift) => shift.id);
-  const paints = shiftIds.length === 0
-    ? []
-    : await tx.assignment.findMany({
-      where: { shiftId: { in: shiftIds } },
-      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
-    });
+  const paints = await decisionPaints(tx, date);
   const marks = await tx.mandatoryMark.findMany({
     where: { board, date },
     select: { stationId: true },
@@ -146,6 +141,7 @@ async function loadPickWorld(
         shiftId: row.shiftId,
         stationId: row.stationId,
         hourStart: row.hourStart,
+        ...(row.intervalEnd ? { intervalEnd: row.intervalEnd } : {}),
       }];
     }),
     breaks,
