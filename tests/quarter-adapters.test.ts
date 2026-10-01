@@ -1,3 +1,7 @@
+import { quarterTaskSuggestions } from "@/lib/quarter/task-suggestions";
+import { pickDueCovers } from "@/lib/breaks/auto-pick";
+import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
+import { tareaV2 } from "@/lib/quarter/tareas";
 import { beforeAll,afterAll,beforeEach,afterEach,describe,it,expect } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { execFileSync } from "node:child_process";
@@ -71,6 +75,16 @@ describe("quarter server adapters and data preservation",()=>{
   afterEach(async()=>{await db.$disconnect();});
   afterAll(()=>fs.rmSync(root,{recursive:true,force:true}));
 
+  it("task suggestions use the requested interval without leaking ability scores",async()=>{
+    await shift("a");await activate();await paint("a","13:00","purple1");await paint("a","13:15","purple2");
+    await db.tareaTemplate.create({data:{id:"trash_runs",code:"TRASH",label:"Trash",board:"caja",mode:"anytime",sortOrder:1}});
+    const input={date,templateId:"trash_runs",quarter:"13:00",granularity:"quarter" as const};
+    const selected=await db.$transaction(tx=>quarterTaskSuggestions(tx,input));
+    expect(selected.suggestions[0]).toMatchObject({employeeId:"a",seatId:"purple1"});
+    expect(JSON.stringify(selected)).not.toMatch(/abilityLevel|score|rank/);
+    const mixed=await db.$transaction(tx=>quarterTaskSuggestions(tx,{...input,granularity:"hour"}));
+    expect(mixed.suggestions).toHaveLength(0);
+  });
   it("same original revision permits only one concurrent commit and replay retires exactly its generation",async()=>{
     await shift("a");await activate();
     const base=await envelope();
@@ -170,6 +184,32 @@ describe("quarter server adapters and data preservation",()=>{
     const revision=await worldRevision(db),batches=await db.importBatch.count();
     await expect(importSchedule(schedule([{id:"a"},{id:"b",end:hour+900000}]))).rejects.toMatchObject({code:"PERSISTED_COVER_CONFLICT"});
     expect(await db.importBatch.count()).toBe(batches);expect(await worldRevision(db)).toBe(revision);
+  });
+  it("fixed-now picker reads canonical erasure and remains idempotent under a second call",async()=>{
+    const stars=[...MANDATORY_STATIONS_BY_BOARD.caja];
+    for(const stationId of stars){
+      await db.station.upsert({where:{id:stationId},create:{id:stationId,board:"caja",label:stationId,color:"green",sortOrder:1,maxConcurrent:1},update:{}});
+      await shift(stationId);
+    }
+    await shift("backup",{board:"other"});await activate();
+    const env=await envelope();
+    await paintV2({...env,intents:stars.map(stationId=>({shiftId:`source-${stationId}`,quarter:"13:00",action:"station",stationId}))},actor,now,db);
+    await db.staffBreak.create({data:{employeeId:"green1",shiftId:"source-green1",board:"caja",date,startAt:new Date(hour),endAt:new Date(hour+900000),status:"pending",actor:"staff"}});
+    const fixedNow=new Date(hour-300000);
+    expect(await pickDueCovers(fixedNow,db)).toMatchObject({picked:1});
+    const booked=(await db.staffBreak.findFirst())!;
+    expect(booked.coverShiftId).toBe("source-backup");
+    expect(await pickDueCovers(fixedNow,db)).toEqual({picked:0,rolled:0,ended:0});
+    expect((await db.staffBreak.findFirst())!.id).toBe(booked.id);
+  });
+  it("task departure uses canonical bounds and retries the same durable task result",async()=>{
+    await shift("a");await db.tareaTemplate.create({data:{id:"synthetic-task",code:"TASK",label:"Synthetic task",board:"caja",mode:"when_slow",sortOrder:1}});
+    await activate();await paint("a","13:15","purple1");
+    const env=await envelope();
+    const command={protocol:2,requestId:"task-id",capabilitySha256:CAPABILITY_SHA256,date,expected:env.expected,operation:"assign",employeeId:"a",templateId:"synthetic-task",quarter:"13:00",granularity:"quarter"};
+    const receipt=await tareaV2(command,actor,now,db);expect(receipt.ok).toBe(true);
+    expect(await tareaV2(command,actor,now,db)).toEqual(receipt);expect(await db.tareaAssignment.count()).toBe(1);
+    await expect(tareaV2({...command,requestId:"task-stale"},actor,now,db)).rejects.toMatchObject({code:"REVISION_CONFLICT"});
   });
   it("exact-interval suggestions distinguish erased time from later paint without exposing abilities",async()=>{
     await shift("a");await activate();await db.employeeStationAbility.create({data:{employeeId:"a",stationId:"purple1",level:"preferred"}});

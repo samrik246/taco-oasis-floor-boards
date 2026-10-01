@@ -58,11 +58,11 @@ function asEnd(value: string | null): OverlayEndReason | null {
 /** Newest first, so a later row is the one the slice engine finds. */
 export async function loadOverlayRecords(
   db: Db,
-  board: string,
+  board: string | null,
   date: string,
 ): Promise<OverlayRecord[]> {
   const rows = await db.boardOverlay.findMany({
-    where: { board, date },
+    where: { ...(board?{board}:{}), date },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
   return rows.flatMap((row) => {

@@ -1,3 +1,4 @@
+import { legacyHttpGuard } from "@/lib/quarter/http";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -35,6 +36,7 @@ export async function GET(req: Request) {
     const templates = await listTareaTemplates(board);
 
     if (suggest && date && hourRaw != null) {
+      const upgrade=await legacyHttpGuard();if(upgrade)return upgrade;
       const hour = Number(hourRaw);
       const suggestions = await buildTareaSuggestions({
         date,
@@ -71,6 +73,7 @@ const postSchema = z.object({
 export async function POST(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
+  const upgrade=await legacyHttpGuard();if(upgrade)return upgrade;
   try {
     const body = postSchema.parse(await req.json());
     const access = await requireDayAccess(req, body.date);
@@ -105,6 +108,7 @@ const patchSchema = z.object({
 });
 
 export async function PATCH(req: Request) {
+  const upgrade=await legacyHttpGuard();if(upgrade)return upgrade;
   try {
     const body = patchSchema.parse(await req.json());
     const stored = await prisma.tareaAssignment.findUnique({ where: { id: body.id }, select: { date: true } });

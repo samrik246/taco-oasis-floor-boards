@@ -47,6 +47,7 @@ export type SliceBreak = {
 
 export type SliceOverlay = {
   id: string;
+  board?: string;
   kind: "switch" | "remove" | "add";
   employeeId: string;
   partnerEmployeeId?: string | null;
@@ -191,8 +192,9 @@ function canonicalMoves(input:DaySliceInput,row:SliceBreak,start:Date,end:Date) 
     return {stationId,overlay};
   };
   const destination=position(requester),origin=position(cover);
-  if(!destination.stationId)return [];
+  if(!destination.stationId || (destination.overlay?.board && destination.overlay.board!==row.board))return [];
   if(origin.overlay){
+    if(origin.overlay.board&&origin.overlay.board!==row.board)return [];
     const family=familyForStation(destination.stationId);
     if(!family||!isDefaultMandatory(destination.stationId)||PAINT_FAMILIES[family][0]!==destination.stationId||PAINT_FAMILIES[family][1]!==origin.stationId)return [];
   }
@@ -280,6 +282,10 @@ export function buildDaySlices(input: DaySliceInput): DaySlices {
       if (onThisBoard && booked) {
         cell = "break";
         onBreak = true;
+      } else if (overlay?.board && overlay.board!==input.board &&
+        ((overlay.kind==="switch"&&(overlay.employeeId===employeeId||overlay.partnerEmployeeId===employeeId))||
+          (overlay.kind==="add"&&overlay.partnerEmployeeId===employeeId))) {
+        cell="move";
       } else if (overlay?.kind === "remove" && overlay.employeeId === employeeId && onThisBoard) {
         cell = "open";
         counts = true;

@@ -94,6 +94,18 @@ class PacketTests(unittest.TestCase):
             finally:
                 self.assertEqual((plist.read_bytes(), plist.stat().st_mode, plist.stat().st_mtime_ns), before)
                 run.assert_called_once_with(['launchctl', 'print', 'gui/' + str(os.getuid()) + '/' + r.LABEL], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    def test_hourly_packet_refuses_quarter_database_before_cutover_or_guard(self):
+        db_path = self.root / 'synthetic' / 'floor-boards.db'
+        database(db_path)
+        with sqlite3.connect(db_path) as db:
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'prepared')")
+        original = db_path.read_bytes()
+        for check in (r.require_hourly_packet_database, r.guard):
+            with self.assertRaisesRegex(ValueError, 'QUARTER_COMPATIBLE_RECOVERY_PACKET_REQUIRED'):
+                check(db_path)
+            self.assertEqual(db_path.read_bytes(), original)
+
     def test_observed_hourly_timer_is_preserved(self):
         slots = [{'Hour': hour, 'Minute': 0} for hour in range(6, 22)]
         result = self.timer_case(list(reversed(slots)))

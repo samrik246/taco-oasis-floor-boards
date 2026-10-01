@@ -1,3 +1,4 @@
+import { quarterState } from "@/lib/quarter/schema";
 import { boardWrite } from "@/lib/shared-write";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -48,6 +49,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     });
     if (!checked.ok) {
       return NextResponse.json({ error: checked.error }, { status: 422 });
+    }
+    if(checked.value.board!==existing.board && (await quarterState(tx))?.phase==="active") {
+      return NextResponse.json({error:"Station board changes require the interval source workflow.",code:"QUARTER_SOURCE_REQUIRED"},{status:409});
     }
     const station = await tx.station.update({
       where: { id },

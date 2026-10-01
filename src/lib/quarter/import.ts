@@ -22,7 +22,8 @@ export async function importReceipt(db:QuarterDb,fingerprint:string,batchId:stri
   const receipt=await receiptFor(db,ACTOR.id,importId(schema.databaseEpoch,fingerprint));
   if(!receipt)return null;
   const response=JSON.parse(receipt.responseJson);
-  if(receipt.databaseEpoch!==schema.databaseEpoch || !Array.isArray(response.canonicalRows) || createHash("sha256").update(JSON.stringify(response.canonicalRows)).digest("hex")!==fingerprint || receipt.requestSha256!==digest(importRequest(schema.databaseEpoch,fingerprint,response.canonicalRows)))throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
+  const rows=Array.isArray(response.canonicalRows)?response.canonicalRows.map((r:Record<string,string>)=>({externalId:r.externalId,date:r.date,startAt:r.startAt,endAt:r.endAt,sourcePosition:r.sourcePosition,board:r.board})):null;
+  if(receipt.databaseEpoch!==schema.databaseEpoch || !rows || createHash("sha256").update(JSON.stringify(rows)).digest("hex")!==fingerprint || receipt.requestSha256!==digest(importRequest(schema.databaseEpoch,fingerprint,response.canonicalRows)))throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
   if(response.fingerprint!==fingerprint||response.result?.importBatchId!==batchId)throw new QuarterRefused("IMPORT_RECEIPT_MISMATCH");
   return response.result;
 }

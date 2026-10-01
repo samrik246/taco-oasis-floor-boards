@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { boardWrite } from "@/lib/shared-write";
 import { QuarterRefused, quarterState, worldRevision } from "@/lib/quarter/schema";
 import { assignedIntervals, resolvePaintWorld, overlaps } from "@/lib/quarter/world";
@@ -92,11 +93,12 @@ export async function assignTarea(args: {
   templateId: string;
   hour: number;
   forceLemon?: boolean;
+  db?: Prisma.TransactionClient;
   interval?: {startAt:string;endAt:string;databaseEpoch:string;worldRevision:string};
 }): Promise<AssignTareaResult> {
-  await ensureTareaTemplates();
+  if(!args.db)await ensureTareaTemplates();
 
-  return boardWrite(prisma, async tx => {
+  const run=async(tx:Prisma.TransactionClient):Promise<AssignTareaResult> => {
   const employee = await tx.employee.findUnique({
     where: { id: args.employeeId },
   });
@@ -173,14 +175,16 @@ export async function assignTarea(args: {
   });
 
   return { ok: true, assignment: created, lemonWarning };
-  });
+  };
+  return args.db?run(args.db):boardWrite(prisma,run);
 }
 
 export async function setTareaStatus(args: {
+  db?: Prisma.TransactionClient;
   id: string;
   status: "working" | "done";
 }) {
-  return boardWrite(prisma, async tx => {
+  const run=async(tx:Prisma.TransactionClient) => {
   const existing = await tx.tareaAssignment.findUnique({
     where: { id: args.id },
   });
@@ -198,7 +202,8 @@ export async function setTareaStatus(args: {
       },
     },
   });
-  });
+  };
+  return args.db?run(args.db):boardWrite(prisma,run);
 }
 
 export async function buildTareaSuggestions(args: {

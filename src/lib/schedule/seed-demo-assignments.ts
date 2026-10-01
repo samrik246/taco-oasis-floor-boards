@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import { levelWhenUnset } from "@/lib/abilities/column-default";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
@@ -120,7 +122,8 @@ export async function seedDemoScheduleAssignments(
   }
 
   if (toCreate.length > 0) {
-    await prisma.$transaction(async (tx) => {
+    await boardWrite(prisma, async (tx) => {
+      await requireLegacy(tx);
       for (const row of toCreate) {
         const seatNumber = await seatNumberForWrite(tx, {
           stationId: row.stationId,

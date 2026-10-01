@@ -170,7 +170,7 @@ export async function previewImport(
   const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
   if (duplicate) {
     const schema=await quarterState(tx);
-    if (!schema) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
+    if (!schema || schema.phase==="prepared") throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
     const replay=await importReceipt(tx,fingerprint,duplicate.id);
     if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
     return {fingerprint,planDigest:"receipt-replay",needsConfirm:false,dates:replay.dates,refusals:[],rowCount:replay.rowCount};
@@ -224,7 +224,7 @@ export async function commitImport(
     const revisionBefore=schema ? await worldRevision(tx) : null;
     const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
     if (duplicate) {
-      if (!schema) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
+      if (!schema || schema.phase==="prepared") throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
       const replay=await importReceipt(tx,fingerprint,duplicate.id);
       if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
       return {...replay,replayed:true};

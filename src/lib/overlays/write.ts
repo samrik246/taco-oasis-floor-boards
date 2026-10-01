@@ -222,7 +222,7 @@ async function starAcceptsNamedCover(
       auto: row.auto,
     }];
   });
-  const overlays = (await loadOverlayRecords(tx, input.board, input.date)).map(toSliceOverlay);
+  const overlays = (await loadOverlayRecords(tx, canonical?null:input.board, input.date)).map(row=>({...toSliceOverlay(row),...(canonical?{board:row.board}:{})}));
   const seat = paintStationAt(paints, input.employeeId, input.shiftId, input.startAt);
   const matched = findHandoffOverlay(overlays, input.coverEmployeeId, seat, starStationIds);
   const known = overlays.find((row) => row.id === input.ignoreOverlayId) ?? null;
@@ -230,6 +230,7 @@ async function starAcceptsNamedCover(
   if (handoff && !overlayCoversWindow(handoff, input.startAt, input.endAt)) return false;
   const excludeId = handoff?.id ?? input.ignoreOverlayId;
   const star = assessStarGate({
+    canonical,requesterShiftId:input.shiftId,
     date: input.date,
     board: input.board,
     employeeId: input.employeeId,

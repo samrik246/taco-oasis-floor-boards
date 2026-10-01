@@ -72,7 +72,7 @@ export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Dat
         const targets=after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs))).flatMap(h=>h.segments.flatMap(s=>s.stationId?[{hourStartMs:h.hourStartMs,stationId:s.stationId}]:[]));
         peerHours(world,touched,targets);
         for(const h of after.hours.filter(h=>h.shiftId!==source.id))h.segments=structuredClone(world.hours.find(p=>hourKey(p.shiftId,p.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!.segments);
-        projectSeatNumbers(after);await validatePaintWorld(db,after,touched);await validateObligations(db,world,after,now);
+        await validatePaintWorld(db,after,touched);projectSeatNumbers(after);await validatePaintWorld(db,after,touched);await validateObligations(db,world,after,now);
         for(const h of after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs)))){
           const original=world.hours.find(o=>hourKey(o.shiftId,o.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!;
           // Source reconciliation already advanced this command's revision. Replace exact

@@ -237,7 +237,7 @@ export async function starWorld(
   tx: Prisma.TransactionClient,
   date: string,
   board: "caja" | "cocina",
-): Promise<{ shifts: SliceShift[]; paints: SlicePaint[]; breaks: SliceBreak[]; starStationIds: string[]; overlays: SliceOverlay[] }> {
+): Promise<{ canonical:boolean; shifts: SliceShift[]; paints: SlicePaint[]; breaks: SliceBreak[]; starStationIds: string[]; overlays: SliceOverlay[] }> {
   const shifts = await tx.shift.findMany({
     where: { date, supersededAt: null, boardRemoved: false },
   });
@@ -266,8 +266,9 @@ export async function starWorld(
       auto: true,
     },
   });
-  const overlays = (await loadOverlayRecords(tx, board, date)).map(toSliceOverlay);
+  const overlays = (await loadOverlayRecords(tx, canonical?null:board, date)).map(row=>({...toSliceOverlay(row),...(canonical?{board:row.board}:{})}));
   return {
+    canonical,
     shifts: shifts.map((shift) => ({
       id: shift.id,
       employeeId: shift.employeeId,
@@ -415,6 +416,7 @@ async function writeBreak(
       loadColumnDefaults(tx),
     ]);
     const coverInput = {
+      canonical:world.canonical,
       date: input.date,
       board: decision.board as SliceBoard,
       employeeId: input.employeeId,
@@ -439,6 +441,7 @@ async function writeBreak(
       }
     }
     const star = assessStarGate({
+      canonical:world.canonical,
       date: input.date,
       board: decision.board as SliceBoard,
       employeeId: input.employeeId,

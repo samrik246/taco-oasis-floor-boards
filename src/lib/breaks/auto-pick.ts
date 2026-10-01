@@ -1,6 +1,7 @@
 import { quarterState } from "@/lib/quarter/schema";
 import { decisionPaints } from "@/lib/quarter/decision-paint";
-import type { Prisma } from "@prisma/client";
+import { quarterWrite } from "@/lib/quarter/transaction";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { firstAutoCover } from "@/lib/breaks/covers";
 import {
@@ -130,6 +131,7 @@ async function loadPickWorld(
     }];
   });
   return {
+    canonical,
     shifts: shifts.map((shift) => ({
       id: shift.id,
       employeeId: shift.employeeId,
@@ -154,7 +156,7 @@ async function loadPickWorld(
     abilities,
     defaults,
     names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
-    overlays: (await loadOverlayRecords(tx, board, date)).map(toSliceOverlay),
+    overlays: (await loadOverlayRecords(tx, canonical?null:board, date)).map(row=>({...toSliceOverlay(row),...(canonical?{board:row.board}:{})})),
   };
 }
 
@@ -255,6 +257,8 @@ function namedCoverFirst(
   const shift = shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
   if (!shift) return null;
   const star = assessStarGate({
+    canonical:world.canonical,requesterShiftId:row.shiftId,
+    coverShiftId:world.canonical?row.coverShiftId:undefined,
     date: row.date,
     board,
     employeeId: row.employeeId,
@@ -374,10 +378,11 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
  * the break when the next quarter no longer fits. A window already under
  * way is left as it was. Two callers cannot both win the same row.
  */
-export async function pickDueCovers(now: Date = breaksNow()): Promise<BreakPickTally> {
-  const seen = await withStaffBreakLock((tx) => readDue(tx, now));
+export async function pickDueCovers(now: Date = breaksNow(), client?:PrismaClient): Promise<BreakPickTally> {
+  const locked=<T>(write:(tx:Prisma.TransactionClient)=>Promise<T>)=>client?quarterWrite(client,write):withStaffBreakLock(write);
+  const seen = await locked((tx) => readDue(tx, now));
   if (afterPickRead) await afterPickRead(seen);
-  return withStaffBreakLock((tx) => applyDue(tx, now));
+  return locked((tx) => applyDue(tx, now));
 }
 
 const pickState = globalThis as { __floorBoardsBreakPick?: boolean };

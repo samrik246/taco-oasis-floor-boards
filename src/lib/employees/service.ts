@@ -8,11 +8,6 @@ export function isAbilityLevel(v: string): v is AbilityLevel {
   return (ABILITY_LEVELS as readonly string[]).includes(v);
 }
 
-async function knownStationIds(): Promise<Set<string>> {
-  const rows = await prisma.station.findMany({ select: { id: true } });
-  return new Set(rows.map((row) => row.id));
-}
-
 export async function listEmployees() {
   return prisma.employee.findMany({
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -38,11 +33,12 @@ export type CreateEmployeeInput = {
 };
 
 export async function createEmployee(input: CreateEmployeeInput) {
+  return boardWrite(prisma, async tx => {
   const externalId =
     input.externalId?.trim() ||
     `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const existing = await prisma.employee.findUnique({
+  const existing = await tx.employee.findUnique({
     where: { externalId },
   });
   if (existing) {
@@ -53,7 +49,7 @@ export async function createEmployee(input: CreateEmployeeInput) {
     };
   }
 
-  const stationIds = await knownStationIds();
+  const stationIds = new Set((await tx.station.findMany({select:{id:true}})).map(s=>s.id));
   const abilities = input.abilities ?? [];
   for (const ability of abilities) {
     if (!stationIds.has(ability.stationId)) {
@@ -65,7 +61,7 @@ export async function createEmployee(input: CreateEmployeeInput) {
     }
   }
 
-  const employee = await prisma.employee.create({
+  const employee = await tx.employee.create({
     data: {
       externalId,
       firstName: input.firstName.trim(),
@@ -82,6 +78,7 @@ export async function createEmployee(input: CreateEmployeeInput) {
   });
 
   return { ok: true as const, employee };
+  });
 }
 
 export type UpdateEmployeeInput = {

@@ -9,6 +9,7 @@ export class QuarterRefused extends Error {
   constructor(readonly code: string, readonly status = 409) { super(code); }
 }
 export function canonical(value: unknown): string {
+  if(value instanceof Date)return JSON.stringify(value.toISOString());
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   const record = value as Record<string, unknown>;

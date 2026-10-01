@@ -41,6 +41,7 @@ function rankCoverCandidates(input: {
   breaks: readonly SliceBreak[];
   overlays?: readonly SliceOverlay[];
   starStationIds: readonly string[];
+  canonical?: boolean;
   abilities: readonly AbilityRow[];
   defaults?: ReadonlyMap<string, string>;
   names: ReadonlyMap<string, string>;
@@ -186,6 +187,9 @@ function acceptsCover(
   row: BreakCover,
 ): boolean {
   const decision = assessStarGate({
+    canonical:input.canonical,
+    coverShiftId:row.kind==="simple"?row.shiftId:row.moves[0].shiftId,
+    shuffleShiftId:row.kind==="shuffle"?row.moves[1].shiftId:null,
     date: input.date,
     board: input.board,
     employeeId: input.employeeId,

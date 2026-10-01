@@ -96,6 +96,10 @@ export function assessStarGate(input: {
   breaks: readonly SliceBreak[];
   starStationIds: readonly string[];
   overlays?: readonly SliceOverlay[];
+  canonical?: boolean;
+  requesterShiftId?: string;
+  coverShiftId?: string | null;
+  shuffleShiftId?: string | null;
   coverEmployeeId?: string | null;
   shuffleEmployeeId?: string | null;
 }): StarGateDecision {
@@ -134,7 +138,7 @@ export function assessStarGate(input: {
   if (coverId) {
     if (coverId === input.employeeId) return { code: "BAD_COVER" };
     const coverShift = input.shifts.find((shift) => {
-      return shift.employeeId === coverId && windowHolds(shift, input.startAt, input.endAt);
+      return shift.employeeId === coverId && (!input.coverShiftId || shift.id===input.coverShiftId) && windowHolds(shift, input.startAt, input.endAt);
     });
     if (!coverShift) return { code: "BAD_COVER" };
     coverShiftId = coverShift.id;
@@ -152,7 +156,7 @@ export function assessStarGate(input: {
         return { code: "BAD_COVER" };
       }
       const shuffleShift = input.shifts.find((shift) => {
-        return shift.employeeId === requestedShuffle && windowHolds(shift, input.startAt, input.endAt);
+        return shift.employeeId === requestedShuffle && (!input.shuffleShiftId || shift.id===input.shuffleShiftId) && windowHolds(shift, input.startAt, input.endAt);
       });
       if (!shuffleShift) return { code: "BAD_COVER" };
       const shuffleBlocked = starred.some((slice) => {
@@ -168,9 +172,12 @@ export function assessStarGate(input: {
     }
   }
 
+  const requester=input.shifts.filter(s=>s.employeeId===input.employeeId&&s.board===input.board&&windowHolds(s,input.startAt,input.endAt)&&(!input.requesterShiftId||s.id===input.requesterShiftId));
+  if(input.canonical && requester.length!==1)return {code:"BAD_COVER"};
   const proposed: SliceBreak = {
     employeeId: input.employeeId,
-    shiftId: "proposed",
+    shiftId: input.canonical?requester[0].id:"proposed",
+    ...(input.canonical?{coverShiftId,shuffleShiftId}:{}),
     board: input.board,
     startAt: input.startAt,
     endAt: input.endAt,

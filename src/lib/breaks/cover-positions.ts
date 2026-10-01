@@ -27,6 +27,7 @@ export function describeBreakCover(
     employeeId: input.employeeId, shiftId: shift.id, board: input.board,
     startAt: input.startAt, endAt: input.endAt, status: "booked",
     coverEmployeeId: moves[0].employeeId, shuffleEmployeeId: moves[1]?.employeeId,
+    ...(input.canonical?{coverShiftId:moves[0].shiftId,shuffleShiftId:moves[1]?.shiftId??null}:{}),
   }] });
   const positions: CoverPositionInterval[] = [];
   for (const index of sliceIndexesTouching(before, input.startAt, input.endAt)) {
