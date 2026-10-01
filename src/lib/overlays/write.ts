@@ -12,7 +12,6 @@ import {
 } from "@/lib/breaks/handoff-cover";
 import { assessBreak, withStaffBreakLock } from "@/lib/breaks/rules";
 import { TIMEZONE } from "@/lib/constants";
-import { prisma } from "@/lib/db";
 import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadOverlayRecords, screenOverlays, toSliceOverlay, type OverlayKind } from "@/lib/overlays/read";
 import { resolveOverlayWindow, type OverlayWindowMode } from "@/lib/overlays/windows";
