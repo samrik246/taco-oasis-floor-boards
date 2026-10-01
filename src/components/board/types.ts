@@ -1,3 +1,4 @@
+import type { CoverDisplay } from "@/lib/board/cover-display";
 import type { OverlayDto } from "@/lib/overlays/read";
 
 /** Shared board DTO types matching GET /api/boards/:board/days/:date */
@@ -81,6 +82,8 @@ export type DayBoardDto = {
   shifts: ShiftDto[];
   /** Shared read-only backup schedule; never included in primary paint or coverage. */
   auxiliaryShifts?: AuxiliaryShiftDto[];
+  /** Validated persisted BREAK movements; absent on old offline snapshots. */
+  coverDisplay?: CoverDisplay;
   /**
    * Per-station saved counts for the 28 days before `date`.
    * Absent only on a snapshot written before this field existed.

@@ -1,5 +1,7 @@
 "use client";
 
+import { savedHourSegments } from "./cover-display";
+import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import {
   buildScheduleGrid,
@@ -299,6 +301,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                         {row.shiftLabel}
                       </td>
                       {renderRowCells(row, grid.hours, stationLabels, {
+                        savedFor: (hour) => day && savedHourSegments(day, row.shiftId, hour) ? <SavedShiftHour day={day} shiftId={row.shiftId} hour={hour} locale={locale} /> : null,
                         quartersFor: (hour) => (slices ? personQuarters(slices, row.employeeId, hour) : []),
                         amberHours: amberByShift.get(row.shiftId) ?? new Set<number>(),
                         removedHours: removedHours(day?.overlays ?? [], row.employeeId, date, now ?? new Date()),
@@ -328,6 +331,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
           </table>
         </div>
       )}
+      {day && <SavedCoverPanel day={day} locale={locale} hours={grid?.hours} />}
     </section>
   );
 }
@@ -350,6 +354,7 @@ function renderRowCells(
   hours: number[],
   stationLabels: ReadonlyMap<string, string>,
   marks: {
+    savedFor: (hour: number) => ReactNode;
     quartersFor: (hour: number) => QuarterView[];
     amberHours: Set<number>;
     removedHours: Set<number>;
@@ -363,8 +368,14 @@ function renderRowCells(
   let i = 0;
   while (i < hours.length) {
     const hour = hours[i]!;
+    const saved = marks.savedFor(hour);
+    if (saved) {
+      cells.push(<td key={`${hour}-saved`} className="border-b border-neutral-300 p-0.5" data-testid={row.hourStations.get(hour) ? `schedule-block-${row.hourStations.get(hour)}-${hour}` : `schedule-saved-${hour}`}>{saved}</td>);
+      i += 1;
+      continue;
+    }
     const original = row.blocks.find((b) => b.startHour <= hour && hour < b.startHour + b.span);
-    const needsOwnCell = (h: number) => openAt(h) || markedAt(h) || marks.removedHours.has(h);
+    const needsOwnCell = (h: number) => Boolean(marks.savedFor(h)) || openAt(h) || markedAt(h) || marks.removedHours.has(h);
     // A marked hour splits only itself. Adjacent unmarked hours in the same
     // assignment/seat block still join, including the evening after a BREAK.
     let span = 1;

@@ -1,5 +1,7 @@
 "use client";
 
+import { savedHourSegments } from "./cover-display";
+import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
 import { useMemo } from "react";
 import { hourGridHours, formatHourLabel, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
@@ -129,6 +131,7 @@ export function TimelinePanel({
                   </th>
                   {cells.map((cell, i) => {
                     const hour = hours[i]!;
+                    const saved = day ? savedHourSegments(day, shift.id, hour) : null;
                     const stripe = cell.kind === "open" || cell.kind === "seated"
                       ? breakStripeLabel(
                         day?.breaks,
@@ -159,11 +162,13 @@ export function TimelinePanel({
                           : undefined
                       }
                     >
+                      {saved && day ? <SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /> : <>
                       <span className="block min-h-10 content-center leading-tight">
                         {cell.label}
                       </span>
                       {slices && <QuarterRow quarters={personQuarters(slices, shift.employee.id, hour)} />}
                       <BreakStripe label={stripe} />
+                      </>}
                     </td>
                     );
                   })}
@@ -173,6 +178,7 @@ export function TimelinePanel({
           </table>
         </div>
       )}
+      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} />}
     </section>
   );
 }

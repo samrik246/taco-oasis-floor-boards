@@ -1,0 +1,54 @@
+import { afterAll, expect, it } from "vitest";
+import { PrismaClient } from "@prisma/client";
+import { GET } from "@/app/api/boards/[board]/days/[date]/route";
+import { loadCoverDisplay } from "@/lib/board/load-cover-display";
+import { signManagerSession } from "@/lib/managers/session";
+import { chicagoDateTime } from "@/lib/time";
+import { chicagoToday } from "@/lib/upcoming/source";
+const db = new PrismaClient();
+const stamp = `cover-display-${Date.now()}`;
+const secret = process.env.MANAGER_SESSION_SECRET;
+afterAll(async () => { if (secret === undefined) delete process.env.MANAGER_SESSION_SECRET; else process.env.MANAGER_SESSION_SECRET = secret; await db.$disconnect(); });
+it("projects only public saved movers, keeps dated access and performs no read-time repair", async () => {
+  process.env.MANAGER_SESSION_SECRET = "cover-display-synthetic-session-00000";
+  const date = "2038-10-12", at = (time: string) => chicagoDateTime(date, time);
+  const owner = await db.manager.create({ data: { name: stamp, role: "owner", codeHash: "synthetic-unused" } });
+  const manager = await db.manager.create({ data: { name: `${stamp}-manager`, role: "manager", codeHash: "synthetic-unused" } });
+  const station = await db.station.create({ data: { id: `${stamp}-station`, board: "caja", label: "Synthetic Purple", color: "purple", maxConcurrent: 1, sortOrder: 900 } });
+  const employee = await db.employee.create({ data: { externalId: `${stamp}-primary`, firstName: "Dylan", lastName: "Example" } });
+  const cover = await db.employee.create({ data: { externalId: `${stamp}-cover`, firstName: "Dan", lastName: "Example", email: "private-canary@example.invalid" } });
+  const requester = await db.shift.create({ data: { employeeId: employee.id, board: "caja", sourcePosition: "Caja", date, startAt: at("12:00 pm"), endAt: at("4:00 pm") } });
+  const coverShift = await db.shift.create({ data: { employeeId: cover.id, board: "other", sourcePosition: "Office", date, startAt: at("12:00 pm"), endAt: at("4:00 pm") } });
+  await db.assignment.create({ data: { employeeId: employee.id, shiftId: requester.id, stationId: station.id, hourStart: at("1:00 pm"), hourEnd: at("2:00 pm") } });
+  const booked = await db.staffBreak.create({ data: { employeeId: employee.id, shiftId: requester.id, board: "caja", date, startAt: at("1:00 pm"), endAt: at("1:30 pm"), actor: "synthetic", coverEmployeeId: cover.id, coverShiftId: coverShift.id } });
+  const read = (headers: Record<string, string> = {}, d = date) => GET(new Request(`http://local/api/boards/caja/days/${d}`, { headers }), { params: Promise.resolve({ board: "caja", date: d }) });
+  const auth = { "x-manager-session": signManagerSession({ id: owner.id, name: owner.name }) };
+  const assignments = () => db.assignment.findMany({ where: { shiftId: requester.id }, orderBy: { id: "asc" } });
+  const before = JSON.stringify(await assignments());
+  try {
+    expect((await read()).status).toBe(401);
+    expect((await read({ "x-manager-session": signManagerSession({ id: manager.id, name: manager.name }) })).status).toBe(403);
+    expect((await read({}, chicagoToday())).status).toBe(200);
+    const response = await read(auth); expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(body.shifts.some((s: { id: string }) => s.id === coverShift.id)).toBe(false);
+    expect(body.coverDisplay.tracks).toContainEqual(expect.objectContaining({ shiftId: coverShift.id, firstName: "Dan", employeeId: cover.id }));
+    expect(JSON.stringify(body.coverDisplay)).not.toMatch(/private-canary|externalId|email|abilities|codeHash|managerId/);
+    expect(body.coverDisplay.unavailable).toEqual([]);
+    expect(JSON.stringify(await assignments())).toBe(before);
+    expect((await db.staffBreak.findUniqueOrThrow({ where: { id: booked.id } })).coverShiftId).toBe(coverShift.id);
+    await db.staffBreak.update({ where: { id: booked.id }, data: { coverShiftId: "lost-recorded-shift" } });
+    const unavailable = await loadCoverDisplay("caja", date, at("12:00 pm"));
+    expect(unavailable.unavailable).toHaveLength(1);
+    expect(unavailable.tracks.flatMap(t => t.segments).some(s => s.kind === "cover")).toBe(false);
+    expect((await db.staffBreak.findUniqueOrThrow({ where: { id: booked.id } })).coverShiftId).toBe("lost-recorded-shift");
+    expect(JSON.stringify(await assignments())).toBe(before);
+  } finally {
+    await db.staffBreak.delete({ where: { id: booked.id } });
+    await db.assignment.deleteMany({ where: { shiftId: requester.id } });
+    await db.shift.deleteMany({ where: { id: { in: [requester.id, coverShift.id] } } });
+    await db.employee.deleteMany({ where: { id: { in: [employee.id, cover.id] } } });
+    await db.station.delete({ where: { id: station.id } });
+    await db.manager.deleteMany({ where: { id: { in: [owner.id, manager.id] } } });
+  }
+});

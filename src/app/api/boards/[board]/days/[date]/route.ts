@@ -1,3 +1,4 @@
+import { loadCoverDisplay } from "@/lib/board/load-cover-display";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
@@ -141,6 +142,7 @@ export async function GET(request: Request, context: RouteContext) {
       })),
       stationUse,
       breaks: await boardBreakStripes(board, date),
+      coverDisplay: await loadCoverDisplay(board, date),
       overlays: (await loadOverlayRecords(prisma, board, date)).map(overlayDto),
       overlayMenu: Boolean(manager) && date === chicagoToday(),
       ...(manager ? { mandatory } : {}),

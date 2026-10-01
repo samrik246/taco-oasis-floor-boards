@@ -56,19 +56,42 @@ export function slicesForDay(day: DayBoardDto, now: Date, drafts: readonly Slice
       boardRemoved: false,
     })),
     paints,
-    breaks: (day.breaks ?? []).map((row) => ({
+    breaks: (day.breaks ?? []).filter(row => !day.coverDisplay || day.coverDisplay.tracks.some(track => track.shiftId === row.shiftId
+      && track.employeeId === row.employeeId && track.segments.some(s => s.kind === "break"))).map((row) => ({
       employeeId: row.employeeId,
       shiftId: row.shiftId,
       board: day.board,
       startAt: new Date(row.startAt),
       endAt: new Date(row.endAt),
       status: "booked" as const,
-      coverEmployeeId: row.coverEmployeeId ?? null,
+      // Saved movement is applied below only from exact validated persisted evidence.
+      coverEmployeeId: null,
       auto: row.auto === true,
     })),
     overlays: screenOverlaysFromDto(day.overlays ?? [], now),
   };
-  return buildDaySlices(input);
+  const result = buildDaySlices(input);
+  for (const slice of result.slices) {
+    for (const track of day.coverDisplay?.tracks ?? []) {
+      const segment = track.segments.find(s => s.kind !== "work" && Date.parse(s.startAt) <= +slice.start && Date.parse(s.endAt) >= +slice.end);
+      if (!segment) continue;
+      slice.seats = slice.seats.filter(s => s.employeeId !== track.employeeId);
+      const arrives = segment.kind === "cover" && segment.station?.board === day.board;
+      const onBreak = segment.kind === "break" && track.board === day.board;
+      const person = slice.people.find(p => p.employeeId === track.employeeId);
+      const change = { counts: Boolean(arrives), onBreak, stationId: arrives ? segment.station!.id : null,
+        cell: onBreak ? "break" as const : arrives ? "move" as const : "absent" as const, autoMove: arrives && segment.auto };
+      if (person) Object.assign(person, change);
+      else if (arrives || onBreak) slice.people.push({ employeeId: track.employeeId, paintStationId: null, ...change });
+      if (arrives) {
+        slice.seats = slice.seats.filter(s => s.stationId !== segment.station!.id);
+        slice.seats.push({ stationId: segment.station!.id, employeeId: track.employeeId, source: "cover" });
+      }
+    }
+    slice.emptyStarStationIds = input.starStationIds.filter(id => !slice.seats.some(s => s.stationId === id));
+    slice.presentNotOnBreak = new Set(slice.people.filter(p => p.counts).map(p => p.employeeId)).size;
+  }
+  return result;
 }
 
 /** Empty on-shift hours that take the amber mark. Saved paint only, and only today. */

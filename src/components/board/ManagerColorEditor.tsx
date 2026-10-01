@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
+import { savedHourSegments } from "./cover-display";
+import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 import { showDescansoButton } from "@/lib/breaks/picker-steps";
@@ -566,6 +568,7 @@ export function ManagerColorEditor({
               {cells.map((cell, index) => {
                 const hour = hours[index]!;
                 const edit = draft[draftKey(shift.id, hour)];
+                const saved = day ? savedHourSegments(day, shift.id, hour) : null;
                 const removedHere = !edit && (day ? removedHours(day.overlays ?? [], shift.employee.id, date, new Date()).has(hour) : false);
                 const stationId = edit ? edit.stationId : removedHere ? null : cell.stationId;
                 const station = day?.stations.find((s) => s.id === stationId);
@@ -601,7 +604,8 @@ export function ManagerColorEditor({
                 const quarters = paintedSlices ? personQuarters(paintedSlices, shift.employee.id, hour) : [];
                 const showAmber = !removedHere && !station && cell.kind !== "off" && !ended && (amberByShift.get(shift.id)?.has(hour) ?? false);
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}{removedHere && <AmberMark kind="removed-hour" />}<QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{saved && !edit && day ? <SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /> : visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}{removedHere && <AmberMark kind="removed-hour" />}{!saved && <><QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></>}</button>}
+                  {saved && edit && day && <span className="mt-1 block border-t text-[10px]">{locale === "es" ? "Guardado" : "Saved"}<SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /></span>}
                 </td>;
               })}
             </tr>)}</tbody>
@@ -609,6 +613,7 @@ export function ManagerColorEditor({
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
       </div>
+      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} />}
       {day && (
         <OverlayDayList
           day={day}

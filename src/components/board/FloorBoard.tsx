@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { hourGridHours, formatHourLabel, chicagoHourStart } from "@/lib/hour-grid";
 import { huecosCount } from "@/lib/mandatory";
+import { savedStationIntervals } from "./cover-display";
+import { SavedCoverPanel, SavedStationOccupants } from "./SavedCoverDisplay";
 import { stationOpenQuarters } from "@/lib/slices/day-slices";
 import { isFutureHour } from "@/lib/rules/live-hour";
 import { formatWeekdayDateLabel } from "@/lib/date-format";
@@ -1734,6 +1736,7 @@ export function FloorBoard() {
                       hour,
                     )
                   : [];
+                const savedOccupants = day ? savedStationIntervals(day, station.id, hour) : null;
                 const selected = selectedStationId === station.id;
                 const full =
                   station.maxConcurrent >= 0 &&
@@ -1762,7 +1765,7 @@ export function FloorBoard() {
                       </div>
                       <div className="text-xs font-bold opacity-90">
                         {t.maxLabel(station.maxConcurrent)}
-                        {full ? ` · ${t.full}` : ""}
+                        {full && savedOccupants === null ? ` · ${t.full}` : ""}
                       </div>
                     </button>
 
@@ -1791,6 +1794,7 @@ export function FloorBoard() {
                     )}
 
                     <div className="mt-auto flex flex-col gap-2">
+                      {savedOccupants !== null ? <SavedStationOccupants rows={savedOccupants} locale={locale} date={date} hour={hour} /> : <>
                       <QuarterRow quarters={openQuarters} />
                       {occupied.length === 0 && (
                         <button
@@ -1861,6 +1865,7 @@ export function FloorBoard() {
                           )}
                         </div>
                       ))}
+                      </>}
                     </div>
                   </div>
                 );
@@ -1928,6 +1933,7 @@ export function FloorBoard() {
       )}
 
       {day && ["board", "schedule", "timeline"].includes(mainView) && <div className="px-3 pb-3 sm:px-4 sm:pb-4">
+        {mainView === "board" && <SavedCoverPanel day={day} locale={locale} />}
         <AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} />
       </div>}
 

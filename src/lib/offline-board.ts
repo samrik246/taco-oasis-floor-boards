@@ -1,3 +1,4 @@
+import { coverDisplaySchema } from "@/lib/board/cover-display";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 
 /**
@@ -59,9 +60,15 @@ export function stripEmployeeAbilities<T>(day: T): T {
 export function stripSharedTabletDay<T>(day: T): T {
   const withoutAbilities = stripEmployeeAbilities(day);
   const record = dayRecord(withoutAbilities);
-  if (!record || !("mandatory" in record)) return withoutAbilities;
+  if (!record || (!("mandatory" in record) && !("coverDisplay" in record))) return withoutAbilities;
   const copy = withoutAbilities === day ? structuredClone(withoutAbilities) : withoutAbilities;
   delete (copy as { mandatory?: unknown }).mandatory;
+  const publicRecord = copy as { coverDisplay?: unknown };
+  if ("coverDisplay" in publicRecord) {
+    const parsed = coverDisplaySchema.safeParse(publicRecord.coverDisplay);
+    if (parsed.success) publicRecord.coverDisplay = parsed.data;
+    else delete publicRecord.coverDisplay;
+  }
   return copy;
 }
 
@@ -96,7 +103,7 @@ export function readLastBoard(now: Date = new Date()): CachedFloorBoard | null {
     // stored snapshot so a later staff read cannot find them, even when this
     // cache is not today.
     const record = dayRecord(parsed.day);
-    if (dayCarriesAbilities(parsed.day) || (record != null && "mandatory" in record)) {
+    if (dayCarriesAbilities(parsed.day) || (record != null && ("mandatory" in record || "coverDisplay" in record))) {
       parsed.day = stripSharedTabletDay(parsed.day);
       window.localStorage.setItem(KEY, JSON.stringify(parsed));
     }

@@ -21,6 +21,8 @@ import {
 import { rushLeadNotice, type RushForecast } from "@/lib/rush/forecast";
 import { formatHourLabel } from "@/lib/hour-grid";
 import { cn } from "@/lib/utils";
+import { savedStationIntervals } from "./cover-display";
+import { SavedCoverPanel, SavedStationOccupants } from "./SavedCoverDisplay";
 import { AuxiliaryPanel } from "./AuxiliaryPanel";
 
 const WALL_REFRESH_MS = 15_000;
@@ -110,7 +112,7 @@ export function WallBoard() {
   const occupiedIds = new Set<string>();
   if (day && onGrid) {
     for (const station of day.stations) {
-      if (assignmentsAtStationHour(day.shifts, station.id, day.date, hour).length > 0) {
+      if ((savedStationIntervals(day, station.id, hour)?.length ?? assignmentsAtStationHour(day.shifts, station.id, day.date, hour).length) > 0) {
         occupiedIds.add(station.id);
       }
     }
@@ -177,6 +179,7 @@ export function WallBoard() {
           const occupied = day
             ? assignmentsAtStationHour(day.shifts, station.id, day.date, hour)
             : [];
+          const savedOccupants = day ? savedStationIntervals(day, station.id, hour) : null;
           const label = displayStationLabel(locale, station);
           return (
             <section
@@ -194,7 +197,7 @@ export function WallBoard() {
                 ) : null}
               </div>
               <p className="text-4xl font-black leading-tight md:text-5xl" data-testid={`wall-who-${station.id}`}>
-                {occupied.length
+                {savedOccupants !== null ? <SavedStationOccupants rows={savedOccupants} locale={locale} date={date} hour={hour} /> : occupied.length
                   ? occupied.map((item, index) => (
                       <span key={item.assignment.id}>
                         {index > 0 ? ", " : ""}
@@ -208,7 +211,7 @@ export function WallBoard() {
         })}
       </div>
 
-      {day && <div className="px-6 pb-4"><AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} /></div>}
+      {day && <div className="px-6 pb-4"><SavedCoverPanel day={day} locale={locale} /><AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} /></div>}
 
       <footer className="px-6 pb-4 text-sm text-neutral-500">
         <Link href={`/?board=${board}`} data-testid="wall-exit" className="underline">
