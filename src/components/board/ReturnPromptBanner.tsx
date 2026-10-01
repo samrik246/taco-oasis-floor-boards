@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   formatReturnPromptMessage,
+  boardStationLabel,
   type Locale,
   type Messages,
 } from "@/lib/i18n";
@@ -18,6 +19,7 @@ export type ReturnPromptDto = {
 
 type Props = {
   prompts: ReturnPromptDto[];
+  stations?: readonly { id: string; label: string }[];
   mute: boolean;
   onMuteChange: (mute: boolean) => void;
   onAck: (id: string) => void;
@@ -28,6 +30,7 @@ type Props = {
 
 export function ReturnPromptBanner({
   prompts,
+  stations = [],
   mute,
   onMuteChange,
   onAck,
@@ -67,6 +70,7 @@ export function ReturnPromptBanner({
           displayName,
           loadStationId: p.loadStationId,
           seatId: p.seatId,
+          seatLabel: boardStationLabel(locale, p.seatId, stations),
           onFloater,
         });
         return (

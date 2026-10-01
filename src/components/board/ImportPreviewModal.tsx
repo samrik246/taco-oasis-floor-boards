@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { formatHourLabel } from "@/lib/hour-grid";
-import { stationLabel, type Locale, type Messages } from "@/lib/i18n";
+import { boardStationLabel, type Locale, type Messages } from "@/lib/i18n";
 import type { DatePreview, Refusal } from "@/lib/import/reconcile";
 
 export type ImportPreviewData = {
@@ -11,6 +11,7 @@ export type ImportPreviewData = {
   needsConfirm: boolean;
   dates: DatePreview[];
   refusals: Refusal[];
+  stations?: { id: string; label: string }[];
 };
 
 type Props = {
@@ -63,7 +64,7 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
                   <p className="font-medium tabular-nums">{t.importTransferred(d.assignmentsToTransfer.length)}</p>
                   <ul className="ml-4 list-disc text-xs" data-testid="import-transfers">
                     {d.assignmentsToTransfer.map((cell, i) => (
-                      <li key={i}>{formatHourLabel(cell.hour)} · {stationLabel(locale, cell.stationId)}</li>
+                      <li key={i}>{formatHourLabel(cell.hour)} · {boardStationLabel(locale, cell.stationId, preview.stations ?? [])}</li>
                     ))}
                   </ul>
                 </div>
@@ -79,7 +80,7 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
                   <ul className="mt-1 text-xs" data-testid="import-removals">
                     {d.assignmentsToRemove.map((r, i) => (
                       <li key={i}>
-                        {formatHourLabel(r.hour)} · {stationLabel(locale, r.stationId)}
+                        {formatHourLabel(r.hour)} · {boardStationLabel(locale, r.stationId, preview.stations ?? [])}
                       </li>
                     ))}
                   </ul>

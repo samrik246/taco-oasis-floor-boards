@@ -160,11 +160,12 @@ export function formatReturnPromptMessage(
     displayName: string;
     loadStationId: string;
     seatId: string;
+    seatLabel?: string;
     onFloater: boolean;
   },
 ): string {
   const load = loadStationLabel(locale, args.loadStationId);
-  const seat = stationLabel(locale, args.seatId);
+  const seat = args.seatLabel ?? stationLabel(locale, args.seatId);
   if (locale === "es") {
     return args.onFloater
       ? `${args.displayName} (flotante): ${load} está Saturado — regresa a ayudar; tareas liberadas.`

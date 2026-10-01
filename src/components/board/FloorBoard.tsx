@@ -1487,6 +1487,7 @@ export function FloorBoard() {
       {showBoardExtras && (
         <ReturnPromptBanner
           prompts={returnPrompts}
+          stations={day?.stations ?? []}
           mute={chimeMute}
           onMuteChange={setChimeMute}
           onAck={(id) => void ackReturnPrompt(id)}
@@ -1824,7 +1825,7 @@ export function FloorBoard() {
                         <div
                           key={assignment.id}
                           className={cn(
-                            "flex min-h-12 items-center justify-between gap-2 rounded-md border-2 border-neutral-900 bg-white px-2 py-1",
+                            "flex min-h-12 items-center justify-between gap-2 rounded-md border-2 border-neutral-900 bg-white px-2 py-1 text-neutral-950",
                             swapFirstId === assignment.id &&
                               "ring-2 ring-amber-700",
                           )}

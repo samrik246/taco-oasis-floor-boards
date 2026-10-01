@@ -1,0 +1,25 @@
+# B4 whole-version integration and application-only cutover
+
+The cumulative candidate closes occupied-name contrast on light and dark station tiles and saved-label fallbacks in return prompts/import previews. The import preview projects only referenced station IDs and labels after existing authorization and date validation; its planning digest and commit behavior are unchanged. Rendered browser checks measure each occupied name against its actual chip background in both locales and color schemes, on both boards.
+
+## Immutable release packet
+
+`scripts/b4_release.py pack` packages the exact clean source HEAD only after a matching fresh-build receipt. `prepare` stages the pinned prior production archive and candidate separately, installs frozen offline dependencies and generates each archive's own Prisma client under the shared heavy-run lock. It inventories all managed application files, dependencies, tools and archive hashes. `verify` rejects changed bytes, modes, dependency links, unexpected runtime paths or marker mismatches. Writable `.next/cache` is explicitly excluded.
+
+A packet contains both exact application artifacts and their independent inventories. `.env`, `var`, databases, database snapshots and copied production data are absent. Only the explicit managed application paths in `b4_artifacts.py` can be replaced. No live build, dependency install or schema reconciliation runs during cutover. The old `remote-deploy` / `upgrade-home-base` / backup / restore recipes are not the B4 cutover path.
+
+`scripts/b4_rehearse.py` boots the actual old, new, old and new compiled artifacts against one newly created synthetic database file. It checks additive migration/rerun, deliberate manager pairing, pending/booked/ended state, numbered cover without auto mutation, old-client reads and writes, linkage survival, and database file identity. Schema creation runs exactly once against the empty synthetic file before the first old boot; rollback never reconciles schemas or restores data.
+
+## Operator and independent checker
+
+The named installer runs the reviewed packet-local `b4-cutover.sh PACKET install`. The foreground shell owns the existing shared production release lock through migration, replacement, technical read-back or controlled application-only recovery. It forwards interruption to its owned child and waits through recovery. The installer must leave this shell running while the checker reads back the installation. Import timer registration and its 07:00/16:00 schedule remain unchanged; the timer waits on that lock.
+
+Before any live mutation the operator verifies the installed old artifact, fixed installation/database path, existing configuration metadata and enabled import timer. It stages both application versions, stops the service, captures safe database invariant hashes without exporting rows, runs only the guarded nullable linkage migration, and swaps explicit application paths. The same database inode and protected state must survive. Startup and public GET read-backs precede the independent checker request.
+
+The checker independently checks the exact installed SHA, process/service state, both public board responses, source labels/auxiliary layout, migrated column, preserved state, timer and other whole-version technical conditions. Authenticated positive BREAK checks require eligible hours and the holder of the real code. The checker writes its evidence first, then runs packet-local `b4_release.py attest --run RUN --verdict pass|fail --evidence FILE`. The receipt binds phase, nonce, exact SHA and evidence hash. Installer self-attestation is not acceptance. Missing, stale, refused or changed receipts trigger application rollback after a bounded ten-minute wait.
+
+On failure the runner stops the service and restores a fresh copy of the pinned old application/client to the same current database, then requires independent rollback read-back. Partial promotions always use a fresh old stage. No database rewind occurs. A failed recovery leaves the service stopped and records the blocker. The owning operator must report an interrupted process or recovery blocker immediately; force-killing the lock holder is not a supported cancellation.
+
+Morning physical checks cover both real tablets: wake/reload, fullscreen, navigation/Back/Close, idle/offline recovery, pending/cross-board behavior and deliberate owner-selected manager pairings. No automatic identity pairing is allowed. A failed morning check uses this same packet's `b4-cutover.sh PACKET rollback` before the first shift, retaining the migrated database and fresh live writes. Technical acceptance tonight and physical acceptance tomorrow are distinct. Printer UI/engine work belongs to the next version after this installation.
+
+Exact packet paths, SHA-256 hashes, complete package results, retained failures and operator commands belong in the frozen handoff. A passing development run does not replace independent cumulative source/packet judgment.

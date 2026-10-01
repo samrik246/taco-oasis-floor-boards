@@ -73,6 +73,26 @@ describe("POST /api/imports preview / commit", () => {
     expect(await dbSnapshot(prisma)).toBe(before);
   });
 
+  it("preview projects only referenced saved station labels and does not change data", async () => {
+    const greta = await prisma.shift.findFirstOrThrow({ where: { employee: { externalId: "7001" } } });
+    const station = await prisma.station.findUniqueOrThrow({ where: { id: "green1" } });
+    await prisma.station.update({ where: { id: station.id }, data: { label: "Synthetic custom corner" } });
+    const assignment = await prisma.assignment.create({ data: {
+      employeeId: greta.employeeId, shiftId: greta.id, stationId: station.id,
+      hourStart: new Date("2031-01-06T20:00:00Z"), hourEnd: new Date("2031-01-06T21:00:00Z"),
+    } });
+    try {
+      const before = await dbSnapshot(prisma);
+      const response = await upload(AFTERNOON, { mode: "preview" });
+      expect(response.status).toBe(200);
+      expect((await response.json()).stations).toEqual([{ id: "green1", label: "Synthetic custom corner" }]);
+      expect(await dbSnapshot(prisma)).toBe(before);
+    } finally {
+      await prisma.assignment.delete({ where: { id: assignment.id } });
+      await prisma.station.update({ where: { id: station.id }, data: { label: station.label } });
+    }
+  });
+
   it("A10: a malformed afternoon file -> 400 and the database unchanged", async () => {
     const before = await dbSnapshot(prisma);
     const broken = Buffer.from("Position,First Name\nCaja - Regular,Greta\n", "utf8");

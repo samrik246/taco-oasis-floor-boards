@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 import { parseScheduleWorkbook } from "@/lib/parser/schedule-parser";
 import {
   commitImport,
@@ -84,8 +85,15 @@ export async function POST(request: Request) {
 
     if (meta.mode === "preview") {
       const preview = await previewImport(parsed);
+      const stationIds = [...new Set(preview.dates.flatMap(day =>
+        [...day.assignmentsToRemove, ...day.assignmentsToTransfer].map(cell => cell.stationId),
+      ))];
+      const stations = await prisma.station.findMany({
+        where: { id: { in: stationIds } }, select: { id: true, label: true }, orderBy: { id: "asc" },
+      });
       return NextResponse.json({
         ...preview,
+        stations,
         bucketCounts: parsed.bucketCounts,
         strippedPayColumns: parsed.strippedPayColumns,
       });
