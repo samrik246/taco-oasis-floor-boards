@@ -3,9 +3,12 @@ import {createRequire} from "node:module";
 import type {} from "./fixtures/quarter-action";
 import {PrismaClient} from "@prisma/client";
 import {join} from "node:path";
+import {randomUUID} from "node:crypto";
+import type {PublicDayV2} from "../src/lib/quarter/client/day";
 import {fromZonedTime} from "date-fns-tz";
 import {safeDatabasePath} from "../scripts/test-db-path.cjs";
 const date="2040-10-10",person="r0-http-person",shift="r0-http-source",origin="http://floor-boards.test:3100";
+const controlPerson="r0-controls-person",controlShift="r0-controls-source";
 let db:PrismaClient,activated=false;
 const requests:string[]=[];
 test.describe.configure({mode:"serial"});
@@ -17,6 +20,8 @@ test.beforeAll(async()=>{
   const state=await db.$queryRawUnsafe<{phase:string}[]>("SELECT phase FROM QuarterSchema WHERE id=1");expect(state[0].phase).toBe("prepared");
   await db.employee.create({data:{id:person,externalId:person,firstName:"R0",lastName:"Synthetic"}});
   await db.shift.create({data:{id:shift,employeeId:person,board:"caja",date,sourcePosition:"Caja",startAt:fromZonedTime(`${date}T11:00:00`,"America/Chicago"),endAt:fromZonedTime(`${date}T13:00:00`,"America/Chicago")}});
+  await db.employee.create({data:{id:controlPerson,externalId:controlPerson,firstName:"Controls",lastName:"Synthetic"}});
+  await db.shift.create({data:{id:controlShift,employeeId:controlPerson,board:"caja",date,sourcePosition:"Caja",startAt:fromZonedTime(`${date}T11:00:00`,"America/Chicago"),endAt:fromZonedTime(`${date}T13:00:00`,"America/Chicago")}});
   // This is the already-guarded, disposable browser fixture only; no activation claim.
   await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2,activatedAtMs=1 WHERE id=1");activated=true;
 });
@@ -30,7 +35,10 @@ test.afterAll(async()=>{
       const remaining=await tx.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintHour");expect(Number(remaining[0].n)).toBe(0);
       await tx.$executeRawUnsafe("UPDATE QuarterSchema SET phase='prepared',minReader=1,minWriter=1,activatedAtMs=NULL WHERE id=1");
     });
-    await db.shift.delete({where:{id:shift}});await db.employee.delete({where:{id:person}});
+    const removals=await db.shiftRemoval.findMany({where:{shiftId:{in:[shift,controlShift]}},select:{id:true}});
+    await db.shiftRemovalEvent.deleteMany({where:{overrideId:{in:removals.map(r=>r.id)}}});
+    await db.shiftRemoval.deleteMany({where:{id:{in:removals.map(r=>r.id)}}});
+    await db.shift.deleteMany({where:{id:{in:[shift,controlShift]}}});await db.employee.deleteMany({where:{id:{in:[person,controlPerson]}}});
   }
   await db?.$disconnect();
 });
@@ -158,4 +166,90 @@ test("ordinary HTTP retained whole-shift action replays exact bytes after respon
  expect(await page.evaluate(()=>window.quarterActionProof.recover())).toMatchObject({status:"saved"});
  expect(bodies).toHaveLength(2);expect(bodies[1]).toBe(bodies[0]);expect(await page.evaluate(()=>window.quarterActionProof.pending())).toEqual([]);
  expect(await db.$queryRawUnsafe("SELECT COUNT(*) n FROM PaintMutation WHERE requestId=?",requestId)).toEqual(before);
+});
+
+function trackControls(page:Page){
+ const legacy:string[]=[];
+ page.on("request",request=>{
+  if(["GET","HEAD"].includes(request.method()))return;
+  if(/\/api\/v2\/(assignments\/(paint|operations)|shift-removals)$/.test(request.url())){
+   const body=request.postDataJSON();if(body?.requestId)requests.push(body.requestId);
+  }
+  if(/\/api\/(assignments|admin\/seat-plan|shift-removals)(\/|$)/.test(request.url()))legacy.push(request.url());
+ });
+ return legacy;
+}
+async function apiDay(page:Page){
+ const login=await page.request.post(`${origin}/api/managers`,{data:{code:"e2e-second-owner"}});expect(login.ok()).toBe(true);
+ const {sessionToken}=await login.json();const headers={"x-manager-session":sessionToken};
+ const result=await page.request.get(`${origin}/api/v2/boards/caja/days/${date}`,{headers});expect(result.ok()).toBe(true);
+ return {day:await result.json() as PublicDayV2,headers};
+}
+async function desk(page:Page,tab:string){
+ await page.goto(`${origin}/back-office`);await page.getByTestId("back-office-code").fill("e2e-second-owner");
+ await page.getByTestId("back-office-submit").click();await expect(page.getByTestId("back-office-app")).toBeVisible();
+ await page.getByTestId(`back-office-tab-${tab}`).click();
+}
+
+test("active floor whole-shift placement, swap and clear use retained V2 controls",async({page})=>{
+ const legacy=trackControls(page);await openEditor(page);
+ await page.getByTestId("compact-view").selectOption("board");await page.getByTestId("compact-hour").selectOption("11");
+ await page.getByTestId(`available-${controlPerson}`).click();
+ const assigned=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
+ await page.getByTestId("station-yellow").click();expect((await assigned).status()).toBe(200);
+ await expect(page.getByTestId("assignee-yellow")).toContainText("Controls");
+ const placed=(await apiDay(page)).day.hours.filter(h=>h.shiftId===controlShift);
+ expect(placed.flatMap(h=>h.intervals).filter(i=>i.state==="assigned").every(i=>i.stationId==="yellow")).toBe(true);
+ expect(placed.flatMap(h=>h.intervals).reduce((n,i)=>n+(i.state==="assigned"?(Date.parse(i.endAt)-Date.parse(i.startAt))/60000:0),0)).toBe(120);
+ await page.getByTestId("assignee-green1").click();
+ const swapped=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/operations")&&r.request().method()==="POST");
+ await page.getByTestId("assignee-yellow").click();const swap=await swapped;expect(swap.status()).toBe(200);expect(swap.request().postDataJSON().operation).toBe("swap");
+ await expect(page.getByTestId("assignee-green1")).toContainText("Controls");await expect(page.getByTestId("assignee-yellow")).toContainText("R0");
+ const erased=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
+ await page.getByTestId("clear-yellow").click();expect((await erased).status()).toBe(200);await expect(page.getByTestId("assignee-yellow")).toHaveCount(0);
+ const day=(await apiDay(page)).day;
+ expect(day.hours.find(h=>h.shiftId===shift&&h.hourStart===fromZonedTime(`${date}T11:00:00`,"America/Chicago").toISOString())?.intervals.every(i=>i.state==="erased")).toBe(true);
+ expect(legacy).toEqual([]);
+});
+
+test("active back-office seat save and mixed-hour refusal preserve exact intervals",async({page})=>{
+ const legacy=trackControls(page);await desk(page,"seats");await page.getByTestId("seat-date").fill(date);
+ await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
+ await page.getByTestId("seat-shift").selectOption(controlShift);await page.getByTestId("seat-station").selectOption("blue");
+ const saved=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
+ await page.getByTestId("seat-save").click();expect((await saved).status()).toBe(200);
+ await expect(page.getByTestId("back-office-toast")).toBeVisible();
+ const {day,headers}=await apiDay(page),requestId=randomUUID();requests.push(requestId);
+ const response=await page.request.put(`${origin}/api/v2/assignments/paint`,{headers:{...headers,"Content-Type":"application/vnd.floor-boards.paint-v2+json","X-Floor-Boards-Protocol":"2"},data:{protocol:2,requestId,capabilitySha256:day.capabilitySha256,board:"caja",date,
+  expected:{databaseEpoch:day.databaseEpoch,worldRevision:day.worldRevision},sources:day.sources.filter(s=>s.shiftId===controlShift),hours:day.hours.filter(h=>h.shiftId===controlShift).map(h=>({shiftId:h.shiftId,hourStart:h.hourStart,revision:h.revision,...(h.revision===null?{legacySha256:h.legacySha256}:{})})),
+  intents:[{shiftId:controlShift,quarter:"12:15",granularity:"quarter",action:"station",stationId:"purple1"}]}});expect(response.status()).toBe(200);
+ const before=(await apiDay(page)).day;
+ // Reselect the tab to load the acknowledged mixed world through the real loader.
+ await page.getByTestId("back-office-tab-turnos").click();await page.getByTestId("back-office-tab-seats").click();await page.getByTestId("seat-date").fill(date);
+ await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
+ await page.getByTestId("seat-shift").selectOption(controlShift);await page.getByTestId("seat-station").selectOption("yellow");
+ let writes=0;page.on("request",r=>{if(r.method()==="PUT"&&r.url().endsWith("/api/v2/assignments/paint"))writes++;});
+ await page.getByTestId("seat-save").click();await expect(page.getByTestId("back-office-error")).toContainText("HOUR_NEEDS_QUARTER");
+ expect(writes).toBe(0);expect((await apiDay(page)).day.hours).toEqual(before.hours);expect(legacy).toEqual([]);
+});
+
+test("active removal and restore show factual minutes and preserve the mixed saved intervals",async({page})=>{
+ const legacy=trackControls(page),before=(await apiDay(page)).day.hours.filter(h=>h.shiftId===controlShift);
+ const intervals=before.flatMap(h=>h.intervals).map(({startAt,endAt,state,stationId,seatNumber})=>({startAt,endAt,state,stationId,seatNumber}));
+ await desk(page,"turnos");await page.getByTestId("turnos-date").fill(date);await page.getByTestId("shift-removal-toggle").click();
+ await page.getByTestId(`shift-removal-row-${controlShift}`).getByRole("button",{name:"Quitar turno",exact:true}).click();
+ await expect(page.getByTestId("shift-removal-confirm")).toContainText("120 minutos futuros");
+ await page.getByTestId("shift-removal-reason").fill("Synthetic interval preservation");
+ const removed=page.waitForResponse(r=>r.url().endsWith("/api/v2/shift-removals")&&r.request().method()==="POST");
+ await page.getByTestId("shift-removal-submit").click();expect((await removed).status()).toBe(200);
+ await expect(page.getByTestId("shift-removal-confirm")).toHaveCount(0);
+ const entry=await db.shiftRemoval.findUniqueOrThrow({where:{shiftId:controlShift}}),card=page.getByTestId(`removed-shift-${entry.id}`);
+ await expect(card).toContainText("120 minutos guardadas");await expect(page.getByTestId(`shift-removal-row-${controlShift}`)).toHaveCount(0);
+ await card.getByRole("button",{name:"Restaurar con posiciones",exact:true}).click();
+ await page.getByTestId("shift-removal-reason").fill("Synthetic original intervals restore");
+ const restored=page.waitForResponse(r=>r.url().endsWith("/api/v2/shift-removals")&&r.request().method()==="POST");
+ await page.getByTestId("shift-removal-submit").click();expect((await restored).status()).toBe(200);
+ await expect(page.getByTestId(`shift-removal-row-${controlShift}`)).toBeVisible();
+ const actual=(await apiDay(page)).day.hours.filter(h=>h.shiftId===controlShift).flatMap(h=>h.intervals).map(({startAt,endAt,state,stationId,seatNumber})=>({startAt,endAt,state,stationId,seatNumber}));
+ expect(actual).toEqual(intervals);expect(legacy).toEqual([]);
 });

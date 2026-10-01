@@ -120,7 +120,7 @@ class ControllerChecks(unittest.TestCase):
         self.assertEqual(self.run_bootstrap(),'accepted')
         after=guard.capture(self.db);bootstrap.migration_preserved(before,after,self.db)
         self.assertEqual(after['state'][1],'prepared');self.assertTrue(self.serving)
-        self.assertEqual(self.events,['stop','promote','migrate','start','readback'])
+        self.assertEqual(self.events,['stop','promote','migrate','start','readback','readback'])
 
     def test_bootstrap_active_or_partial_refuses_before_stop(self):
         with patch.object(bootstrap,'target',return_value={}), patch.object(bootstrap,'verify_legacy',return_value='old'):
@@ -151,6 +151,58 @@ class ControllerChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'PRESERVATION_CHANGED:Manager'):self.run_bootstrap(resume=True)
         p=json.loads(self.packet.read_text());p['changed']=True;self.packet.write_text(json.dumps(p))
         with self.assertRaisesRegex(ValueError,'RESUME_BINDING_MISMATCH'):self.run_bootstrap(resume=True)
+
+    def invalidate_claim(self):
+        directory = self.app.parent / '.taco-oasis-floor-boards-release.lock'
+        claims = list(directory.glob(str(os.getpid()) + '.*'))
+        self.assertEqual(len(claims), 1); claims[0].unlink()
+
+    def test_final_forward_and_recovery_readbacks_reject_checker_wait_changes(self):
+        original_start = self.service.start
+        for phase in ('candidate', 'recovery'):
+            for reason in ('SERVICE_PROCESS_CHANGED', 'SERVICE_START_FAILED', 'SERVICE_ENVIRONMENT_METADATA_CHANGED'):
+                with self.subTest(phase=phase, reason=reason):
+                    self.run = self.root / (phase + '-' + reason); changed = [False]
+                    def start(): original_start(); changed[0] = False
+                    def readback():
+                        if changed[0]: raise ValueError(reason)
+                    def checker(which):
+                        if which == phase: changed[0] = True
+                        return 'reject' if phase == 'recovery' and which == 'candidate' else 'pass'
+                    self.service.start = start; self.service.readback = readback
+                    result = self.run_cutover(checker)
+                    self.assertEqual(result, 'recovered' if phase == 'candidate' else 'recovery-blocked')
+                    events = [json.loads(line)['action'] for line in (self.run / 'events.jsonl').read_text().splitlines()]
+                    self.assertNotIn('accepted', events)
+                    if phase == 'recovery': self.assertNotIn('recovered', events)
+
+    def test_final_lease_checks_refuse_loss_during_checker_or_final_readback(self):
+        for when in ('checker', 'readback'):
+            with self.subTest(when=when):
+                self.run = self.root / ('lost-lease-' + when); calls = [0]
+                def readback():
+                    calls[0] += 1
+                    if when == 'readback' and calls[0] == 2: self.invalidate_claim()
+                def checker(phase):
+                    if when == 'checker': self.invalidate_claim()
+                    return 'pass'
+                self.service.readback = readback
+                self.assertEqual(self.run_cutover(checker), 'recovery-blocked')
+                events = [json.loads(line)['action'] for line in (self.run / 'events.jsonl').read_text().splitlines()]
+                self.assertNotIn('accepted', events); self.assertNotIn('recovered', events); self.assertFalse(self.serving)
+
+    def test_bootstrap_final_service_and_lease_observations_are_required(self):
+        self.quarter_ddl = self.legacy_database(); changed = [False]
+        def readback():
+            if changed[0]: raise ValueError('SERVICE_PROCESS_CHANGED')
+        def checker(phase): changed[0] = True; return 'pass'
+        self.service.readback = readback
+        self.assertEqual(self.run_bootstrap(checker), 'recovery-blocked'); self.assertFalse(self.serving)
+        changed[0] = False
+        self.assertEqual(self.run_bootstrap(lambda phase: (self.invalidate_claim() or 'pass'), resume=True), 'recovery-blocked')
+        self.assertFalse(self.serving)
+        events = [json.loads(line)['action'] for line in (self.run / 'bootstrap-events.jsonl').read_text().splitlines()]
+        self.assertNotIn('accepted', events)
 
     def test_bootstrap_guard_rejects_legacy_ddl_changes(self):
         self.quarter_ddl=self.legacy_database();before=bootstrap.before_migration(self.db)

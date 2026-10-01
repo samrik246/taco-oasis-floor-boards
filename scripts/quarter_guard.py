@@ -44,6 +44,17 @@ def disposable(database, root=None):
     return database
 
 
+def synthetic_paths(database, *paths):
+    """Confine every mutable path before mkdir, service observation or promotion."""
+    disposable(database)
+    root = Path(os.environ['FLOOR_BOARDS_TEST_ROOT']).absolute()
+    for value in paths:
+        path = Path(value).absolute()
+        if path == root or not path.is_relative_to(root) or path.resolve() != path or (path.exists() and not path.is_dir()):
+            raise ValueError('SYNTHETIC_MUTABLE_PATH_OUTSIDE_ROOT')
+    return root
+
+
 def quote(name):
     return '"' + name.replace('"', '""') + '"'
 

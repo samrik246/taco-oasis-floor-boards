@@ -167,12 +167,12 @@ def activate(packet_path, app, database, log):
 
 
 def cutover(packet_path, app, database, run, operation, service, checker, fault=lambda phase: None):
-    run = Path(run); run.mkdir(parents=True, exist_ok=True); log = run / 'events.jsonl'
     packet = load_packet(packet_path)
     synthetic = packet.get('syntheticR0SelfRehearsal', False)
     if synthetic:
-        from quarter_guard import disposable
-        disposable(database)
+        from quarter_guard import synthetic_paths
+        synthetic_paths(database, app, run)
+    run = Path(run); run.mkdir(parents=True, exist_ok=True); log = run / 'events.jsonl'
     accepted = not synthetic
     chosen = 'r0' if operation == 'rollback' else 'candidate'
     with release_lease(app) as owned:
@@ -196,6 +196,7 @@ def cutover(packet_path, app, database, run, operation, service, checker, fault=
             verdict = checker(chosen)
             if verdict != 'pass':
                 raise ValueError('CHECKER_' + verdict.upper())
+            owned(); service.readback(); owned()
             record(log, 'accepted', target=chosen, guard=capture(database))
             return 'accepted'
         except Exception as failure:
@@ -212,6 +213,7 @@ def cutover(packet_path, app, database, run, operation, service, checker, fault=
                 service.start(); service.readback()
                 if checker('recovery') != 'pass':
                     raise ValueError('RECOVERY_CHECKER_FAILED')
+                owned(); service.readback(); owned()
                 record(log, 'recovered', guard=capture(database)); return 'recovered'
             except Exception as recovery:
                 service.stop(); record(log, 'recovery-blocked', error=str(recovery), guard=capture(database)); return 'recovery-blocked'
@@ -225,18 +227,19 @@ def main():
     parser.add_argument('--port', type=int)
     args = parser.parse_args()
     packet = load_packet(args.packet)
-    from quarter_service import Service, checker_wait
+    from quarter_service import checker_wait
     if packet.get('service'):
         from quarter_managed_service import ManagedService
         service = ManagedService(args.app, args.database, args.run, packet['service'])
         if args.port is not None and args.port != service.port:
             raise ValueError('SERVICE_PORT_PROFILE_MISMATCH')
     else:
-        from quarter_guard import disposable
-        disposable(args.database)
+        from quarter_guard import synthetic_paths
+        synthetic_paths(args.database, args.app, args.run)
         if not packet.get('syntheticR0SelfRehearsal'):
             raise ValueError('SERVICE_PROFILE_REQUIRED')
-        service = Service(args.app, args.database, args.port or 3100, args.run)
+        from quarter_managed_service import synthetic_service
+        service = synthetic_service(args.app, args.database, args.port or 3100, args.run)
     if args.operation == 'activate':
         service.readback()
         Path(args.run).mkdir(parents=True, exist_ok=True); activate(args.packet, args.app, args.database, Path(args.run) / 'events.jsonl'); return

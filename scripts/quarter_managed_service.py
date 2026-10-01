@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from quarter_artifacts import MANIFEST, atomic_json
-from quarter_guard import capture, file_hash, regular
+from quarter_guard import capture, file_hash, regular, synthetic_paths
 from quarter_importers import timer_readback
 from quarter_service import Service, process_start, group_alive
 
@@ -74,6 +74,7 @@ class ManagedService(Service):
         if self.synthetic:
             from quarter_guard import disposable
             disposable(database); disposable(profile_path)
+            synthetic_paths(database, app, run)
             if p['host'] != '127.0.0.1' or p['mode'] != 'direct':
                 raise ValueError('SYNTHETIC_SERVICE_LOOPBACK_ONLY')
         else:
@@ -90,6 +91,7 @@ class ManagedService(Service):
         if self.runtime.resolve(strict=True) != self.runtime:
             raise ValueError('SERVICE_STATE_LINK')
         self.state = self.runtime / 'quarter-owned-service.json'
+        self.intent = self.runtime / 'quarter-service-launch-intent.json'
         self.initial_closed = self.runtime / 'quarter-initial-service-closed.json'
         self.contract = self.runtime / 'quarter-start-contract.json'
         self.receipt = self.runtime / 'quarter-start-receipt.json'
@@ -129,13 +131,26 @@ class ManagedService(Service):
         return value
 
     def owned(self):
+        intent = None
+        if self.intent.exists() or self.intent.is_symlink():
+            intent = json.loads(regular(self.intent).read_text())
+            if intent.get('profileSha256') != self.profile_sha or intent.get('app') != str(self.app) or not isinstance(intent.get('nonce'), str):
+                raise ValueError('SERVICE_LAUNCH_INTENT_CHANGED')
         if self.state.exists() or self.state.is_symlink():
             regular(self.state)
             value = json.loads(self.state.read_text())
             if value.get('profileSha256') != self.profile_sha or value.get('app') != str(self.app):
                 raise ValueError('SERVICE_OWNER_RECORD_CHANGED')
             self.validate_owner(value)
+            if intent is not None and intent['nonce'] != value.get('nonce'):
+                raise ValueError('SERVICE_LAUNCH_INTENT_CHANGED')
             return value
+        if intent is not None:
+            pending = getattr(self, 'pending_owner', None)
+            if pending is None or pending.get('nonce') != intent['nonce']:
+                raise ValueError('SERVICE_UNPUBLISHED_CLEANUP_REQUIRED')
+            self.validate_owner(pending)
+            return pending
         if self.initial_closed.exists() or self.initial_closed.is_symlink():
             if json.loads(regular(self.initial_closed).read_text()) != {'profileSha256': self.profile_sha}:
                 raise ValueError('SERVICE_INITIAL_RECORD_CHANGED')
@@ -150,13 +165,23 @@ class ManagedService(Service):
         if value.get('legacyPidFile') and value['legacyPidFile'] != str(self.runtime / 'floor-boards.pid'):
             raise ValueError('SERVICE_LEGACY_PID_FILE_OUTSIDE_RUNTIME')
 
-    def check_pid(self, value, require_listener=False):
+    def check_pid(self, value, require_listener=False, draining=False):
         self.validate_owner(value)
         child = getattr(self, 'child', None)
         if child is not None and child.pid == value['pid']: child.poll()
         actual = process_start(value['pid'])
         if actual is None: return False
-        if actual != value['started'] or process_cwd(value['pid']) != [str(self.app)]:
+        cwd = process_cwd(value['pid'])
+        if actual != value['started'] or cwd != [str(self.app)]:
+            # ps and lsof are separate observations. Reap and confirm disappearance
+            # before treating a normal exit between them as an identity change.
+            if child is not None and child.pid == value['pid']: child.poll()
+            final = process_start(value['pid'])
+            if final is None: return False
+            if draining and actual == final == value['started'] and not cwd:
+                # After an authorized stop, unavailable cwd means still unresolved,
+                # never absent. Keep waiting; a later signal requires full identity.
+                return True
             raise ValueError('SERVICE_PROCESS_CHANGED')
         if require_listener and listeners(self.port) != {value['pid']}:
             raise ValueError('SERVICE_LISTENER_OWNER_CHANGED')
@@ -164,7 +189,7 @@ class ManagedService(Service):
 
     def stop(self):
         self.configuration(); value = self.owned()
-        initial = not self.state.exists()
+        initial = not self.state.exists() and not self.intent.exists()
         job = self.job() if self.profile['mode'] == 'launch-agent' else None
         if value is None:
             if job is not None or listeners(self.port): raise ValueError('SERVICE_UNOWNED_LISTENER')
@@ -179,14 +204,15 @@ class ManagedService(Service):
             try: os.kill(value['pid'], signal.SIGTERM)
             except ProcessLookupError: pass  # The retained identity is still checked below.
         deadline = time.monotonic() + 30
-        while self.check_pid(value) and time.monotonic() < deadline: time.sleep(.1)
-        if self.check_pid(value):
+        while self.check_pid(value, draining=True) and time.monotonic() < deadline: time.sleep(.1)
+        if self.check_pid(value, draining=True):
             # Signal only the attested PID. The legacy nohup process may share its group.
-            try: os.kill(value['pid'], signal.SIGKILL)
-            except ProcessLookupError: pass
+            if self.check_pid(value):
+                try: os.kill(value['pid'], signal.SIGKILL)
+                except ProcessLookupError: pass
             deadline = time.monotonic() + 5
-            while self.check_pid(value) and time.monotonic() < deadline: time.sleep(.1)
-        if self.check_pid(value) or listeners(self.port) or (self.profile['mode'] == 'launch-agent' and self.job() is not None):
+            while self.check_pid(value, draining=True) and time.monotonic() < deadline: time.sleep(.1)
+        if self.check_pid(value, draining=True) or listeners(self.port) or (self.profile['mode'] == 'launch-agent' and self.job() is not None):
             raise ValueError('SERVICE_DID_NOT_EXIT')
         if not initial and self.profile['mode'] == 'direct' and group_alive(value['pid']):
             # New direct starts own a session. An orphan keeps the ownership record;
@@ -198,13 +224,15 @@ class ManagedService(Service):
                 raise ValueError('SERVICE_LEGACY_PID_FILE_CHANGED')
             pidfile.unlink()
         self.state.unlink(missing_ok=True)
+        self.intent.unlink(missing_ok=True)
+        self.pending_owner = None
         if initial: atomic_json(self.initial_closed, {'profileSha256': self.profile_sha})
         self.configuration()
 
     def start(self):
         self.configuration()
         prior = self.owned()
-        if self.state.exists() or (prior is not None and self.check_pid(prior)) or listeners(self.port) or (self.profile['mode'] == 'launch-agent' and self.job() is not None):
+        if self.state.exists() or self.intent.exists() or (prior is not None and self.check_pid(prior)) or listeners(self.port) or (self.profile['mode'] == 'launch-agent' and self.job() is not None):
             raise ValueError('SERVICE_ALREADY_OWNED_OR_OCCUPIED')
         identity = regular(self.database).stat()
         contract = {'version': 1, 'nonce': str(uuid.uuid4()), 'app': str(self.app), 'database': str(self.database),
@@ -212,6 +240,9 @@ class ManagedService(Service):
                     'artifactSha256': file_hash(self.app / MANIFEST), 'profileSha256': self.profile_sha}
         atomic_json(self.contract, contract)
         self.receipt.unlink(missing_ok=True)
+        # Persist inhibition BEFORE launching. If later PID publication fails or
+        # this controller dies, another invocation cannot assume an idle service.
+        atomic_json(self.intent, {'app': str(self.app), 'profileSha256': self.profile_sha, 'nonce': contract['nonce']})
         launched = False
         try:
             if self.profile['mode'] == 'direct':
@@ -248,6 +279,7 @@ class ManagedService(Service):
                     break
                 if group_alive(self.child.pid) or listeners(self.port):
                     raise ValueError('SERVICE_UNPUBLISHED_CLEANUP_REQUIRED')
+                self.intent.unlink(); self.pending_owner = None
             elif launched:
                 # The job was absent before our attempt. Refuse a changed descriptor
                 # or loaded identity rather than signaling an unrelated process.
@@ -258,6 +290,11 @@ class ManagedService(Service):
                 while (self.job() is not None or listeners(self.port)) and time.monotonic() < deadline: time.sleep(.1)
                 if self.job() is not None or listeners(self.port):
                     raise ValueError('SERVICE_UNPUBLISHED_CLEANUP_REQUIRED')
+                self.intent.unlink(); self.pending_owner = None
+            else:
+                # No process/bootstrap was attempted; the prelaunch marker alone
+                # may be removed. Once attempted, only the drain branches clear it.
+                self.intent.unlink(); self.pending_owner = None
             raise
 
     def readback(self):
@@ -288,8 +325,7 @@ def synthetic_service(app, database, port, run):
     from quarter_guard import disposable
     database = disposable(database)
     app = Path(app).absolute()
-    if not app.is_relative_to(database.parent.parent):
-        raise ValueError('SYNTHETIC_SERVICE_APP_OUTSIDE_ROOT')
+    synthetic_paths(database, app, run)
     profile = {'version': 1, 'synthetic': True, 'app': str(app), 'database': str(database),
                'port': port, 'host': '127.0.0.1', 'mode': 'direct', 'node': shutil.which('node'),
                'configuration': {'environment': metadata(app / '.env'), 'importer': None}, 'initial': None}

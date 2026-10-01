@@ -87,12 +87,12 @@ def migrate(app, database, claim, run):
 
 def bootstrap(packet_path, app, database, run, service, checker, resume=False, fault=lambda phase: None):
     app = Path(app).absolute(); database = Path(database).absolute(); run = Path(run).absolute()
-    run.mkdir(parents=True, exist_ok=True)
     packet = load_packet(packet_path); log = run / 'bootstrap-events.jsonl'; journal = run / 'bootstrap.json'
     synthetic = packet.get('syntheticR0SelfRehearsal', False)
     if synthetic:
-        from quarter_guard import disposable
-        disposable(database)
+        from quarter_guard import synthetic_paths
+        synthetic_paths(database, app, run)
+    run.mkdir(parents=True, exist_ok=True)
     binding = {'packetSha256': file_hash(packet_path), 'app': str(app), 'database': str(database)}
     with release_lease(app) as owned:
         target(packet, 'r0', None, accepted=not synthetic)
@@ -139,6 +139,7 @@ def bootstrap(packet_path, app, database, run, service, checker, resume=False, f
             record(log, 'checker-wait', target='r0')
             if checker('bootstrap') != 'pass':
                 raise ValueError('BOOTSTRAP_CHECKER_FAILED')
+            owned(); service.readback(); owned()
             record(log, 'accepted', guard=capture(database)); return 'accepted'
         except Exception as failure:
             # There is intentionally no old hourly target on this forward migration path.

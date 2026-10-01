@@ -1,5 +1,6 @@
 """Service identity/cleanup fault checks; no installed job or real process is touched."""
 import io
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,8 @@ import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import quarter_managed_service as managed
+import quarter_release as release
+import quarter_bootstrap as bootstrap
 from quarter_artifacts import atomic_json
 from quarter_guard import file_hash
 
@@ -115,7 +118,7 @@ class ManagedServiceChecks(unittest.TestCase):
         def command(argv, **kwargs):
             self.assertEqual(argv, ['launchctl', 'bootout', self.service.domain + '/com.taco-oasis.floor-boards'])
             live[0] = False
-        with patch.object(self.service, 'configuration'), patch.object(self.service, 'job', side_effect=lambda: {'pid': '23456'} if live[0] else None), patch.object(self.service, 'check_pid', side_effect=lambda value: live[0]), patch.object(managed, 'listeners', return_value=set()), patch.object(managed.subprocess, 'run', side_effect=command), patch.object(managed.os, 'kill') as kill:
+        with patch.object(self.service, 'configuration'), patch.object(self.service, 'job', side_effect=lambda: {'pid': '23456'} if live[0] else None), patch.object(self.service, 'check_pid', side_effect=lambda value, **kwargs: live[0]), patch.object(managed, 'listeners', return_value=set()), patch.object(managed.subprocess, 'run', side_effect=command), patch.object(managed.os, 'kill') as kill:
             self.service.stop(); kill.assert_not_called()
         self.assertFalse(self.service.state.exists())
 
@@ -129,14 +132,86 @@ class ManagedServiceChecks(unittest.TestCase):
         child.send_signal.assert_called_once_with(signal.SIGTERM); child.wait.assert_called_once_with(timeout=30)
         self.assertIs(self.service.child, child); self.assertFalse(self.service.state.exists())
 
-    def test_unresolved_unpublished_process_blocks_replacement(self):
-        child = Mock(pid=23456); child.poll.return_value = 0
-        def publish(path, value):
-            if path == self.service.state: raise OSError('disk-full')
-            atomic_json(path, value)
-        with patch.object(managed, 'listeners', return_value=set()), patch.object(managed.subprocess, 'Popen', return_value=child), patch.object(managed, 'process_start', return_value='fixed-start'), patch.object(managed, 'atomic_json', side_effect=publish), patch.object(managed, 'group_alive', return_value=True):
-            with self.assertRaisesRegex(ValueError, 'SERVICE_UNPUBLISHED_CLEANUP_REQUIRED'): self.service.start()
-        child.send_signal.assert_not_called()
+    def test_unresolved_unpublished_process_blocks_recovery_and_fresh_controller(self):
+        for before_identity in (False, True):
+            with self.subTest(before_identity=before_identity):
+                child = Mock(pid=23456); child.poll.return_value = 0
+                def publish(path, value):
+                    if path == self.service.state: raise OSError('disk-full')
+                    atomic_json(path, value)
+                packet = self.root / 'packet.json'
+                atomic_json(packet, {'version': 1, 'controllerSha256': file_hash(release.__file__), 'syntheticR0SelfRehearsal': True,
+                                     'currentManifestSha256': 'initial', 'r0': {'path': 'r0', 'manifestSha256': 'r0'}, 'candidate': {'path': 'candidate', 'manifestSha256': 'candidate'}})
+                with ExitStack() as stack:
+                    stack.enter_context(patch.object(managed, 'listeners', return_value=set()))
+                    launch = stack.enter_context(patch.object(managed.subprocess, 'Popen', return_value=child))
+                    stack.enter_context(patch.object(managed, 'process_start', side_effect=([None] if before_identity else ['fixed-start']) + [None] * 20))
+                    stack.enter_context(patch.object(managed, 'atomic_json', side_effect=publish))
+                    stack.enter_context(patch.object(managed, 'group_alive', return_value=True))
+                    stack.enter_context(patch.object(release, 'target', return_value={}))
+                    stack.enter_context(patch.object(release.artifacts, 'verify', return_value={}))
+                    stack.enter_context(patch.object(release, 'capture', return_value={'synthetic': 'unchanged'}))
+                    promotion = stack.enter_context(patch.object(release, 'promote'))
+                    with self.assertRaisesRegex(ValueError, 'SERVICE_UNPUBLISHED_CLEANUP_REQUIRED|SERVICE_ORPHAN_REQUIRES_REVIEW|SERVICE_PROCESS_CHANGED'):
+                        release.cutover(packet, self.app, self.db, self.root / ('cutover-' + str(before_identity)), 'install', self.service, lambda phase: 'pass')
+                    self.assertEqual(promotion.call_count, 1)  # Initial promotion only; no recovery promotion.
+                    launch.assert_called_once()
+                    with self.assertRaises(ValueError): self.service.stop()
+                    with self.assertRaises(ValueError): self.service.start()
+                    fresh = managed.ManagedService(self.app, self.db, self.root / 'fresh-run', {'path': str(self.service.profile_path), 'sha256': self.service.profile_sha})
+                    with self.assertRaisesRegex(ValueError, 'SERVICE_UNPUBLISHED_CLEANUP_REQUIRED'): fresh.stop()
+                    with self.assertRaisesRegex(ValueError, 'SERVICE_UNPUBLISHED_CLEANUP_REQUIRED'): fresh.start()
+                    launch.assert_called_once(); self.assertTrue(self.service.intent.exists())
+                child.send_signal.assert_not_called()
+                # Only this isolated test fixture is reset between fault variants.
+                self.service.intent.unlink(); self.service.pending_owner = None
+
+    def test_intent_failure_prevents_launch_and_clean_failed_start_allows_retry(self):
+        with patch.object(managed, 'listeners', return_value=set()), patch.object(managed.subprocess, 'Popen') as launch:
+            def fail_intent(path, value):
+                if path == self.service.intent: raise OSError('intent-disk-full')
+                atomic_json(path, value)
+            with patch.object(managed, 'atomic_json', side_effect=fail_intent):
+                with self.assertRaisesRegex(OSError, 'intent-disk-full'): self.service.start()
+            launch.assert_not_called()
+            child = Mock(pid=23456); child.poll.return_value = 0; launch.return_value = child
+            with patch.object(managed, 'process_start', return_value=None), patch.object(managed, 'group_alive', return_value=False):
+                for attempt in range(2):
+                    with self.assertRaisesRegex(ValueError, 'SERVICE_START_FAILED'): self.service.start()
+                    self.assertFalse(self.service.intent.exists())
+            self.assertEqual(launch.call_count, 2)
+
+    def test_exit_between_ps_and_cwd_is_reaped_and_not_a_changed_process(self):
+        self.service.child = Mock(pid=23456)
+        with patch.object(managed, 'process_start', side_effect=['fixed-start', None]), patch.object(managed, 'process_cwd', return_value=[]):
+            self.assertFalse(self.service.check_pid(self.owner))
+        self.assertEqual(self.service.child.poll.call_count, 2)
+        with patch.object(managed, 'process_start', return_value='fixed-start'), patch.object(managed, 'process_cwd', return_value=[]):
+            self.assertTrue(self.service.check_pid(self.owner, draining=True))
+            with self.assertRaisesRegex(ValueError, 'SERVICE_PROCESS_CHANGED'): self.service.check_pid(self.owner)
+
+    def test_synthetic_constructor_cli_and_controller_confine_all_mutable_paths(self):
+        with tempfile.TemporaryDirectory() as outer:
+            outside = Path(outer).resolve(); link = self.root / 'linked-app'; link.symlink_to(outside, target_is_directory=True)
+            for app, run in [(outside, self.root / 'inside-run'), (self.app, outside / 'outside-run'), (link, self.root / 'inside-run'), (Path(os.environ['FLOOR_BOARDS_TEST_ROOT']), self.root / 'inside-run')]:
+                with self.subTest(app=app, run=run):
+                    profile = dict(self.service.profile, app=str(app)); file = self.root / 'outside-profile.json'; atomic_json(file, profile)
+                    pin = {'path': str(file), 'sha256': file_hash(file)}
+                    with patch.object(managed.subprocess, 'Popen') as launch:
+                        with self.assertRaisesRegex(ValueError, 'SYNTHETIC_MUTABLE_PATH_OUTSIDE_ROOT'):
+                            managed.ManagedService(app, self.db, run, pin)
+                        launch.assert_not_called()
+                    for with_profile in (False, True):
+                        packet = self.root / 'outside-packet.json'; value = {'version': 1, 'controllerSha256': file_hash(release.__file__), 'syntheticR0SelfRehearsal': True}
+                        if with_profile: value['service'] = pin
+                        atomic_json(packet, value)
+                        result = subprocess.run([sys.executable, release.__file__, 'install', '--packet', str(packet), '--app', str(app), '--database', str(self.db), '--run', str(run)], capture_output=True, text=True)
+                        self.assertNotEqual(result.returncode, 0); self.assertIn('SYNTHETIC_MUTABLE_PATH_OUTSIDE_ROOT', result.stderr)
+                    service = Mock()
+                    for entry in (release.cutover, bootstrap.bootstrap):
+                        args = (packet, app, self.db, run, 'install', service, lambda phase: 'pass') if entry is release.cutover else (packet, app, self.db, run, service, lambda phase: 'pass')
+                        with self.assertRaisesRegex(ValueError, 'SYNTHETIC_MUTABLE_PATH_OUTSIDE_ROOT'): entry(*args)
+                    self.assertEqual(service.mock_calls, []); self.assertEqual(list(outside.iterdir()), [])
 
     def test_unknown_bootstrap_completion_queries_and_drains_exact_job(self):
         self.launch_profile(); calls = []; live = [False]
