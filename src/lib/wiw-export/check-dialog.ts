@@ -1,6 +1,6 @@
 /**
  * Check-only mode for the When I Work export (B2): which week does the export
- * dialog open on in the timer's browser folder? Run before the 07:00 export
+ * dialog open on in the timer's browser folder? Run before the next hourly export
  * after a probe left that folder unchecked.
  *
  * Same steps as a run up to the dialog wait (sign-in and menu unchanged).

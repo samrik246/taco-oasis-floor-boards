@@ -1,6 +1,6 @@
 /**
  * When I Work schedule export for the floor boards (B2), run by a LaunchAgent
- * at 07:00 and 16:00 on the boards Mac. No AI agent is in the loop.
+ * every hour on the hour from 06:00 through 21:00 on the boards Mac. No AI agent is in the loop.
  *
  * Carve-out (CB-006): This job only: a timer on T MAC MINI may export the
  * current Friday-through-Thursday When I Work schedule into the floor boards.
@@ -158,7 +158,7 @@ async function main() {
   // A broken lock (not a held lock -- an actual failure to read or create
   // it) is logged and retried, never skipped past: the browser and the
   // import start only once this run holds the lock, so they cannot overlap
-  // an install. 07:00 and 16:00 still run, as soon as the lock can be taken.
+  // an install. The hourly 06:00-21:00 slots still run, as soon as the lock can be taken.
   await acquireReleaseLockForPull(appDir, process.pid, {
     onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
   });
