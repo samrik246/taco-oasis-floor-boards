@@ -271,6 +271,12 @@ def require_hourly_schema(connection):
         phase = connection.execute("SELECT phase FROM QuarterSchema WHERE id=1").fetchone()
         if not phase or phase[0] != "prepared":
             raise Refusal("QUARTER_PROTOCOL_REQUIRED: use the V2 board workflow")
+        try:
+            version = connection.execute("SELECT schemaVersion,minReader,minWriter FROM QuarterSchema WHERE id=1").fetchone()
+        except sqlite3.DatabaseError as error:
+            raise Refusal("QUARTER_PROTOCOL_REQUIRED: unknown prepared schema") from error
+        if version != (2, 1, 1):
+            raise Refusal("QUARTER_PROTOCOL_REQUIRED: incompatible prepared schema")
 
 
 def run(app, packet_path, expected_packet_sha, apply):

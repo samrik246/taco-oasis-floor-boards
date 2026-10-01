@@ -98,8 +98,8 @@ class EditorTests(unittest.TestCase):
     def test_activation_between_preflight_and_write_lock_refuses(self):
         path,digest=self.packet([self.ability()])
         with sqlite3.connect(self.db) as db:
-            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT)')
-            db.execute("INSERT INTO QuarterSchema VALUES(1,'prepared')")
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT,schemaVersion INTEGER,minReader INTEGER,minWriter INTEGER)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'prepared',2,1,1)")
         original=edit_board.backup_database
         def activate_after_backup(*args):
             result=original(*args)
@@ -109,6 +109,19 @@ class EditorTests(unittest.TestCase):
             with self.assertRaisesRegex(edit_board.Refusal,'QUARTER_PROTOCOL_REQUIRED'):
                 edit_board.run(self.app,path,digest,True)
         self.assertEqual(self.query('SELECT level FROM EmployeeStationAbility'),[('forbidden',)])
+
+    def test_future_prepared_schema_refuses_before_describe_or_backup(self):
+        path,digest=self.packet([self.ability()])
+        with sqlite3.connect(self.db) as db:
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT,schemaVersion INTEGER,minReader INTEGER,minWriter INTEGER)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'prepared',3,1,1)")
+        for versions in ((3,1,1),(2,2,1),(2,1,2)):
+            with sqlite3.connect(self.db) as db:db.execute('UPDATE QuarterSchema SET schemaVersion=?,minReader=?,minWriter=?',versions)
+            for apply in (False,True):
+                with patch.object(edit_board,'describe') as describe, patch.object(edit_board,'backup_database') as backup:
+                    with self.assertRaisesRegex(edit_board.Refusal,'QUARTER_PROTOCOL_REQUIRED'):
+                        edit_board.run(self.app,path,digest,apply)
+                    describe.assert_not_called();backup.assert_not_called()
 
     def test_ability_preflight_backup_apply_and_exact_postcheck(self):
         path, digest = self.packet([self.ability()])

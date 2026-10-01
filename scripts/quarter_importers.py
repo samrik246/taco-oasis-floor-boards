@@ -13,7 +13,7 @@ from quarter_service import process_start
 
 def matching_importers(app):
     # Only PID output is read. Never list unrelated process arguments/environment.
-    result = subprocess.run(['pgrep', '-f', r'(^|[ /])(wiw-export|import-from-folder)\.ts([[:space:]]|$)'], text=True, capture_output=True)
+    result = subprocess.run(['pgrep', '-f', r'(^|[ /])(wiw-export|import-from-folder|quarter-rehearsal-hourly)\.ts([[:space:]]|$)'], text=True, capture_output=True)
     if result.returncode not in (0, 1):
         raise ValueError('IMPORTER_PROCESS_INVENTORY_UNAVAILABLE')
     # Unknown importers are conservatively unresolved, including relative launches.

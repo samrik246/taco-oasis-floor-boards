@@ -1,6 +1,4 @@
-import { importerIdentity } from "../src/lib/quarter/importer-identity";
-import { withClaimedReleaseLease, quarterLeaseAppDir } from "../src/lib/quarter/lease";
-import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
+import { runScheduledExport } from "../src/lib/wiw-export/scheduled-run";
 /**
  * When I Work schedule export for the floor boards (B2), run by a LaunchAgent
  * every hour on the hour from 06:00 through 21:00 on the boards Mac. No AI agent is in the loop.
@@ -73,13 +71,12 @@ import path from "node:path";
 import { prisma } from "../src/lib/db";
 import { playwrightExporter, SCHEDULER_URL } from "../src/lib/wiw-export/browser";
 import { launchAgentPlist, WIW_EXPORT_LABEL } from "../src/lib/wiw-export/launch-agent";
-import { acquireReleaseLockForPull, releaseReleaseLock } from "../src/lib/release-lock";
 import { readLoginFile } from "../src/lib/wiw-export/login-file";
 import { runProbeDialog } from "../src/lib/wiw-export/probe";
 import { nextWeekDialog } from "../src/lib/wiw-export/next-week-dialog";
 import { runProbeNextWeek } from "../src/lib/wiw-export/probe-next-week";
 import { runCheckDialog } from "../src/lib/wiw-export/check-dialog";
-import { runWiwExport, SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
+import { SettingsError, wiwSettingsFromEnv } from "../src/lib/wiw-export/run";
 
 const appDir = path.resolve(__dirname, "..");
 
@@ -162,29 +159,14 @@ async function main() {
   // it) is logged and retried, never skipped past: the browser and the
   // import start only once this run holds the lock, so they cannot overlap
   // an install. The hourly 06:00-21:00 slots still run, as soon as the lock can be taken.
-  const leaseAppDir = await quarterLeaseAppDir(prisma);
-  const identity=await importerIdentity("hourly");
-  try{
-  await acquireReleaseLockForPull(leaseAppDir, process.pid, {
-    onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
-  });
-  try {
-    await withClaimedReleaseLease(leaseAppDir, async () => {
-    identity.check();await identity.state("running");
-    await assertArtifactCompatibility(prisma);
-    const result = await runWiwExport(settings, {
+  const result = await runScheduledExport(settings, () => ({
       exporter: playwrightExporter({ profileDir: settings.profileDir, nextWeek: nextWeekDialog() }),
       readLogin: () =>
         readLoginFile(settings.loginFile, {
           keepOut: [settings.appDir, settings.importDir, settings.profileDir],
         }),
-    });
-    process.exitCode = result.exitCode;
-    });
-  } finally {
-    await releaseReleaseLock(leaseAppDir, process.pid);
-  }
-  }finally{await identity.close();}
+  }));
+  process.exitCode = result.exitCode;
 }
 
 main()

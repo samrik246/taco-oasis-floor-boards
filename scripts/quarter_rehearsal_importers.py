@@ -1,5 +1,6 @@
 """Actual synthetic importer entrypoints, retained loaded pins, and activation inventory refusals."""
 from datetime import datetime, timezone, date, timedelta
+from zoneinfo import ZoneInfo
 import json
 import os
 from pathlib import Path
@@ -12,11 +13,16 @@ from quarter_release import release_lease, record
 
 
 def run(root, fixture, database):
-    root=Path(root);app=root/'app';out=root/'evidence/importers';out.mkdir()
+    root=Path(root);app=root/'app';phase=capture(database)['state'][1]
+    if phase not in ('prepared','active'):raise ValueError('IMPORTER_REHEARSAL_PHASE')
+    out=root/'evidence'/('importers-'+phase);out.mkdir()
     pin=file_hash(app/MANIFEST);verify(app,pin,database)
-    exports=root/'synthetic-exports';exports.mkdir()
-    import_date=(date.fromisoformat(fixture['date'])+timedelta(days=60)).isoformat()
-    (exports/'Schedule_for_synthetic.csv').write_text('Schedule,Site,Position,First Name,Last Name,Employee ID,Email,Shift Start Date,Shift Start Time,Shift End Time,Hourly Rate,Status\n'+f'Synthetic,Synthetic,Caja - Regular,Synthetic,Importer,synthetic-importer,,{import_date},1:00 pm,2:00 pm,0,Published\n')
+    exports=root/('synthetic-exports-'+phase);exports.mkdir()
+    # Exercise the unchanged production CLI's actual current-week check. Bracket
+    # today in Chicago so crossing midnight while held does not invalidate it.
+    today=datetime.now(ZoneInfo('America/Chicago')).date()
+    rows=''.join(f'Synthetic,Synthetic,Caja - Regular,Synthetic,Importer,synthetic-importer-{phase},,{today+timedelta(days=offset)},1:00 pm,2:00 pm,0,Published\n' for offset in (-1,0,1))
+    (exports/'Schedule_for_synthetic.csv').write_text('Schedule,Site,Position,First Name,Last Name,Employee ID,Email,Shift Start Date,Shift Start Time,Shift End Time,Hourly Rate,Status\n'+rows)
     env=dict(os.environ,FLOOR_BOARDS_TEST_ROOT=str(root),DATABASE_URL='file:'+str(database),FLOOR_BOARDS_IMPORT_DIR=str(exports),FLOOR_BOARDS_IMPORT_MODE='apply',WIW_LOGIN_FILE=str(root/'never-read-login'),WIW_BROWSER_PROFILE=str(root/'never-open-browser'))
     env.pop('NODE_OPTIONS',None)
     def command(script,location=app):
@@ -27,8 +33,8 @@ def run(root, fixture, database):
         if child.returncode!=expected_code or (contains and contains not in stdout+stderr):
             raise ValueError('IMPORTER_CASE_FAILED:'+label)
         record(out/'events.jsonl','child-ended',case=label,pid=child.pid,exit=child.returncode,outputSha256=file_hash(out/(label+'.log')))
-    def spawn(script,location=app):
-        child=subprocess.Popen(command(script,location),cwd=location,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    def spawn(script,location=app,args=(),overrides=None):
+        child=subprocess.Popen(command(script,location)+list(args),cwd=location,env=dict(env,**(overrides or {})),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         record(out/'events.jsonl','child-started',pid=child.pid,script=script,artifact=pin)
         return child
     def wait_registered(child):
@@ -61,14 +67,43 @@ def run(root, fixture, database):
             refuse(inventory([]),'IMPORTER_UNKNOWN_OR_CHANGED')
         finish(child,'prepared-drain',contains='outcome=imported');child=None
         after=capture(database);atomic_json(out/'prepared-after.json',after)
-        allowed={'Employee','Shift','Assignment','ImportBatch','PaintCommandReceipt','PaintMutation','BoardChangeLog','QuarterWorldRevision','StaffBreakLock'}
+        allowed={'Employee','EmployeeStationAbility','Shift','Assignment','ImportBatch','PaintHour','PaintSegment','PaintCommandReceipt','PaintMutation','BoardChangeLog','QuarterWorldRevision','StaffBreakLock'}
         for table in before['tables']:
             if table not in allowed and before['tables'][table]!=after['tables'][table]:raise ValueError('IMPORTER_CHANGED_UNRELATED:'+table)
-        child=spawn('import-from-folder.ts');finish(child,'exact-fingerprint-replay',contains='outcome=replayed');child=None
+        child=spawn('import-from-folder.ts')
+        finish(child,'exact-fingerprint-replay',expected_code=3 if phase=='prepared' else 0,contains='code=DUPLICATE' if phase=='prepared' else 'outcome=replayed');child=None
         replay=capture(database)
         for table in after['tables']:
             if table!='StaffBreakLock' and after['tables'][table]!=replay['tables'][table]:raise ValueError('IMPORT_REPLAY_CHANGED:'+table)
-        retained=copy(app,root/'tampered-importer',pin)
+        hourly_exports=root/('synthetic-hourly-exports-'+phase);hourly_exports.mkdir()
+        hourly_date=(date.fromisoformat(fixture['date'])+timedelta(days=60 if phase=='prepared' else 81)).isoformat()
+        for label in ('hourly-drain','hourly-replay'):
+            output=out/(label+'.json')
+            with release_lease(app):
+                child=spawn('quarter-rehearsal-hourly.ts',args=(hourly_date,str(output)),overrides={'FLOOR_BOARDS_IMPORT_DIR':str(hourly_exports)})
+                registered=wait_registered(child)
+                if registered['kind']!='hourly':raise ValueError('HOURLY_IDENTITY_KIND')
+                refuse(inventory([registered]),'IMPORTER_OLD_OR_WAITING')
+                time.sleep(.1)
+                if Path(str(output)+'.provider-started').exists() or output.exists() or child.poll() is not None:
+                    raise ValueError('HOURLY_PROVIDER_STARTED_BEFORE_LEASE')
+            finish(child,label,expected_code=3 if label=='hourly-replay' and phase=='prepared' else 0);child=None
+            proof=json.loads(output.read_text());result=proof['result']
+            expected='imported' if label=='hourly-drain' else 'refused' if phase=='prepared' else 'replayed'
+            if proof['loadedArtifactSha256']!=pin or result['importResult']['outcome']!=expected or result['next']['importResult']['outcome']!=expected or len([c for c in proof['calls'] if c.startswith('export:')])!=2:
+                raise ValueError('HOURLY_IMPORT_OR_REPLAY_MISSING')
+            if expected=='refused' and any(r['code']!='DUPLICATE' for r in (result['importResult'],result['next']['importResult'])):
+                raise ValueError('HOURLY_PREPARED_DUPLICATE_REASON')
+            current=capture(database)
+            if label=='hourly-drain':
+                for table in replay['tables']:
+                    if table not in allowed and replay['tables'][table]!=current['tables'][table]:raise ValueError('HOURLY_CHANGED_UNRELATED:'+table)
+                replay=current
+            else:
+                for table in replay['tables']:
+                    if table!='StaffBreakLock' and replay['tables'][table]!=current['tables'][table]:raise ValueError('HOURLY_REPLAY_CHANGED:'+table)
+                replay=current
+        retained=copy(app,root/('tampered-importer-'+phase),pin)
         original=(retained/MANIFEST).read_bytes()
         for script,label in [('import-from-folder.ts','folder'),('wiw-export.ts','hourly')]:
             with release_lease(app):
@@ -82,7 +117,7 @@ def run(root, fixture, database):
                 if replay['tables'][table]!=current['tables'][table]:raise ValueError('REFUSED_IMPORTER_MUTATED:'+table)
         if (root/'never-read-login').exists() or (root/'never-open-browser').exists():raise ValueError('HOURLY_PROVIDER_TOUCHED')
         readback=verify_importers(inventory([]),app)
-        atomic_json(out/'completed.json',{'preparedDrain':True,'exactFingerprintReplay':True,'changedLoadedPinsRefused':['folder','hourly'],'providerInvoked':False,'idleInventory':readback,'database':capture(database)['database']})
+        atomic_json(out/'completed.json',{'phase':phase,'compatibleDrain':True,'duplicateBehavior':'prepared-legacy-refusal' if phase=='prepared' else 'original-receipt-replay','hourlyCurrentAndNextWeek':True,'providerWaitedForLease':True,'changedLoadedPinsRefused':['folder','hourly'],'realProviderInvoked':False,'idleInventory':readback,'database':capture(database)['database']})
     finally:
         if child is not None and child.poll() is None:
             child.terminate()

@@ -37,5 +37,6 @@
   "scripts/quarter-rehearsal-picker.ts",
   "scripts/edit-board.py",
   "scripts/quarter-rehearsal-picker-matrix.ts",
-  "scripts/quarter_rehearsal_importers.py"
+  "scripts/quarter_rehearsal_importers.py",
+  "scripts/quarter-rehearsal-hourly.ts"
 ]
