@@ -608,7 +608,7 @@ describe("B2 settings", () => {
 });
 
 describe("B2 LaunchAgent", () => {
-  it("runs at 07:00 and 16:00 in the GUI session, in apply mode, with the three paths and no login value", () => {
+  it("runs hourly 06:00 through 21:00 in the GUI session, in apply mode, with the three paths and no login value", () => {
     const plist = launchAgentPlist({
       appDir: "/opt/app",
       nodePath: "/usr/local/bin/node",
@@ -617,9 +617,15 @@ describe("B2 LaunchAgent", () => {
       profileDir: "/Users/boards/.wiw-browser",
     });
     expect(plist).toContain(`<key>Label</key><string>${WIW_EXPORT_LABEL}</string>`);
+    const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+    expect(hours).toHaveLength(16);
     expect(plist).toContain(
-      "<key>StartCalendarInterval</key><array><dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict><dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict></array>",
+      `<key>StartCalendarInterval</key><array>${hours
+        .map((h) => `<dict><key>Hour</key><integer>${h}</integer><key>Minute</key><integer>0</integer></dict>`)
+        .join("")}</array>`,
     );
+    expect(plist.match(/<key>Hour<\/key>/g)).toHaveLength(16);
+    expect(plist).not.toContain("<key>Weekday</key>");
     expect(plist).toContain("<key>RunAtLoad</key><false/>");
     expect(plist).toContain("<key>LimitLoadToSessionType</key><string>Aqua</string>");
     expect(plist).toContain("<string>/opt/app/scripts/wiw-export.ts</string>");
