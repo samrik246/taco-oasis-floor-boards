@@ -4,14 +4,21 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ReceiptWorkspace } from "@/components/receipts/ReceiptWorkspace";
-import { type Command, type Response, type Review } from "@/lib/receipts/protocol";
+import { parseResponse, type Command, type Response, type Review, type Status } from "@/lib/receipts/protocol";
 import { type ReceiptTransport } from "@/lib/receipts/client";
-import { devices, fixtures, review, batch, response, status } from "./helpers/receipt-fixtures";
+import { devices, fixtures, first, review, batch, response, status } from "./helpers/receipt-fixtures";
 
 const manager = { id: "synthetic-manager", token: "synthetic-session" };
 const key = "receipt-journal-v1:" + manager.id;
 const roots: Root[] = [];
-const newReview = (): Review => ({ ...review(), created_at: new Date(Date.now()).toISOString(), expires_at: new Date(Date.now() + 300000).toISOString() });
+const newReview = (): Review => {
+  const now = Date.now();
+  return { ...review(), created_at: new Date(now).toISOString(), expires_at: new Date(now + 300000).toISOString() };
+};
+const newStatus = (): Status => {
+  const now = Date.now();
+  return { ...status(), last_outcome: "valid", display_code: "ready", condition: "ready", last_valid: { observed_at: new Date(now).toISOString(), expires_at: new Date(now + 60000).toISOString(), condition: "ready", identity_match: true, problems: [], warnings: [] } };
+};
 const baseTransport = async (c: Command): Promise<Response> => {
   if (c.op === "read_defaults" || c.op === "save_defaults") return response(c, fixtures.common_setup.defaults);
   if (c.op === "status_cached" || c.op === "status_refresh") return response(c, { ...status(), device_id: c.args.device_id });
@@ -38,6 +45,32 @@ async function mount(transport = vi.fn<ReceiptTransport>(baseTransport), locale:
 }
 beforeEach(() => { vi.stubGlobal("TextEncoder", TextEncoder); vi.stubGlobal("TextDecoder", TextDecoder); sessionStorage.clear(); });
 afterEach(async () => { await act(async () => { roots.splice(0).forEach((r) => r.unmount()); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); document.body.innerHTML = ""; });
+
+it("review fixtures retain exact expiry while clock reads advance one millisecond", () => {
+  let now = Date.parse("2026-10-01T05:00:00.000Z");
+  vi.spyOn(Date, "now").mockImplementation(() => now++);
+  const data = newReview();
+  const command = first().request;
+  expect(Date.parse(data.expires_at) - Date.parse(data.created_at)).toBe(300000);
+  expect(() => parseResponse(response(command, data), devices)).not.toThrow();
+  for (const delta of [-1, 1]) {
+    const invalid = { ...data, expires_at: new Date(Date.parse(data.expires_at) + delta).toISOString() };
+    expect(() => parseResponse(response(command, invalid), devices)).toThrow("review");
+  }
+});
+
+it("diagnostic fixtures retain exact expiry while clock reads advance one millisecond", () => {
+  let now = Date.parse("2026-10-01T05:00:00.000Z");
+  vi.spyOn(Date, "now").mockImplementation(() => now++);
+  const data = newStatus();
+  const command: Command = { schema: "receipt-browser/v1", request_id: "a".repeat(32), op: "status_cached", args: { device_id: data.device_id } };
+  expect(Date.parse(data.last_valid!.expires_at) - Date.parse(data.last_valid!.observed_at)).toBe(60000);
+  expect(() => parseResponse(response(command, data), devices)).not.toThrow();
+  for (const delta of [-1, 1]) {
+    const invalid = { ...data, last_valid: { ...data.last_valid!, expires_at: new Date(Date.parse(data.last_valid!.expires_at) + delta).toISOString() } };
+    expect(() => parseResponse(response(command, invalid), devices)).toThrow("observation expiry");
+  }
+});
 
 for (const locale of ["es", "en"] as const) it(`${locale}: opening makes no query or send; defaults and order choices stay separate`, async () => {
   const h = await mount(undefined, locale); expect(h.transport).not.toHaveBeenCalled();
@@ -137,7 +170,7 @@ it("partial outcomes stay per-document; not_seen allows only a reviewed marked c
 });
 
 it("cached/explicit diagnostics target one device and failed refresh never promotes old status", async () => {
-  const good = { ...status(), last_outcome: "valid" as const, display_code: "ready" as const, condition: "ready" as const, last_valid: { observed_at: new Date(Date.now()).toISOString(), expires_at: new Date(Date.now() + 60000).toISOString(), condition: "ready" as const, identity_match: true as const, problems: [], warnings: [] } };
+  const good = newStatus();
   const transport = vi.fn<ReceiptTransport>(async (c) => c.op === "status_cached" ? response(c, good) : c.op === "status_refresh" ? response(c, null, "unavailable", "query_unavailable") : baseTransport(c));
   const h = await mount(transport); await h.click("View saved status");
   expect(h.host.textContent).toContain("No warnings · recent response");
