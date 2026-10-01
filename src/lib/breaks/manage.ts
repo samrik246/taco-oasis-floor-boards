@@ -1,11 +1,7 @@
-import { approvalPreview } from "@/lib/breaks/preview";
+import { loadBreakPreview } from "@/lib/breaks/preview";
 import { breakState } from "@/lib/breaks/status";
-import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { prisma } from "@/lib/db";
-import {
-  listBreakCovers,
-  type BreakCover,
-} from "@/lib/breaks/covers";
+import { describeBreakCover, type ManagerBreakCover } from "@/lib/breaks/cover-positions";
 import {
   blockedBreakQuarters,
   offeredBreakSlots,
@@ -20,9 +16,7 @@ import {
   type BreakManagerActor,
   type BreakShift,
 } from "@/lib/breaks/rules";
-import { isDefaultMandatory, MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { loadOverlayRecords, toSliceOverlay } from "@/lib/overlays/read";
-import type { SliceBoard, SliceBreak } from "@/lib/slices/day-slices";
 import { chicagoToday } from "@/lib/upcoming/source";
 
 export type ManagedBreakRow = "absent" | "this" | "other";
@@ -72,7 +66,24 @@ export async function loadManagedBreak(input: {
   });
   const otherBreaks = await liveOtherBreaks(date, employee.id);
   const row: ManagedBreakRow = !savedRow ? "absent" : savedRow.board === input.board ? "this" : "other";
-  const preview = await approvalPreview(date, input.board, employee.id);
+  const now = input.now ?? breaksNow();
+  const preview = await managerPreview(date, input.board, employee.id);
+  const slots = offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }).flatMap(slot => {
+    const approval = preview.approval(new Date(slot.startAt), new Date(slot.endAt));
+    return approval ? [{ ...slot, board: input.board, approval }] : [];
+  });
+  const covers = row === "this" && savedRow && (savedRow.status === "pending" || savedRow.auto)
+    ? preview.covers(savedRow.startAt, savedRow.endAt) : [];
+  const pendingRevision = row === "this" && savedRow?.status === "pending"
+    ? { id: savedRow.id, updatedAt: savedRow.updatedAt.toISOString() } : null;
+  const alternatives = pendingRevision && savedRow && covers.length === 0 && date === chicagoToday(now)
+    ? slots.filter(slot => Date.parse(slot.startAt) > now.getTime() && Date.parse(slot.startAt) !== savedRow.startAt.getTime()
+      && Date.parse(slot.endAt) - Date.parse(slot.startAt) === savedRow.endAt.getTime() - savedRow.startAt.getTime())
+      .flatMap<(typeof slots)[number] & { cover: ManagerBreakCover | null }>(slot => {
+        if (slot.approval === "automatic") return [{ ...slot, cover: null }];
+        const cover = preview.covers(new Date(slot.startAt), new Date(slot.endAt))[0];
+        return cover ? [{ ...slot, cover }] : [];
+      }) : [];
   return {
     firstName: employee.firstName,
     allowanceMinutes: breakAllowanceMinutes(scheduledMinutes(shifts)),
@@ -82,10 +93,10 @@ export async function loadManagedBreak(input: {
       endAt: shift.endAt.toISOString(),
     })),
     blocked: blockedBreakQuarters({ date, board: input.board, shifts, otherBreaks }),
-    slots: offeredBreakSlots({ date, board: input.board, shifts, otherBreaks }).flatMap(slot => {
-      const approval = preview(new Date(slot.startAt), new Date(slot.endAt));
-      return approval ? [{ ...slot, board: input.board, approval }] : [];
-    }),
+    slots,
+    stations: preview.stations,
+    pendingRevision,
+    alternatives,
     approval: savedRow && savedRow.status !== "ended" ? (savedRow.status === "pending" || (savedRow.actor !== savedRow.employeeId && !savedRow.auto) ? "gerente" : "automatic") : null,
     state: savedRow ? breakState(savedRow, input.now ?? breaksNow()) : "absent",
     saved: row === "this" && savedRow && savedRow.status === "booked"
@@ -95,107 +106,29 @@ export async function loadManagedBreak(input: {
       ? { startAt: savedRow.startAt.toISOString(), endAt: savedRow.endAt.toISOString() }
       : null,
     auto: row === "this" && savedRow?.status === "booked" && savedRow.auto === true,
-    covers: row === "this" && savedRow && (savedRow.status === "pending" || savedRow.auto)
-      ? await loadBreakCovers({
-        board: input.board,
-        employeeId: employee.id,
-        date,
-        startAt: savedRow.startAt,
-        endAt: savedRow.endAt,
-      })
-      : [],
+    covers,
   };
 }
 
-/** The manager list for one window. Names only. The lock rechecks the same list on the tap. */
+/** Load the effective world once for all windows in this manager read. */
+async function managerPreview(date: string, board: "caja" | "cocina", employeeId: string) {
+  const [preview, otherOverlays, stations] = await Promise.all([
+    loadBreakPreview(date, board, employeeId),
+    loadOverlayRecords(prisma, board === "caja" ? "cocina" : "caja", date),
+    prisma.station.findMany({ select: { id: true, label: true } }),
+  ]);
+  return { approval: preview.approval, stations,
+    covers: (startAt: Date, endAt: Date) => preview.covers(startAt, endAt).map(cover => describeBreakCover(
+      { ...preview.context, startAt, endAt }, cover, otherOverlays.map(toSliceOverlay),
+    )),
+  };
+}
+
+/** Manager-only moves from effective slices. The lock rechecks the cover on the tap. */
 export async function loadBreakCovers(input: {
-  board: "caja" | "cocina";
-  employeeId: string;
-  date: string;
-  startAt: Date;
-  endAt: Date;
-}): Promise<BreakCover[]> {
-  const shifts = await prisma.shift.findMany({
-    where: { date: input.date, supersededAt: null, boardRemoved: false },
-    include: { employee: { select: { firstName: true } } },
-  });
-  const shiftIds = shifts.map((shift) => shift.id);
-  const paints = shiftIds.length === 0
-    ? []
-    : await prisma.assignment.findMany({
-      where: { shiftId: { in: shiftIds } },
-      select: { employeeId: true, shiftId: true, stationId: true, hourStart: true },
-    });
-  const marks = await prisma.mandatoryMark.findMany({
-    where: { board: input.board, date: input.date },
-    select: { stationId: true },
-  });
-  const extra = marks
-    .map((mark) => mark.stationId)
-    .filter((stationId) => !isDefaultMandatory(stationId));
-  const breakRows = await prisma.staffBreak.findMany({
-    where: { date: input.date },
-    select: {
-      employeeId: true,
-      shiftId: true,
-      board: true,
-      startAt: true,
-      endAt: true,
-      status: true,
-      coverEmployeeId: true,
-      shuffleEmployeeId: true,
-    },
-  });
-  const abilities = await prisma.employeeStationAbility.findMany({
-    where: { employeeId: { in: shifts.map((shift) => shift.employeeId) } },
-    select: { employeeId: true, stationId: true, level: true },
-  });
-  const defaults = await loadColumnDefaults();
-  const breaks: SliceBreak[] = breakRows.flatMap((row) => {
-    if (row.status !== "booked" && row.status !== "pending") return [];
-    if (row.board !== "caja" && row.board !== "cocina") return [];
-    return [{
-      employeeId: row.employeeId,
-      shiftId: row.shiftId,
-      board: row.board,
-      startAt: row.startAt,
-      endAt: row.endAt,
-      status: row.status,
-      coverEmployeeId: row.coverEmployeeId,
-      shuffleEmployeeId: row.shuffleEmployeeId,
-    }];
-  });
-  return listBreakCovers({
-    date: input.date,
-    board: input.board as SliceBoard,
-    employeeId: input.employeeId,
-    startAt: input.startAt,
-    endAt: input.endAt,
-    shifts: shifts.map((shift) => ({
-      id: shift.id,
-      employeeId: shift.employeeId,
-      board: shift.board,
-      startAt: shift.startAt,
-      endAt: shift.endAt,
-      superseded: false,
-      boardRemoved: false,
-    })),
-    paints: paints.flatMap((row) => {
-      if (!row.employeeId) return [];
-      return [{
-        employeeId: row.employeeId,
-        shiftId: row.shiftId,
-        stationId: row.stationId,
-        hourStart: row.hourStart,
-      }];
-    }),
-    breaks,
-    starStationIds: [...MANDATORY_STATIONS_BY_BOARD[input.board], ...extra],
-    abilities,
-    defaults,
-    names: new Map(shifts.map((shift) => [shift.employeeId, shift.employee.firstName])),
-    overlays: (await loadOverlayRecords(prisma, input.board, input.date)).map(toSliceOverlay),
-  });
+  board: "caja" | "cocina"; employeeId: string; date: string; startAt: Date; endAt: Date;
+}) {
+  return (await managerPreview(input.date, input.board, input.employeeId)).covers(input.startAt, input.endAt);
 }
 
 export async function saveManagedBreak(input: {
@@ -207,6 +140,7 @@ export async function saveManagedBreak(input: {
   coverEmployeeId?: string | null;
   shuffleEmployeeId?: string | null;
   now?: Date;
+  resolvePending?: { id: string; updatedAt: string };
 }) {
   const now = input.now ?? breaksNow();
   if (chicagoToday(input.startAt) !== chicagoToday(now) || chicagoToday(new Date(input.endAt.getTime() - 1)) !== chicagoToday(now)) throw new BreakRefused("NOT_TODAY");
@@ -220,6 +154,7 @@ export async function saveManagedBreak(input: {
     authorityNow: input.now ?? breaksNow(),
     coverEmployeeId: input.coverEmployeeId,
     shuffleEmployeeId: input.shuffleEmployeeId,
+    resolvePending: input.resolvePending,
   });
 }
 

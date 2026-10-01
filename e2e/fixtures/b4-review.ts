@@ -1,3 +1,4 @@
+import { describeBreakCover } from "../../src/lib/breaks/cover-positions";
 import { offeredBreakSlots, blockedBreakQuarters } from "../../src/lib/breaks/mine";
 import { assessStarGate } from "../../src/lib/slices/break-gate";
 import { listBreakCovers, numberedSeatCover } from "../../src/lib/breaks/covers";
@@ -30,6 +31,7 @@ export function reviewScenario(date: string) {
     if (numberedSeatCover(input)) throw new Error("Review crew unexpectedly has automatic numbered cover");
     return [{ ...slot, board: "cocina", approval: "gerente" }];
   });
-  const covers = listBreakCovers({ ...base, startAt: at("2:00 pm"), endAt: at("2:30 pm") });
+  const input = { ...base, startAt: at("2:00 pm"), endAt: at("2:30 pm") };
+  const covers = listBreakCovers(input).map(cover => describeBreakCover(input, cover));
   return { shifts: placement.shifts.map(s => ({ board: s.board, startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString() })), slots, blocked: blockedBreakQuarters(placement), covers };
 }

@@ -8,7 +8,7 @@ import { useManagerIdle } from "@/components/board/useManagerSession";
 import { STAFF_SESSION_HEADER } from "@/lib/breaks/header";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { breakLengthMinutes, breakQuarterFaces, preferredBreakLength } from "@/lib/breaks/picker-steps";
-import { approvalLine, unavailableLabel, breakButton, breakClock, breakRange, stateLabel, statusClass, type BreakArea, type BreakOption, type BreakStatus, type BreakTimeline, type BreakWindow } from "@/lib/breaks/display";
+import { approvalLine, breakButton, breakChoiceTone, choiceClass, choiceUnavailableLabel, breakClock, breakRange, stateLabel, statusClass, type BreakArea, type BreakOption, type BreakStatus, type BreakTimeline, type BreakWindow } from "@/lib/breaks/display";
 import { TimelineChips } from "./BreakTimelineStrip";
 import { ManagerBreakDialog } from "./ManagerBreakDialog";
 import { ManagerPairingPanel } from "./ManagerPairingPanel";
@@ -201,7 +201,7 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
         <h3 className="text-2xl font-black" data-testid="break-saved-title">{stateLabel(locale, mine.saved?.state ?? "absent")}</h3>
         {mine.saved && <><p className="text-xl" data-testid="break-current">{mine.saved.board === "caja" ? "Caja" : "Cocina"} · {breakRange(mine.saved)}</p>
           {mine.saved.approval && <p className="font-bold">{approvalLine(locale, mine.saved.approval)}</p>}
-          {mine.saved.state === "pending" && <><p>{es ? "Visible para el gerente." : "Visible to the gerente."}</p><p className="text-xl font-bold">{es ? "Espera la aprobación antes de salir a tu BREAK." : "Wait for approval before starting your BREAK."}</p><p>{es ? "En los cinco minutos previos se intentará resolver. Puede posponerse 15 minutos o finalizar la solicitud." : "Resolution is attempted in the five-minute window. It may move 15 minutes later or end without approval."}</p></>}
+          {mine.saved.state === "pending" && <p className="text-xl font-bold">{es ? "El horario que pediste puede cambiar. Revisa el tablero BREAK para confirmar la aprobación y el horario antes de salir." : "Your requested time may change. Check the BREAK board for approval and the scheduled time before leaving."}</p>}
           {mine.saved.state === "reserved" && <p>{es ? "Tu BREAK está reservado. Revisa el estado antes de salir." : "Your BREAK is reserved. Check its status before leaving."}</p>}
           {mine.saved.state === "on-break" && <p>{es ? "Regresa al terminar este horario." : "Return at the end of this time."}</p>}
           {mine.saved.state === "completed" && <p>{es ? "Tu BREAK terminó." : "Your BREAK has finished."}</p>}
@@ -212,11 +212,11 @@ export function BreakWorkspace({ board, locale, onClose }: { board: BreakArea; l
       {phase === "picker" && <>
         {!chosenStart && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="break-starts">{faces.map(face => {
           const option = preferredBreakLength(mine.slots.filter(s => s.startAt === face.startAt), mine.allowanceMinutes) as BreakOption | null;
-          return <button key={face.startAt} className={`${breakButton} min-h-24 text-left`} data-testid="break-start" data-start={face.startAt} data-reason={face.reason ?? ""} disabled={busy || face.disabled} onClick={() => { setChosenStart(face.startAt); setChosenEnd(null); }}><span className="block text-xl">{breakClock(face.startAt)}</span><span className="block text-sm">{option ? `${option.board === "caja" ? "Caja" : "Cocina"} · ${approvalLine(locale, option.approval, true)}` : face.reason ? unavailableLabel(locale) : ""}</span></button>;
+          return <button key={face.startAt} className={`${breakButton} min-h-24 text-left ${choiceClass[breakChoiceTone(face.reason, option)]}`} data-tone={breakChoiceTone(face.reason, option)} data-testid="break-start" data-start={face.startAt} data-reason={face.reason ?? ""} disabled={busy || face.disabled} onClick={() => { setChosenStart(face.startAt); setChosenEnd(null); }}><span className="block text-xl">{breakClock(face.startAt)}</span><span className="block text-sm">{option ? `${breakLengthMinutes(option)} min · ${option.board === "caja" ? "Caja" : "Cocina"} · ${approvalLine(locale, option.approval, true)}` : choiceUnavailableLabel(locale, face.reason)}</span></button>;
         })}</div>}
         {selected && <div className="space-y-4"><button className={breakButton} disabled={busy} onClick={() => { setChosenStart(null); setChosenEnd(null); }} data-testid="break-start-back">{es ? "Otro inicio" : "Different start"}</button>
           <p className="text-xl font-bold">{selected.board === "caja" ? "Caja" : "Cocina"} · {breakRange(selected)}</p><p>{approvalLine(locale, selected.approval, true)}</p>
-          <div className="grid grid-cols-3 gap-3">{lengths.map(slot => <button key={slot.endAt} className={`${breakButton} ${selected.endAt === slot.endAt ? "bg-blue-100" : ""}`} disabled={busy} aria-pressed={selected.endAt === slot.endAt} onClick={() => setChosenEnd(slot.endAt)} data-testid="break-slot" data-start={slot.startAt} data-end={slot.endAt}>{breakLengthMinutes(slot)} min<span className="block text-sm">{approvalLine(locale, slot.approval)}</span></button>)}</div>
+          <div className="grid grid-cols-3 gap-3">{lengths.map(slot => <button key={slot.endAt} className={`${breakButton} ${choiceClass[breakChoiceTone(null, slot)]} ${selected.endAt === slot.endAt ? "ring-4 ring-neutral-950" : ""}`} disabled={busy} data-tone={breakChoiceTone(null, slot)} aria-pressed={selected.endAt === slot.endAt} onClick={() => setChosenEnd(slot.endAt)} data-testid="break-slot" data-start={slot.startAt} data-end={slot.endAt}>{breakLengthMinutes(slot)} min<span className="block text-sm">{approvalLine(locale, slot.approval)}</span></button>)}</div>
           <button className={`${breakButton} min-h-20 w-full bg-neutral-950 text-2xl text-white active:bg-neutral-700`} disabled={busy} onClick={() => void save(selected)} data-testid="break-save" data-start={selected.startAt} data-end={selected.endAt}>{es ? "RESERVAR" : "RESERVE"}<span className="block text-lg">{breakRange(selected)}, {breakLengthMinutes(selected)} min</span></button>
         </div>}
         {!faces.length && <p>{es ? "No hay horarios disponibles." : "No available times."}</p>}

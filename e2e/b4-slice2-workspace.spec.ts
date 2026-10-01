@@ -72,8 +72,7 @@ test("landscape sheet, both-area ordered overflow, per-length approval and persi
   await screenshot(page, "02_WORKER_PICKER");
   await page.getByTestId("break-save").click();
   await expect(page.getByTestId("break-saved-title")).toHaveText("Pendiente");
-  await expect(page.getByTestId("break-saved")).toContainText("Visible para el gerente.");
-  await expect(page.getByTestId("break-saved")).toContainText("Espera la aprobación antes de salir a tu BREAK.");
+  await expect(page.getByTestId("break-saved")).toContainText("El horario que pediste puede cambiar. Revisa el tablero BREAK para confirmar la aprobación y el horario antes de salir.");
   await expect(page.getByTestId("break-saved")).not.toContainText(/puesto obligatorio|sin aprobación|Libre/);
   await screenshot(page, "03_PENDING");
   await page.getByTestId("break-back").click();

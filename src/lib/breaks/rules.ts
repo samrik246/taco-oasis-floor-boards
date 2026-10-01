@@ -1,3 +1,4 @@
+import { chicagoToday } from "@/lib/upcoming/source";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import type { Prisma } from "@prisma/client";
 import { gerenteAuthority } from "@/lib/breaks/authority";
@@ -346,6 +347,7 @@ async function writeBreak(
     expectedBoard?: "caja" | "cocina";
     actor?: BreakManagerActor;
     authorityNow?: Date;
+    resolvePending?: { id: string; updatedAt: string };
     coverEmployeeId?: string | null;
     shuffleEmployeeId?: string | null;
   },
@@ -465,10 +467,20 @@ async function writeBreak(
     }
     const existing = await tx.staffBreak.findUnique({
       where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
-      select: { id: true, board: true, updatedAt: true },
+      select: { id: true, board: true, updatedAt: true, status: true, startAt: true, endAt: true },
     });
     if (input.expectedBoard && existing && existing.board !== input.expectedBoard) {
       throw new BreakRefused("BOARD_MISMATCH");
+    }
+    if (input.resolvePending) {
+      if (input.actor?.kind !== "manager" || !input.authorityNow) throw new BreakRefused("GERENTE_REQUIRED");
+      if (!existing || existing.status !== "pending" || existing.id !== input.resolvePending.id
+        || existing.updatedAt.toISOString() !== input.resolvePending.updatedAt) throw new BreakRefused("LOCK_CONFLICT");
+      if (existing.board !== decision.board) throw new BreakRefused("BOARD_MISMATCH");
+      if (input.date !== chicagoToday(input.authorityNow) || input.startAt <= input.authorityNow || chicagoToday(input.startAt) !== input.date
+        || chicagoToday(new Date(input.endAt.getTime() - 1)) !== input.date) throw new BreakRefused("NOT_TODAY");
+      if (input.endAt.getTime() - input.startAt.getTime() !== existing.endAt.getTime() - existing.startAt.getTime()) throw new BreakRefused("ALLOWANCE");
+      if (status !== "booked") throw new BreakRefused("NEEDS_COVER");
     }
     const manager = input.actor?.kind === "manager" ? input.actor : null;
     const actorId = manager ? manager.id : employee.id;
@@ -535,6 +547,7 @@ export async function saveBreak(input: {
   /** Manager id and name. Absent, the row and the log stay the employee's. */
   actor?: BreakManagerActor;
   authorityNow?: Date;
+  resolvePending?: { id: string; updatedAt: string };
   /** Named by the manager. Absent, a star seat waits. */
   coverEmployeeId?: string | null;
   /** Second Shuffle move. Present only with the star-seat person who moves over. */

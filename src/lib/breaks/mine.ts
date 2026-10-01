@@ -4,12 +4,8 @@ import { breakState } from "@/lib/breaks/status";
 import { prisma } from "@/lib/db";
 import {
   assessBreak,
-  bookedBreaksOnSlice,
-  BREAK_BOARD_CEILING,
   breakAllowanceMinutes,
-  breakBlackouts,
   clearBreak,
-  intervalsOverlap,
   saveBreak,
   scheduledMinutes,
   BreakRefused,
@@ -77,16 +73,14 @@ export function blockedBreakQuarters(input: {
   otherBreaks: readonly { board: string; startAt: Date; endAt: Date }[];
 }): BlockedQuarter[] {
   const windows = currentOnBoard(input.shifts, input.board);
-  const blackouts = breakBlackouts(input.date, input.board);
   const blocked: BlockedQuarter[] = [];
   for (const start of quarterStarts(input.date)) {
     const end = new Date(start.getTime() + 15 * 60_000);
     const inside = windows.some((shift) => start.getTime() >= shift.startAt.getTime() && end.getTime() <= shift.endAt.getTime());
     if (!inside) continue;
-    const blackout = blackouts.some((window) => intervalsOverlap(start, end, window.start, window.end));
-    const taken = bookedBreaksOnSlice(input.otherBreaks, input.board, start.getTime()) >= BREAK_BOARD_CEILING;
-    if (blackout) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "blackout" });
-    else if (taken) blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "overlap" });
+    const decision = assessBreak({ date: input.date, startAt: start, endAt: end, shifts: input.shifts, otherBreaks: input.otherBreaks });
+    if ("code" in decision && decision.code === "BLACKOUT") blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "blackout" });
+    else if ("code" in decision && decision.code === "CEILING") blocked.push({ startAt: start.toISOString(), endAt: end.toISOString(), reason: "overlap" });
   }
   return blocked;
 }

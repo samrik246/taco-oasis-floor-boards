@@ -40,3 +40,21 @@ export const breakButton = "min-h-12 rounded-xl border-2 border-neutral-800 px-4
 
 /** Generic availability copy never reveals station or mandatory-position constraints. */
 export function unavailableLabel(locale: Locale) { return locale === "es" ? "No disponible" : "Unavailable"; }
+
+/** A start describes its displayed valid duration; absent options never imply capacity. */
+export function breakChoiceTone(reason: string | null, option: { approval: Approval } | null) {
+  if (option) return option.approval === "automatic" ? "automatic" : "gerente";
+  return reason === "Ocupado" ? "capacity" : "unavailable";
+}
+export const choiceClass = {
+  automatic: "bg-green-100 text-green-950",
+  gerente: "bg-amber-100 text-amber-950",
+  capacity: "bg-red-100 text-red-950 disabled:opacity-100",
+  unavailable: "bg-neutral-200 text-neutral-700 disabled:opacity-100",
+};
+export function choiceUnavailableLabel(locale: Locale, reason: string | null) {
+  if (reason === "Ocupado") return locale === "es" ? "Límite de personas en BREAK" : "BREAK capacity reached";
+  if (reason === "Bloqueado") return locale === "es" ? "No disponible · Horario bloqueado" : "Unavailable · Blocked time";
+  if (reason === "Fuera") return locale === "es" ? "No disponible · Fuera del turno" : "Unavailable · Outside shift";
+  return unavailableLabel(locale);
+}

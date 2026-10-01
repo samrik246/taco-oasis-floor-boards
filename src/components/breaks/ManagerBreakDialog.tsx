@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { breakClock, breakRange, unavailableLabel, approvalLine, stateLabel, statusClass, type Approval, type BreakStatus, type BreakOption } from "@/lib/breaks/display";
+import type { ManagerBreakCover } from "@/lib/breaks/cover-positions";
+import { CoverPositionDetails } from "./CoverPositionDetails";
 import type { Locale } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import {
@@ -15,9 +17,8 @@ import {
 
 type Slot = { startAt: string; endAt: string };
 
-type CoverChoice =
-  | { kind: "simple"; employeeId: string; shiftId: string; firstName: string }
-  | { kind: "shuffle"; moves: [{ employeeId: string; shiftId: string; firstName: string }, { employeeId: string; shiftId: string; firstName: string }] };
+type CoverChoice = Omit<Extract<ManagerBreakCover, { kind: "simple" }>, "positions"> & Partial<Pick<ManagerBreakCover, "positions">>
+  | Omit<Extract<ManagerBreakCover, { kind: "shuffle" }>, "positions"> & Partial<Pick<ManagerBreakCover, "positions">>;
 
 type Managed = {
   state?: BreakStatus["state"] | "absent";
@@ -32,6 +33,9 @@ type Managed = {
   pending: Slot | null;
   auto?: boolean;
   covers: CoverChoice[];
+  stations?: { id: string; label: string }[];
+  pendingRevision?: { id: string; updatedAt: string } | null;
+  alternatives?: (BreakOption & { cover: CoverChoice | null })[];
 };
 
 function coverLabel(cover: CoverChoice, locale: Locale): string {
@@ -76,6 +80,7 @@ export function ManagerBreakDialog({
   const [autoPick, setAutoPick] = useState(false);
   const [actingCover, setActingCover] = useState<string | null>(null);
 
+  const [reloadKey, setReloadKey] = useState(0);
   const generation = useRef(0);
   function dismiss(exit = false) {
     generation.current += 1;
@@ -103,6 +108,7 @@ export function ManagerBreakDialog({
           setMessage(body.error ?? (es ? "No se pudo abrir BREAK." : "Could not open BREAK."));
           return;
         }
+        setMessage("");
         setMine(body);
         setCovers(body.covers ?? []);
         setAutoPick(body.auto === true);
@@ -110,18 +116,20 @@ export function ManagerBreakDialog({
         if (body.row === "other") setMessage(es ? "Ese BREAK es de la otra área." : "That BREAK is in the other area.");
       } catch {
         if (!cancelled && version === generation.current) setMessage(es ? "No se pudo abrir BREAK." : "Could not open BREAK.");
+      } finally {
+        if (!cancelled && version === generation.current) setBusy(false);
       }
     })();
     return () => {
       cancelled = true;
       generation.current += 1;
     };
-  }, [board, employeeId, managerToken, onDenied, es]);
+  }, [board, employeeId, managerToken, onDenied, es, reloadKey]);
 
   async function commit(response: Response, fallback: string, slot: Slot | null, version: number) {
     if (version !== generation.current) return;
     if ((response.status === 401 || response.status === 403) && onDenied) { onDenied(); return; }
-    const body = await response.json() as { error?: string; waiting?: boolean; message?: string; covers?: CoverChoice[] };
+    const body = await response.json() as { error?: string; waiting?: boolean; message?: string; covers?: CoverChoice[]; managed?: Managed };
     if (version !== generation.current) return;
     if (!response.ok) {
       setMessage(body.error ?? fallback);
@@ -130,10 +138,10 @@ export function ManagerBreakDialog({
     }
     if (body.waiting) {
       setMessage(es ? (body.message ?? "Requiere aprobación del gerente.") : "Gerente approval required.");
-      setCovers(body.covers ?? []);
-      setCoverWindow(slot);
+      setCovers(body.managed?.covers ?? body.covers ?? []);
+      setCoverWindow(body.managed?.pending ?? slot);
       setAutoPick(false);
-      setMine(current => current ? { ...current, saved: null, pending: slot, state: "pending", approval: "gerente" } : current);
+      setMine(current => body.managed ?? (current ? { ...current, saved: null, pending: slot, state: "pending", approval: "gerente", alternatives: [], pendingRevision: null } : current));
       setChosenStart(null);
       setChosenEnd(null);
       try { await onSaved(); } catch { if (version === generation.current) setMessage(es ? "No se pudo actualizar" : "Could not refresh"); }
@@ -150,7 +158,7 @@ export function ManagerBreakDialog({
     }
   }
 
-  async function save(slot: BreakChoice, cover?: { employeeId: string; shuffleEmployeeId?: string }) {
+  async function save(slot: BreakChoice, cover?: { employeeId: string; shuffleEmployeeId?: string }, resolvePending = false) {
     if (busy) return;
     const version = generation.current;
     setBusy(true);
@@ -164,6 +172,7 @@ export function ManagerBreakDialog({
           employeeId,
           startAt: slot.startAt,
           endAt: slot.endAt,
+          ...(resolvePending ? { resolvePending: mine?.pendingRevision } : {}),
           ...(cover ? { coverEmployeeId: cover.employeeId, shuffleEmployeeId: cover.shuffleEmployeeId } : {}),
         }),
       });
@@ -248,6 +257,18 @@ export function ManagerBreakDialog({
         {message && <p className="mt-2 rounded-md border-2 border-neutral-950 px-2 py-1 text-base font-bold" role="alert" data-testid="descanso-message">{message}</p>}
         {coverWindow && <p className="mt-3 text-xl font-bold">{es ? "Solicitud" : "Request"}: {clock(coverWindow.startAt)} – {clock(coverWindow.endAt)}</p>}
         {covers.length === 0 && coverWindow && <p>{es ? "No hay cobertura disponible ahora. Puedes rechazar o volver a revisar." : "No cover available now. Reject or check again later."}</p>}
+        {coverWindow && !autoPick && <button type="button" className="mt-2 min-h-12 rounded-xl border-2 px-4 font-bold" disabled={busy} data-testid="descanso-recheck" onClick={() => { setBusy(true); setReloadKey(key => key + 1); }}>{es ? "Volver a revisar" : "Check again"}</button>}
+        {coverWindow && covers.length === 0 && mine?.pendingRevision && <section className="mt-3 space-y-2" data-testid="descanso-alternatives">
+          <h4 className="text-lg font-bold">{es ? "Otros horarios · misma duración" : "Other times · same duration"}</h4>
+          {!mine.alternatives?.length && <p>{es ? "No hay otro horario con aprobación disponible. La solicitud sigue pendiente." : "No other approvable time is available. The request remains pending."}</p>}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{mine.alternatives?.map(slot => <button type="button" key={slot.startAt} disabled={busy} data-testid="descanso-alternative" data-start={slot.startAt} data-end={slot.endAt}
+            className="min-h-20 rounded-xl border-2 border-green-800 bg-green-50 p-3 text-left text-green-950 disabled:opacity-60"
+            onClick={() => { const cover = slot.cover; void save(slot, cover ? cover.kind === "simple" ? { employeeId: cover.employeeId } : { employeeId: cover.moves[0].employeeId, shuffleEmployeeId: cover.moves[1].employeeId } : undefined, true); }}>
+            <span className="block text-lg font-bold">{es ? "Mover y aprobar" : "Move and approve"} · {breakRange(slot)} · {breakLengthMinutes(slot)} min</span>
+            <span className="block font-bold">{slot.cover ? `${slot.cover.kind === "shuffle" ? es ? "Mezclar" : "Shuffle" : es ? "Cubrir" : "Cover"} · ${coverLabel(slot.cover, locale)}` : approvalLine(locale, "automatic")}</span>
+            {slot.cover && <CoverPositionDetails positions={slot.cover.positions} stations={mine.stations ?? []} locale={locale} />}
+          </button>)}</div>
+        </section>}
         {covers.length > 0 && coverWindow && (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {covers.map((cover) => {
@@ -273,6 +294,7 @@ export function ManagerBreakDialog({
                   }}
                 >
                   {cover.kind === "shuffle" ? (es ? "Mezclar" : "Shuffle") : (es ? "Cubrir" : "Cover")} · {coverLabel(cover, locale)}
+                  <CoverPositionDetails positions={cover.positions} stations={mine?.stations ?? []} locale={locale} />
                   <span className="block text-sm">{busy && actingCover === key ? (es ? "Guardando…" : "Saving…") : (es ? "Aprobar con esta cobertura" : "Approve with this cover")}</span>
                 </button>
               );

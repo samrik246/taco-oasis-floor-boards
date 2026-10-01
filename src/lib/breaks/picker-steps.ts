@@ -10,7 +10,7 @@ export type BreakChoice = { startAt: string; endAt: string };
 
 const QUARTER_MS = 15 * 60_000;
 
-export type QuarterReason = typeof BREAK_QUARTER_BLOCKED | typeof BREAK_QUARTER_TAKEN | typeof BREAK_QUARTER_OUTSIDE;
+export type QuarterReason = typeof BREAK_QUARTER_BLOCKED | typeof BREAK_QUARTER_TAKEN | typeof BREAK_QUARTER_OUTSIDE | "No disponible";
 
 export type QuarterFace = {
   startAt: string;
@@ -139,7 +139,7 @@ export function breakQuarterFaces(input: {
     const reason = blocked.get(at);
     if (reason === "blackout") faces.push({ startAt, disabled: true, reason: BREAK_QUARTER_BLOCKED });
     else if (reason === "overlap") faces.push({ startAt, disabled: true, reason: BREAK_QUARTER_TAKEN });
-    else faces.push({ startAt, disabled: true, reason: BREAK_QUARTER_OUTSIDE });
+    else faces.push({ startAt, disabled: true, reason: "No disponible" });
   }
   return faces;
 }

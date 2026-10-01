@@ -20,7 +20,8 @@ const postSchema = z.object({
   coverEmployeeId: z.string().min(1).optional(),
   shuffleEmployeeId: z.string().min(1).optional(),
   replaceAuto: z.literal(true).optional(),
-});
+  resolvePending: z.object({ id: z.string().min(1), updatedAt: z.string().datetime() }).optional(),
+}).refine(value => !(value.replaceAuto && value.resolvePending));
 
 const deleteSchema = z.object({
   board: boardSchema,
@@ -110,6 +111,7 @@ export async function POST(request: Request) {
       endAt,
       coverEmployeeId: parsed.data.coverEmployeeId,
       shuffleEmployeeId: parsed.data.shuffleEmployeeId,
+      resolvePending: parsed.data.resolvePending,
     });
     return NextResponse.json({
       id: saved.id,
@@ -118,7 +120,8 @@ export async function POST(request: Request) {
       endAt: endAt.toISOString(),
       waiting: saved.status === "pending",
       ...(saved.status === "pending"
-        ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER, covers: saved.covers }
+        ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER, covers: saved.covers,
+          managed: await loadManagedBreak({ board: parsed.data.board, employeeId: parsed.data.employeeId }) }
         : {}),
     }, { headers: NO_STORE });
   } catch (error) {
