@@ -12,7 +12,7 @@ test("paired gerente identity works from either tablet and an existing token los
   const code = "e2e-qualifying-gerente-code";
   const person = await db.employee.create({ data: { externalId: "e2e-b4next-gerente", firstName: "Synthetic", lastName: "Gerente" } });
   // Qualifying means unended; a fixed 23:00 end expired during overnight checks.
-  const shift = await db.shift.create({ data: { employeeId: person.id, board: "caja", date, sourcePosition: "Caja Manager", startAt: fromZonedTime(`${date}T15:00:00`, "America/Chicago"), endAt: new Date(Date.now() + 60 * 60 * 1000) } });
+  const shift = await db.shift.create({ data: { employeeId: person.id, board: "caja", date, sourcePosition: "Caja Manager", startAt: fromZonedTime(`${date}T00:00:00`, "America/Chicago"), endAt: new Date(Date.now() + 60 * 60 * 1000) } });
   const manager = await db.manager.create({ data: { name: "Synthetic Gerente", codeHash: hashManagerCode(code), employeeId: person.id } });
   try {
     const signin = await request.post("/api/breaks/session", { data: { board: "cocina", code } });

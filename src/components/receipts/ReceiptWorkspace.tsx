@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RECEIPT_DEVICES, ROLES, OBSERVATIONS, id, parseResponse, type Command, type Data, type Defaults, type Document, type Op, type Response, type Review, type Role, type Status } from "@/lib/receipts/protocol";
+import { RECEIPT_DEVICES, ROLES, OBSERVATIONS, id, parseResponseFor, type Command, type Data, type Defaults, type Document, type Op, type Response, type Review, type Role, type Status } from "@/lib/receipts/protocol";
 import { receiptTransport, requestId, type ReceiptTransport } from "@/lib/receipts/client";
 import { documentText, OBSERVATION_COPY, priorObservationDetails, statusText, words, type ReceiptLocale } from "./copy";
 
@@ -105,7 +105,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
           persist({ pending: entry, entries: [...prior.entries, entry] });
         } catch { setStorageUnavailable(true); setNotice(t("No se pudo leer el registro. No se solicitó el envío.", "History is unavailable. No send was requested.")); return; }
       }
-      const result = parseResponse(await transport(request, manager.token), devices);
+      const result = parseResponseFor(request, await transport(request, manager.token), devices);
       if (!alive.current) return;
       if (result.request_id !== request.request_id || result.op !== request.op) throw new Error("correlation");
       if (result.reason === "unauthorized") { onLock(); return; }

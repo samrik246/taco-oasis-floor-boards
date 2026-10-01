@@ -1,5 +1,5 @@
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
-import { parseJSON, parseResponse, type Command, type Response } from "./protocol";
+import { parseJSON, parseResponseFor, type Command, type Response } from "./protocol";
 
 export type ReceiptTransport = (command: Command, token: string) => Promise<Response>;
 // getRandomValues is available on the existing HTTP tablet origin as well as
@@ -17,7 +17,7 @@ export const receiptTransport: ReceiptTransport = async (command, token) => {
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(length); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    const result = parseResponse(parseJSON(new TextDecoder("utf-8", { fatal: true }).decode(bytes), 65536));
+    const result = parseResponseFor(command, parseJSON(new TextDecoder("utf-8", { fatal: true }).decode(bytes), 65536));
     if (result.request_id !== command.request_id || result.op !== command.op) throw new Error("response correlation");
     if (command.op === "recover" && result.data && "original_request_id" in result.data && result.data.original_request_id !== command.args.original_request_id) throw new Error("original correlation");
     return result;

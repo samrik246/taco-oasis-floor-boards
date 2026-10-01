@@ -15,7 +15,11 @@ const newReview = (): Review => ({ ...review(), created_at: new Date(Date.now())
 const baseTransport = async (c: Command): Promise<Response> => {
   if (c.op === "read_defaults" || c.op === "save_defaults") return response(c, fixtures.common_setup.defaults);
   if (c.op === "status_cached" || c.op === "status_refresh") return response(c, { ...status(), device_id: c.args.device_id });
-  if (["prepare", "prepare_test", "re_review"].includes(c.op)) return response(c, newReview());
+  if (c.op === "prepare_test") {
+    const r = newReview(); r.mode = c.args.mode; r.documents = [{ ...r.documents[0], device_id: c.args.device_id }]; r.total_documents = 1; r.totals = [{ device_id: c.args.device_id, count: 1 }];
+    return response(c, r);
+  }
+  if (["prepare", "re_review"].includes(c.op)) return response(c, newReview());
   if (c.op === "submit") return response(c, batch());
   return response(c, null, "unavailable", "history_unavailable");
 };
@@ -159,4 +163,24 @@ for (const locale of ["es", "en"] as const) for (const phase of ["failed", "busy
   expect([...saved.querySelectorAll("time")].map((t) => t.dateTime)).toEqual([old.observed_at, old.expires_at]);
   expect(h.host.textContent).not.toContain(locale === "es" ? "Sin avisos · respuesta reciente" : "No warnings · recent response");
   expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("one explicit test requires a one-ticket review and a separate submit", async () => {
+  let r: Review | null = null;
+  const transport = vi.fn<ReceiptTransport>(async (c, token) => {
+    if (c.op === "submit") {
+      const b = batch(); b.documents = [{ ...b.documents[0], device_id: r!.documents[0].device_id }]; b.total_documents = 1;
+      return response(c, b);
+    }
+    const value = await baseTransport(c);
+    if (c.op === "prepare_test") r = value.data as Review;
+    expect(token).toBe(manager.token); return value;
+  });
+  const h = await mount(transport); await h.click("View saved status"); await h.click("Prepare test");
+  expect(h.host.querySelectorAll("pre")).toHaveLength(1);
+  expect(h.host.textContent).toContain("One test ticket");
+  expect(transport.mock.calls.map(([c]) => c.op)).toEqual(["status_cached", "prepare_test"]);
+  await h.click("Send 1 test ticket");
+  expect(transport.mock.calls.map(([c]) => c.op)).toEqual(["status_cached", "prepare_test", "submit"]);
+  expect(transport.mock.calls[2][0]).toMatchObject({ args: { review_handle: r!.review_handle } });
 });

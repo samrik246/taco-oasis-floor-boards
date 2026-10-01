@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseCommand, parseJSON, parseResponse, refusal } from "@/lib/receipts/protocol";
+import { parseCommand, parseJSON, parseResponse, parseResponseFor, refusal } from "@/lib/receipts/protocol";
 import { handleReceipt, translateResult, type ReceiptDependencies } from "@/lib/receipts/host";
 import { actor, devices, example, first, fixtureHash, fixtures, review } from "./helpers/receipt-fixtures";
 
@@ -30,7 +30,7 @@ describe("frozen V4 examples are protocol fixtures, not engine transition execut
       const result = parseResponse(step.expect.response, devices);
       expect(result).toEqual(step.expect.response);
       if (result.reason === "invalid_request") expect(() => parseCommand(step.request, devices)).toThrow();
-      else expect(parseCommand(step.request, devices)).toEqual(step.request);
+      else { const cmd = parseCommand(step.request, devices); expect(cmd).toEqual(step.request); expect(parseResponseFor(cmd, result, devices)).toEqual(result); }
     });
   }
 });
@@ -138,4 +138,35 @@ describe("authenticated host with only injected fake engine", () => {
       expect(res.status).toBe(503); expect(await res.json()).toEqual(refusal(cmd, cmd.op === "recover" ? "history_unavailable" : "runtime_unavailable", "unavailable"));
     }
   });
+});
+
+it("rejects correctly shaped responses for a different test device/count/mode or order selection", async () => {
+  const one = example("V4-05", "one-action-per-new-prepare");
+  const data = one.expect.response.data;
+  if (!data || !("review_handle" in data)) throw new Error("fixture");
+  const wrongDevice = structuredClone(data); wrongDevice.documents[0].device_id = devices[3]; wrongDevice.totals = [{ device_id: devices[3], count: 1 }];
+  const wrongMode = { ...data, mode: "order" };
+  for (const invalid of [wrongDevice, wrongMode, review()]) expect(() => parseResponseFor(one.request, { ...one.expect.response, data: invalid }, devices)).toThrow();
+  const swapped = review(); swapped.documents.reverse(); swapped.totals.reverse();
+  expect(() => parseResponseFor(first().request, { ...first().expect.response, data: swapped }, devices)).toThrow();
+  const deps = dependencies();
+  const malformed = structuredClone(first().host_translation_example!.response) as { data: { documents: unknown[]; totals: unknown[] } };
+  malformed.data.documents.reverse(); malformed.data.totals.reverse();
+  deps.engine.execute.mockResolvedValue(JSON.stringify(malformed));
+  const result = await handleReceipt(request(first().request), deps);
+  expect((await result.json()).reason).toBe("result_unconfirmed");
+  expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+});
+
+
+it("matches Origin to the actual destination Host, not Next's internal localhost URL", async () => {
+  const deps = dependencies();
+  const headers = { host: "127.0.0.1:3100", origin: "http://127.0.0.1:3100" };
+  expect((await handleReceipt(request(first().request, headers), deps)).status).toBe(200);
+  for (const bad of ["http://localhost", "http://elsewhere", "null"]) {
+    const result = await handleReceipt(request(first().request, { ...headers, origin: bad }), deps);
+    expect(result.status).toBe(401);
+  }
+  expect((await handleReceipt(request(first().request, { ...headers, host: "127.0.0.1:3100/private" }), deps)).status).toBe(401);
+  expect(deps.engine.execute).toHaveBeenCalledTimes(1);
 });

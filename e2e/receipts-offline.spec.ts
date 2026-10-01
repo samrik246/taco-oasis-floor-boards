@@ -62,8 +62,11 @@ test("real production route requires manager and remains unavailable without an 
   await page.getByRole("button", { name: "Iniciar sesión de gerente" }).click();
   await page.getByTestId("manager-code-input").fill("8642"); await page.getByTestId("manager-unlock-submit").click();
   await expect(page.getByTestId("receipt-workspace")).toBeVisible(); expect(calls).toBe(0);
+  const responsePromise = page.waitForResponse((r) => r.url().endsWith("/api/receipts"));
   await page.getByRole("button", { name: "Ver registro", exact: true }).first().click();
-  await expect(page.getByRole("alert")).toContainText("No se pudo completar la consulta"); expect(calls).toBe(1);
+  const statusResponse = await responsePromise; expect(statusResponse.status()).toBe(503);
+  expect(await statusResponse.json()).toMatchObject({ state: "unavailable", reason: "runtime_unavailable" });
+  await expect(page.getByTestId("receipt-workspace").getByRole("alert")).toContainText("No se pudo completar la consulta"); expect(calls).toBe(1);
 });
 
 for (const locale of ["es", "en"] as const) test(`${locale}: RP1 paper faults remain visible through failed busy throttled and expired status`, async ({ page }) => {

@@ -161,3 +161,26 @@ export function refusal(raw: unknown, reason: Reason, state: Response["state"] =
   const v = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   return { schema: "receipt-public/v1", request_id: id.safeParse(v.request_id).success ? v.request_id as string : null, op: z.enum(OPS).safeParse(v.op).success ? v.op as Op : null, state, reason, data: null };
 }
+
+/** A correctly shaped response must also describe the operation the caller reviewed. */
+export function parseResponseFor(command: Command, value: unknown, devices: readonly string[] = RECEIPT_DEVICES): Response {
+  const result = parseResponse(value, devices);
+  if (result.request_id !== command.request_id || result.op !== command.op) throw new Error("response correlation");
+  const d = result.data;
+  if (!d) return result;
+  if (command.op === "recover" && "original_request_id" in d && d.original_request_id !== command.args.original_request_id) throw new Error("recovery correlation");
+  if ((command.op === "status_cached" || command.op === "status_refresh") && "device_id" in d && d.device_id !== command.args.device_id) throw new Error("device correlation");
+  if (command.op === "observe" && "attempt" in d && (d.attempt.attempt_id !== command.args.attempt_id || d.attempt.observation !== command.args.observation)) throw new Error("observation correlation");
+  if (!("review_handle" in d)) return result;
+  if (command.op === "read_review" && d.review_handle !== command.args.review_handle) throw new Error("review correlation");
+  if (command.op === "prepare_test" && (d.mode !== command.args.mode || d.documents.length !== 1 || d.documents[0].device_id !== command.args.device_id)) throw new Error("test correlation");
+  if (command.op === "prepare") {
+    const args = command.args;
+    if (d.documents.length !== args.document_handles.length || d.documents.some((doc, i) => doc.document_handle !== args.document_handles[i] || doc.device_id !== args.device_ids[i] || doc.action !== args.action || doc.parent_attempt_id !== args.parent_attempt_ids[i] || doc.observation_id !== args.observation_ids[i])) throw new Error("selection correlation");
+  }
+  if (command.op === "re_review") {
+    const args = command.args;
+    if (d.documents.length !== args.reservation_handles.length || d.documents.some((doc, i) => doc.reservation_handle !== args.reservation_handles[i] || doc.device_id !== args.device_ids[i])) throw new Error("reservation correlation");
+  }
+  return result;
+}

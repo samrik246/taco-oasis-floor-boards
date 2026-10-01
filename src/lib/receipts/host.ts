@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RECEIPT_DEVICES, id, parseCommand, parseJSON, parseResponse, refusal, type Command, type Op, type Response as ReceiptResponse } from "./protocol";
+import { RECEIPT_DEVICES, id, parseCommand, parseJSON, parseResponseFor, refusal, type Command, type Op, type Response as ReceiptResponse } from "./protocol";
 
 export type HostCommand = { schema: "receipt-command/v1"; request_id: string; actor_id: string; op: Op; args: Record<string, unknown> };
 type Plan = { plan_id: string; plan_sha256: string };
@@ -72,7 +72,7 @@ export async function translateResult(raw: string, command: Command, actor: stri
     if ("original_data" in obj) return { ...obj, original_data: extract(obj.original_data) };
     return obj;
   };
-  const out = parseResponse({ ...v, schema: "receipt-public/v1", data: extract(projected) }, devices);
+  const out = parseResponseFor(command, { ...v, schema: "receipt-public/v1", data: extract(projected) }, devices);
   if (new TextEncoder().encode(JSON.stringify(out) + "\n").length > 65536) throw new Error("public size");
   if (command.op === "recover" && out.data && "original_request_id" in out.data && out.data.original_request_id !== command.args.original_request_id) throw new Error("recovery correlation");
   if ((command.op === "status_cached" || command.op === "status_refresh") && out.data && "device_id" in out.data && out.data.device_id !== command.args.device_id) throw new Error("device correlation");
@@ -104,11 +104,24 @@ function send(response: ReceiptResponse, status = 200) {
   return Response.json(response, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+function hasSameOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true; // Session header still required for non-browser callers.
+  try {
+    // Next reconstructs Request.url with its internal hostname. Host is the
+    // browser's actual destination authority; forwarded-host is not trusted.
+    const url = new URL(req.url);
+    const host = req.headers.get("host");
+    const target = host ? new URL(`${url.protocol}//${host}`) : url;
+    if (target.username || target.password || (host && (target.pathname !== "/" || target.search || target.hash))) return false;
+    return origin === target.origin;
+  } catch { return false; }
+}
+
 export async function handleReceipt(req: Request, dependencies: ReceiptDependencies): Promise<Response> {
   let raw: unknown;
   try { raw = await body(req); } catch { return send(refusal(null, "invalid_request"), 400); }
-  const origin = req.headers.get("origin");
-  if ((origin && origin !== new URL(req.url).origin) || req.headers.get("sec-fetch-site") === "cross-site" || !req.headers.get("x-manager-session")) return send(refusal(raw, "unauthorized"), 401);
+  if (!hasSameOrigin(req) || req.headers.get("sec-fetch-site") === "cross-site" || !req.headers.get("x-manager-session")) return send(refusal(raw, "unauthorized"), 401);
   let actor: string | null;
   try { actor = await dependencies.authenticate(req); } catch { return send(refusal(raw, "unauthorized"), 503); }
   if (!actor || !id.safeParse(actor).success) return send(refusal(raw, "unauthorized"), 401);
