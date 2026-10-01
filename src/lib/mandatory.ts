@@ -1,3 +1,5 @@
+import type { PublicHour } from "@/lib/quarter/client/day";
+import { assignedPaint } from "@/lib/quarter/client/intervals";
 import { markForStation } from "@/lib/selection-mark";
 import { chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { buildDaySlices, hourSliceIndexes, type DaySlices, type SlicePaint } from "@/lib/slices/day-slices";
@@ -37,7 +39,8 @@ export type MandatoryGapShift = {
   startAt: string;
   endAt: string;
   supersededAt?: string | null;
-  assignments: { stationId: string; hourStart: string }[];
+  paintHours?: PublicHour[];
+  assignments: { stationId: string; hourStart: string; hourEnd?: string }[];
 };
 
 export type MandatoryGapDraft = {
@@ -115,6 +118,17 @@ function gapSlices(input: {
   const paints: SlicePaint[] = [];
   const shifts = input.shifts.filter((shift) => shift.date === input.date);
   for (const shift of shifts) {
+    if(shift.paintHours!==undefined){
+      if(!shift.supersededAt)for(const p of assignedPaint(shift)){
+        if(drafts.has(`${shift.id}|${chicagoHourOf(new Date(p.startAt))}`))continue;
+        paints.push({employeeId:shift.id,shiftId:shift.id,stationId:p.stationId,hourStart:new Date(p.startAt),intervalEnd:new Date(p.endAt)});
+      }
+      for(const draft of input.drafts??[]){if(draft.shiftId!==shift.id||!draft.stationId)continue;
+        const start=Math.max(+chicagoHourStart(input.date,draft.hour),Date.parse(shift.startAt)),end=Math.min(+chicagoHourStart(input.date,draft.hour+1),Date.parse(shift.endAt));
+        if(start<end)paints.push({employeeId:shift.id,shiftId:shift.id,stationId:draft.stationId,hourStart:new Date(start),intervalEnd:new Date(end)});
+      }
+      continue;
+    }
     const hours = new Map<number, string>();
     if (!shift.supersededAt) {
       for (const assignment of shift.assignments) {

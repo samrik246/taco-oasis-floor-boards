@@ -1,3 +1,4 @@
+import { assignedPaint, intersectingPaint } from "@/lib/quarter/client/intervals";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import type { CoverSegment, CoverTrack } from "@/lib/board/cover-display";
 import type { DayBoardDto } from "./types";
@@ -13,7 +14,15 @@ export function savedHourSegments(day: DayBoardDto, shiftId: string, hour: numbe
   const track = day.coverDisplay?.tracks.find(t => t.shiftId === shiftId);
   if (track) {
     const segments = track.segments.flatMap(s => { const part = clipSegment(s, start, end); return part ? [part] : []; });
-    return segments.some(s => s.kind !== "work") ? segments : null;
+    return day.quarter || segments.some(s => s.kind !== "work") ? segments : null;
+  }
+  if (day.quarter) {
+    const source=day.shifts.find(s=>s.id===shiftId);
+    if(!source)return null;
+    return intersectingPaint(source,start,end).filter(i=>i.state!=="off").map(i=>{
+      const station=day.stations.find(s=>s.id===i.stationId);
+      return {startAt:i.startAt,endAt:i.endAt,kind:"work" as const,station:station?{id:station.id,board:day.board,label:station.label,color:station.color}:null,fromStation:null,auto:false};
+    });
   }
   if (day.coverDisplay) return null;
   // Old snapshots can show the saved BREAK interval, but cannot invent a cover identity/seat.
@@ -43,9 +52,9 @@ export function savedStationIntervals(day: DayBoardDto, stationId: string, hour:
   const tracks = day.coverDisplay?.tracks ?? [];
   const affected = tracks.some(t => t.segments.some(s => s.kind !== "work" && Date.parse(s.startAt) < end && Date.parse(s.endAt) > start
     && (s.station?.id === stationId || s.fromStation?.id === stationId)))
-    || day.shifts.some(s => s.assignments.some(a => a.stationId === stationId && Date.parse(a.hourStart) < end && Date.parse(a.hourEnd) > start)
+    || day.shifts.some(s => assignedPaint(s).some(a => a.stationId === stationId && Date.parse(a.startAt) < end && Date.parse(a.endAt) > start)
       && savedHourSegments(day, s.id, hour));
-  if (!affected) return null;
+  if (!affected && !day.quarter) return null;
   const rows: StationInterval[] = [];
   const append = (track: Pick<CoverTrack, "shiftId" | "employeeId" | "firstName" | "lastName">, segment: CoverSegment) => {
     const part = clipSegment(segment, start, end);
@@ -57,11 +66,11 @@ export function savedStationIntervals(day: DayBoardDto, stationId: string, hour:
     if (tracks.some(t => t.shiftId === shift.id)) continue;
     const fallback = savedHourSegments(day, shift.id, hour);
     if (fallback) { for (const s of fallback) append({ shiftId: shift.id, employeeId: shift.employee.id, ...shift.employee }, s); continue; }
-    for (const a of shift.assignments) {
+    for (const a of assignedPaint(shift)) {
       const station = day.stations.find(s => s.id === a.stationId);
       if (!station) continue;
-      append({ shiftId: shift.id, employeeId: shift.employee.id, ...shift.employee }, { startAt: new Date(Math.max(Date.parse(shift.startAt), Date.parse(a.hourStart))).toISOString(),
-        endAt: new Date(Math.min(Date.parse(shift.endAt), Date.parse(a.hourEnd))).toISOString(), kind: "work", station: { ...station, board: day.board }, fromStation: null, auto: false });
+      append({ shiftId: shift.id, employeeId: shift.employee.id, ...shift.employee }, { startAt: new Date(Math.max(Date.parse(shift.startAt), Date.parse(a.startAt))).toISOString(),
+        endAt: new Date(Math.min(Date.parse(shift.endAt), Date.parse(a.endAt))).toISOString(), kind: "work", station: { ...station, board: day.board }, fromStation: null, auto: false });
     }
   }
   return rows.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.employeeId.localeCompare(b.employeeId));

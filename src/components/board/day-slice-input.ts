@@ -1,3 +1,4 @@
+import { assignedPaint } from "@/lib/quarter/client/intervals";
 import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { screenOverlaysFromDto } from "@/lib/overlays/read";
@@ -17,6 +18,17 @@ export function slicesForDay(day: DayBoardDto, now: Date, drafts: readonly Slice
   const draftKey = new Map(drafts.map((draft) => [`${draft.shiftId}|${draft.hour}`, draft.stationId]));
   const paints: SlicePaint[] = [];
   for (const shift of day.shifts) {
+    if(shift.paintHours!==undefined){
+      for(const p of assignedPaint(shift)){
+        if(draftKey.has(`${shift.id}|${chicagoHourOf(new Date(p.startAt))}`))continue;
+        paints.push({employeeId:shift.employee.id,shiftId:shift.id,stationId:p.stationId,hourStart:new Date(p.startAt),intervalEnd:new Date(p.endAt)});
+      }
+      for(const draft of drafts.filter(d=>d.shiftId===shift.id&&d.stationId!==null)){
+        const start=Math.max(+chicagoHourStart(day.date,draft.hour),Date.parse(shift.startAt)),end=Math.min(+chicagoHourStart(day.date,draft.hour+1),Date.parse(shift.endAt));
+        if(start<end)paints.push({employeeId:shift.employee.id,shiftId:shift.id,stationId:draft.stationId!,hourStart:new Date(start),intervalEnd:new Date(end)});
+      }
+      continue;
+    }
     const hours = new Map<number, string>();
     for (const assignment of shift.assignments) {
       hours.set(chicagoHourOf(new Date(assignment.hourStart)), assignment.stationId);
@@ -109,11 +121,9 @@ export function amberHoursForDay(day: DayBoardDto, now: Date): Map<string, Set<n
       superseded: Boolean(shift.supersededAt),
       boardRemoved: false,
     })),
-    paints: day.shifts.flatMap((shift) => shift.assignments.map((assignment) => ({
-      employeeId: shift.employee.id,
-      shiftId: shift.id,
-      stationId: assignment.stationId,
-      hourStart: new Date(assignment.hourStart),
+    paints: day.shifts.flatMap((shift) => assignedPaint(shift).map((paint) => ({
+      employeeId: shift.employee.id, shiftId: shift.id, stationId: paint.stationId,
+      hourStart: new Date(paint.startAt), ...(shift.paintHours!==undefined?{intervalEnd:new Date(paint.endAt)}:{}),
     }))),
   });
   return new Map([...marks].map(([shiftId, hours]) => [shiftId, new Set(hours)]));

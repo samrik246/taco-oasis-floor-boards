@@ -1,3 +1,4 @@
+import type { PublicDayV2, PublicHour } from "@/lib/quarter/client/day";
 import type { CoverDisplay } from "@/lib/board/cover-display";
 import type { OverlayDto } from "@/lib/overlays/read";
 
@@ -61,6 +62,8 @@ export type ShiftDto = {
   supersededAt?: string | null;
   employee: EmployeeDto;
   assignments: AssignmentDto[];
+  /** Canonical explicit partitions. When present, legacy rows are not authoritative. */
+  paintHours?: PublicHour[];
 };
 
 export type MandatoryDto = {
@@ -76,6 +79,9 @@ export type StationUseDto = {
 };
 
 export type DayBoardDto = {
+  quarter?: PublicDayV2;
+  /** Prepared bridge snapshot; ordinary hourly UI remains available until activation. */
+  bridge?: PublicDayV2;
   board: "caja" | "cocina";
   date: string;
   stations: StationDto[];

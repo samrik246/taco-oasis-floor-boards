@@ -7,7 +7,8 @@ import { KioskLock, kioskRequested } from "@/components/board/KioskLock";
 import { assignmentsAtStationHour, displayName, stationColorClass } from "@/components/board/board-helpers";
 import type { DayBoardDto } from "@/components/board/types";
 import { forecastForScreen, offlineRefreshState } from "@/lib/board/refresh-state";
-import { readLastBoardFor, saveLastBoard } from "@/lib/offline-board";
+import { fetchCompatibleBoard, compatibleCachedBoard } from "@/lib/quarter/client/transport";
+import { saveLastBoard } from "@/lib/offline-board";
 import { chicagoHourOf } from "@/lib/hour-grid";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 import { wallTilesForHour } from "@/lib/wall-stations";
@@ -62,15 +63,15 @@ export function WallBoard() {
   const refreshWall = useCallback(async () => {
     const ymd = chicagoYmd(new Date());
     try {
-      const res = await fetch(`/api/boards/${board}/days/${ymd}`);
-      if (!res.ok) throw new Error("board");
-      const data = (await res.json()) as DayBoardDto;
+      const res = await fetchCompatibleBoard(board,ymd);
+      if(res.status!==200||!res.day)throw new Error("board");
+      const data=res.day;
       setDay(data);
       setOffline(false);
-      saveLastBoard({ board, date: ymd, day: data });
+      if(!data.quarter&&!data.bridge)saveLastBoard({ board, date: ymd, day: data });
     } catch {
       // Today's cache only; none means the banner and no board, never yesterday's.
-      setDay(offlineRefreshState<DayBoardDto>(board, readLastBoardFor(board)).day);
+      setDay(offlineRefreshState<DayBoardDto>(board, compatibleCachedBoard(board)).day);
       setOffline(true);
     }
   }, [board]);

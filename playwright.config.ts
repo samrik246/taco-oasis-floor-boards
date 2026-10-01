@@ -56,6 +56,7 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
+    launchOptions: { args: ["--host-resolver-rules=MAP floor-boards.test 127.0.0.1", "--no-proxy-server"] },
     trace: "on-first-retry",
     ...devices["Desktop Chrome"],
   },

@@ -6,7 +6,7 @@ import type { CachedFloorBoard } from "@/lib/offline-board";
  */
 export function offlineRefreshState<T>(
   board: CachedFloorBoard["board"],
-  cached: CachedFloorBoard | null,
+  cached: Omit<CachedFloorBoard,"version"> & {version:1|2} | null,
 ): { offline: true; day: T | null; date: string | null } {
   if (cached?.board === board && cached.day) {
     return { offline: true, day: cached.day as T, date: cached.date };

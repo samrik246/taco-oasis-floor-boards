@@ -68,7 +68,8 @@ import {
 import { violationMessage } from "@/lib/violation-messages";
 import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
-import { readLastBoardFor, saveLastBoard, stripSharedTabletDay } from "@/lib/offline-board";
+import { fetchCompatibleBoard, compatibleCachedBoard } from "@/lib/quarter/client/transport";
+import { saveLastBoard, stripSharedTabletDay } from "@/lib/offline-board";
 import {
   isCurrentBoardRequest,
   isCurrentRequestToken,
@@ -353,26 +354,24 @@ export function FloorBoard() {
       ) && isCurrentRequestToken(managerTokenRef.current, requestToken);
     setLoading(true);
     try {
-      const res = await fetch(`/api/boards/${requestedBoard}/days/${requestedDate}`, {
-        headers: managerAuthHeaders(managerToken),
-      });
+      const res = await fetchCompatibleBoard(requestedBoard,requestedDate,managerToken);
       if (res.status === 401) {
         // Not offline: this day needs a manager. Show nothing; /api/days
         // (re-run on lock) moves the bar back to today.
         if (responseStillCurrent()) setDay(null);
         return;
       }
-      if (!res.ok) throw new Error("load");
-      const data = (await res.json()) as DayBoardDto;
+      if (res.status!==200||!res.day) throw new Error("load");
+      const data = res.day;
       if (!responseStillCurrent()) return;
       const next = liveRefreshState(data);
       setDay(next.day);
       setLoadError(null);
       setOffline(next.offline);
-      saveLastBoard({ board: requestedBoard, date: requestedDate, day: data });
+      if(!data.quarter&&!data.bridge)saveLastBoard({ board: requestedBoard, date: requestedDate, day: data });
     } catch {
       if (!responseStillCurrent()) return;
-      const cached = readLastBoardFor(requestedBoard);
+      const cached = compatibleCachedBoard(requestedBoard);
       const fallback = offlineRefreshState<DayBoardDto>(requestedBoard, cached);
       setOffline(fallback.offline);
       if (fallback.day) {

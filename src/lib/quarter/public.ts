@@ -1,3 +1,7 @@
+import { loadIntervalStationUse } from "@/lib/assignments/station-use";
+import { loadOverlayRecords, overlayDto } from "@/lib/overlays/read";
+import { paletteStationIds } from "@/lib/assignments/palette-order";
+import { isDefaultMandatory } from "@/lib/mandatory";
 import { projectSeatNumbers } from "./validation";
 import type { QuarterDb } from "./schema";
 import { CAPABILITY_SHA256 } from "./schema";
@@ -35,10 +39,17 @@ export async function readQuarterDay(db:QuarterDb, board:string, date:string, no
   const world=visibleWorld(canonicalWorld);
   projectSeatNumbers(world);
   const employees=await db.employee.findMany({where:{id:{in:world.sources.map(s=>s.employeeId)}},select:{id:true,firstName:true,lastName:true}});
+  const stationUse=await loadIntervalStationUse(db,board as "caja"|"cocina",date,world.stations.filter(s=>s.board===board).map(s=>s.id));
+  const marks=await db.mandatoryMark.findMany({where:{board,date},select:{stationId:true}});
+  const ordered=paletteStationIds({stations:world.stations.filter(s=>s.board===board),stationUse,extraStationIds:marks.map(m=>m.stationId).filter(id=>!isDefaultMandatory(id))});
+  const visibleIds=new Set(world.sources.map(s=>s.id)),visiblePeople=new Set(world.sources.map(s=>s.employeeId));
+  const breaks=await db.staffBreak.findMany({where:{date,board,status:"booked",shiftId:{in:[...visibleIds]}},select:{employeeId:true,shiftId:true,startAt:true,endAt:true,coverEmployeeId:true,auto:true}});
+  const overlays=(await loadOverlayRecords(db,board,date)).filter(o=>visiblePeople.has(o.employeeId)&&(!o.partnerEmployeeId||visiblePeople.has(o.partnerEmployeeId))).map(overlayDto);
   return {schemaVersion:2,databaseEpoch:world.state?.databaseEpoch??null,worldRevision:world.revision,phase:world.state?.phase??"legacy",
     capabilitySha256:CAPABILITY_SHA256,board,date,
     employees:employees.map(e=>({id:e.id,firstName:e.firstName,lastName:e.lastName})),
-    stations:world.stations.filter(s=>s.board===board).map(s=>({id:s.id,label:s.label,color:s.color,maxConcurrent:s.maxConcurrent,sortOrder:s.sortOrder,shortCode:s.shortCode})),
+    stations:ordered.map((id,sortOrder)=>{const s=world.stations.find(s=>s.id===id)!;return {id:s.id,label:s.label,color:s.color,maxConcurrent:s.maxConcurrent,sortOrder,priority:s.priority,shortCode:s.shortCode};}),
+    stationUse,breaks:breaks.map(b=>({...b,startAt:b.startAt.toISOString(),endAt:b.endAt.toISOString()})),overlays,
     sources:world.sources.map(s=>({shiftId:s.id,employeeId:s.employeeId,date:s.date,board:s.board,sourcePosition:s.sourcePosition,startAt:s.startAt.toISOString(),
       endAt:s.endAt.toISOString(),supersededAt:s.supersededAt?.toISOString()??null,boardRemoved:s.boardRemoved})),
     hours:world.hours.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision,

@@ -1,3 +1,4 @@
+import { uniformHour } from "@/lib/quarter/client/intervals";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import type { ShiftDto } from "./types";
@@ -7,6 +8,7 @@ export type TimelineCell = {
   stationId: string | null;
   label: string;
   changedFromPrev: boolean;
+  mixed?: boolean;
 };
 
 export type TimelineRow = {
@@ -38,6 +40,7 @@ function stationAtHour(
   date: string,
   hour: number,
 ): string | null {
+  if(sh.paintHours!==undefined){const value=uniformHour(sh,date,hour);return value.kind==="mixed"?"__mixed__":value.stationId;}
   const hit = sh.assignments.find((a) => {
     const h = chicagoHourOf(new Date(a.hourStart));
     return sh.date === date && h === hour;
@@ -83,6 +86,7 @@ export function buildTimelineRows(opts: {
         prevHour != null && shiftCoversHour(sh, date, prevHour)
           ? stationAtHour(sh, date, prevHour)
           : null;
+      if(stationId==="__mixed__")return {kind:"seated",mixed:true,stationId:null,label:"Mixto / Mixed",changedFromPrev:prevId!==stationId};
       if (!stationId) {
         return {
           kind: "open",

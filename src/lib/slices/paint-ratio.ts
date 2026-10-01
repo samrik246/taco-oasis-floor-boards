@@ -1,3 +1,4 @@
+import { occupiedMilliseconds } from "@/lib/quarter/client/intervals";
 import { HOUR_GRID_END, HOUR_GRID_START } from "@/lib/constants";
 import { hourSliceIndexes, sliceStart, type SliceBoard, type SlicePaint, type SliceShift } from "@/lib/slices/day-slices";
 
@@ -20,12 +21,24 @@ export function amberEmptyShiftHours(input: {
 }): Map<string, number[]> {
   const empty = new Map<string, number[]>();
   if (input.date !== input.today) return empty;
+  const intervalMode=input.paints.some(p=>p.intervalEnd!==undefined);
   let onShift = 0;
   let painted = 0;
   const holes: { shiftId: string; hour: number }[] = [];
   for (const shift of input.shifts) {
     if (shift.superseded || shift.boardRemoved || shift.board !== input.board) continue;
     for (let hour = HOUR_GRID_START; hour < HOUR_GRID_END; hour += 1) {
+      if(intervalMode){
+        const origin=+sliceStart(input.date,hourSliceIndexes(hour)[0]),start=Math.max(origin,+shift.startAt),end=Math.min(origin+3600000,+shift.endAt);
+        if(end<=start)continue;
+        const spans=input.paints.filter(p=>p.shiftId===shift.id).flatMap(p=>{
+          const left=Math.max(start,+p.hourStart),right=Math.min(end,p.intervalEnd?+p.intervalEnd:+p.hourStart+3600000);
+          return left<right?[{startAt:new Date(left).toISOString(),endAt:new Date(right).toISOString()}]:[];
+        });
+        const covered=occupiedMilliseconds(spans);onShift+=end-start;painted+=covered;
+        if(covered<end-start)holes.push({shiftId:shift.id,hour});
+        continue;
+      }
       const covered = hourSliceIndexes(hour).some((index) => {
         const start = sliceStart(input.date, index);
         const end = sliceStart(input.date, index + 1);

@@ -1,5 +1,6 @@
 "use client";
 
+import { QuarterHourEditor } from "./QuarterHourEditor";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
@@ -34,7 +35,7 @@ import { SelectionMarkDot } from "./SelectionMarkDot";
 import { buildTimelineRows, personName } from "./timeline-rows";
 import type { BoardKindUi, DayBoardDto, ShiftDto, StationDto } from "./types";
 
-type Props = {
+export type ColorEditorProps = {
   day: DayBoardDto | null;
   board: BoardKindUi;
   date: string;
@@ -131,12 +132,16 @@ function editStillMatches(day: DayBoardDto, date: string, edit: PaintEdit): bool
   );
 }
 
+export function ManagerColorEditor(props:ColorEditorProps){
+  return props.day?.quarter?<QuarterHourEditor {...props}/>:<LegacyColorEditor {...props}/>;
+}
+
 /** Manager's combined position palette, current-hour board and timeline. */
-export function ManagerColorEditor({
+function LegacyColorEditor({
   day, board, date, locale, t, selectedHour, onSelectHour,
   managerToken, managerId, readonly, showLevels, onSaved, onDraftChange,
   foldControls = false,
-}: Props) {
+}: ColorEditorProps) {
   const hours = useMemo(() => hourGridHours(), []);
   const [selected, setSelected] = useState<string | "erase" | null>(null);
   const [rowSort, setRowSort] = useState<ScheduleSort>("time");

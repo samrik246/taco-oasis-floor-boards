@@ -1,3 +1,4 @@
+import { assignedPaint } from "@/lib/quarter/client/intervals";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { abilitySortRank } from "@/lib/rules/abilities";
 import type { AbilityLevel } from "@/lib/rules/types";
@@ -23,6 +24,7 @@ export function availableShiftsForHour(
   hour: number,
 ): ShiftDto[] {
   const hourStart = chicagoHourStart(date, hour);
+  if(shifts.some(sh=>sh.paintHours!==undefined))return availableShiftsForInterval(shifts,+hourStart,+hourStart+3600000);
   // A person already seated this hour on any of their shifts (for example on a
   // superseded shift's history hour) is not available on another one.
   const seated = new Set(
@@ -44,6 +46,19 @@ export function availableShiftsForHour(
       );
     })
     .sort((a, b) => displayName(a).localeCompare(displayName(b)));
+}
+
+/** Availability throughout the factual intersection; no first-fragment wins. */
+export function availableShiftsForInterval(shifts:ShiftDto[],start:number,end:number):ShiftDto[]{
+  return shifts.filter(sh=>{
+    if(sh.supersededAt||Date.parse(sh.startAt)>=end||Date.parse(sh.endAt)<=start)return false;
+    const left=Math.max(start,Date.parse(sh.startAt)),right=Math.min(end,Date.parse(sh.endAt));
+    return !shifts.some(other=>other.employee.id===sh.employee.id&&assignedPaint(other).some(p=>Date.parse(p.startAt)<right&&Date.parse(p.endAt)>left));
+  }).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
+}
+export function paintsAtStationInterval(shifts:ShiftDto[],stationId:string,start:number,end:number){
+  return shifts.flatMap(shift=>assignedPaint(shift).filter(p=>p.stationId===stationId&&Date.parse(p.startAt)<end&&Date.parse(p.endAt)>start).map(p=>({shift,paint:{...p,
+    startAt:new Date(Math.max(start,Date.parse(p.startAt))).toISOString(),endAt:new Date(Math.min(end,Date.parse(p.endAt))).toISOString()}})));
 }
 
 /**

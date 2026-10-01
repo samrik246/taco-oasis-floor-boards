@@ -1,3 +1,5 @@
+import type { PublicHour } from "@/lib/quarter/client/day";
+import { assignedPaint, intersectingPaint, occupiedMilliseconds, uniformHour } from "@/lib/quarter/client/intervals";
 import { toZonedTime } from "date-fns-tz";
 import { HOUR_GRID_END, HOUR_GRID_START, TIMEZONE } from "@/lib/constants";
 import {
@@ -21,6 +23,7 @@ export type ScheduleShiftLike = {
     firstName: string;
     lastName: string;
   };
+  paintHours?: PublicHour[];
   assignments: Array<{
     stationId: string;
     hourStart: string;
@@ -81,6 +84,7 @@ export type SchedulePersonRow = {
   /** Hour → stationId | null (on shift, unassigned) | undefined (off shift) */
   hourStations: Map<number, string | null | undefined>;
   blocks: ScheduleBlock[];
+  mixedHours: number[];
 };
 
 /**
@@ -165,6 +169,10 @@ function stationAtHour(
   date: string,
   hour: number,
 ): string | null | undefined {
+  if(sh.paintHours!==undefined){
+    const value=uniformHour(sh,date,hour);
+    return value.kind==="off"?undefined:value.stationId;
+  }
   const hourStart = chicagoHourStart(date, hour);
   const hit = sh.assignments.find(
     (a) => new Date(a.hourStart).getTime() === hourStart.getTime(),
@@ -181,6 +189,7 @@ function seatNumberAtHour(
   date: string,
   hour: number,
 ): number | null {
+  if(sh.paintHours!==undefined)return uniformHour(sh,date,hour).seatNumber;
   const hourStart = chicagoHourStart(date, hour);
   const hit = sh.assignments.find(
     (a) => new Date(a.hourStart).getTime() === hourStart.getTime(),
@@ -196,6 +205,13 @@ export function primaryStationId(
   allHours: number[],
 ): string | null {
   const counts = new Map<string, number>();
+  if(sh.paintHours!==undefined){
+    for(const p of assignedPaint(sh).sort((a,b)=>a.startAt.localeCompare(b.startAt))) {
+      if(!allHours.some(h=>{const start=+chicagoHourStart(date,h);return Date.parse(p.startAt)<start+3600000&&Date.parse(p.endAt)>start;}))continue;
+      counts.set(p.stationId,(counts.get(p.stationId)??0)+Date.parse(p.endAt)-Date.parse(p.startAt));
+    }
+    return [...counts].sort((a,b)=>b[1]-a[1])[0]?.[0]??null;
+  }
   for (const hour of allHours) {
     const sid = stationAtHour(sh, date, hour);
     if (typeof sid === "string") {
@@ -279,6 +295,21 @@ export function buildBlocksForHours(
       seatNumber: seat,
     });
     i += span;
+  }
+  return blocks;
+}
+
+/** Fractional geometry preserves factual tails and successive stations within an hour. */
+function intervalBlocks(sh:ScheduleShiftLike,date:string,hours:number[],stations:Map<string,ScheduleStationLike>,label:{textKind:"position"|"person";personText:string}):ScheduleBlock[]{
+  if(!hours.length)return [];
+  const origin=+chicagoHourStart(date,hours[0]),limit=+chicagoHourStart(date,hours.at(-1)!+1);
+  const blocks:ScheduleBlock[]=[];
+  for(const p of intersectingPaint(sh,origin,limit).filter(i=>i.state==="assigned"&&i.stationId).sort((a,b)=>a.startAt.localeCompare(b.startAt))){
+    const st=stations.get(p.stationId!),code=st?st.shortCode||stationShortCode(st.id):p.stationId!;
+    const startHour=hours[0]+(Date.parse(p.startAt)-origin)/3600000,span=(Date.parse(p.endAt)-Date.parse(p.startAt))/3600000;
+    const previous=blocks.at(-1);
+    if(previous&&previous.stationId===p.stationId&&previous.seatNumber===p.seatNumber&&Math.abs(previous.startHour+previous.span-startHour)<1e-9)previous.span+=span;
+    else blocks.push({stationId:p.stationId!,code,text:label.textKind==="person"?label.personText:code,textKind:label.textKind,color:st?.color??"gray",startHour,span,seatNumber:p.seatNumber});
   }
   return blocks;
 }
@@ -442,6 +473,8 @@ export function buildScheduleGrid(opts: {
       primaryStationId: primaryStationId(sh, opts.date, allHours),
       hourStations,
       hourSeatNumbers,
+      source:sh,
+      mixedHours:sh.paintHours!==undefined?allHours.filter(h=>uniformHour(sh,opts.date,h).kind==="mixed"):[],
     };
   });
   const labels = personLabelsByName([...new Set(drafts.map((d) => d.name))]);
@@ -449,10 +482,10 @@ export function buildScheduleGrid(opts: {
 
   const people: SchedulePersonRow[] = drafts
     .map((d) => {
-      const { hourSeatNumbers, ...row } = d;
+      const { hourSeatNumbers, source, ...row } = d;
       return {
         ...row,
-        blocks: buildBlocksForHours(row.hourStations, hours, stationsById, {
+        blocks: source.paintHours!==undefined?intervalBlocks(source,opts.date,hours,stationsById,{textKind,personText:labels.get(row.name)??row.name}):buildBlocksForHours(row.hourStations, hours, stationsById, {
           textKind,
           personText: labels.get(row.name) ?? row.name,
         }, hourSeatNumbers),
@@ -460,7 +493,10 @@ export function buildScheduleGrid(opts: {
     })
     .sort((a, b) => compareScheduleRows(a, b, sort));
 
+  const intervalMode=dayShifts.some(sh=>sh.paintHours!==undefined);
   const headcount = hours.map((hour) => {
+    if(intervalMode){const start=+chicagoHourStart(opts.date,hour),end=start+3600000;
+      return new Set(dayShifts.filter(sh=>!sh.supersededAt&&Date.parse(sh.startAt)<end&&Date.parse(sh.endAt)>start).map(sh=>sh.employee.id)).size;}
     let n = 0;
     for (const row of people) {
       if (typeof row.hourStations.get(hour) === "string") n += 1;
@@ -468,7 +504,12 @@ export function buildScheduleGrid(opts: {
     return n;
   });
   // Each seated person contributes 1 man-hour in that column.
-  const manHours = [...headcount];
+  const manHours = intervalMode?hours.map(hour=>{
+    const start=+chicagoHourStart(opts.date,hour),end=start+3600000;
+    const people=new Map<string,{startAt:string;endAt:string}[]>();
+    for(const sh of dayShifts){const spans=intersectingPaint(sh,start,end).filter(p=>p.state==="assigned");people.set(sh.employee.id,[...(people.get(sh.employee.id)??[]),...spans]);}
+    return [...people.values()].reduce((n,spans)=>n+occupiedMilliseconds(spans),0)/3600000;
+  }):[...headcount];
 
   const sections = buildSections({
     sort,
