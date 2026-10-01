@@ -45,10 +45,16 @@ describe("canonical decision intervals",()=>{
     expect(slice(input,0).seats.find(s=>s.stationId==="green1")?.employeeId).toBe("b");
   });
   it("a candidate preview binds the chosen source even when another shift for that person sorts first",()=>{
-    const input=fixture();input.breaks=[];input.shifts=[{...input.shifts[1],id:"shadow"},...input.shifts];
+    const input=fixture();input.breaks=[];
+    // A prior split shift may sort first, but it does not overlap the requested window.
+    input.shifts=[{...input.shifts[1],id:"shadow",endAt:at(0)},...input.shifts];
     const result=assessStarGate({...input,employeeId:"a",requesterShiftId:"a",canonical:true,startAt:at(0),endAt:at(30),coverEmployeeId:"b",coverShiftId:"b"});
     expect(result).toMatchObject({status:"booked",coverShiftId:"b"});
     expect(assessStarGate({...input,employeeId:"a",requesterShiftId:"a",canonical:true,startAt:at(0),endAt:at(30),coverEmployeeId:"b",coverShiftId:"absent"})).toEqual({code:"BAD_COVER"});
+  });
+  it("refuses an ambiguous overlapping source even when a cover source is explicitly selected",()=>{
+    const input=fixture();input.breaks=[];input.shifts=[{...input.shifts[1],id:"shadow"},...input.shifts];
+    expect(assessStarGate({...input,employeeId:"a",requesterShiftId:"a",canonical:true,startAt:at(0),endAt:at(30),coverEmployeeId:"b",coverShiftId:"b"})).toEqual({code:"EMPTY_STAR"});
   });
   it("partial factual presence cannot satisfy a full-quarter decision",()=>{
     const input=fixture();input.breaks=[];input.shifts[0].endAt=at(20);input.paints[0].intervalEnd=at(20);
