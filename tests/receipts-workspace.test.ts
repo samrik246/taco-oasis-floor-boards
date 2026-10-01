@@ -9,6 +9,7 @@ import { type ReceiptTransport } from "@/lib/receipts/client";
 import { devices, fixtures, first, review, batch, response, status } from "./helpers/receipt-fixtures";
 import closed from "../fixtures/receipts/closed-batch-examples-v1.json";
 import { unfinished } from "./helpers/receipt-projection-fixtures";
+import { eligibleClosedBatch, successorReview, successorResult } from "./helpers/receipt-successor-fixtures";
 
 const manager = { id: "synthetic-manager", token: "synthetic-session" };
 const key = "receipt-journal-v1:" + manager.id;
@@ -396,4 +397,81 @@ it("recovered observation without selected membership leaves both groups untouch
   await h.click("Review record 3");
   expect([...h.host.querySelectorAll('[data-testid="receipt-history-group"]')].map((g) => g.textContent)).toEqual(before);
   expect(h.host.querySelector('[role="alert"]')?.textContent).toContain("Review the send record");
+});
+
+for (const locale of ["es", "en"] as const) for (const recovered of [false, true]) it(`${locale}: eligible B1 loses only its controls at ${recovered ? "recovered" : "direct"} successor review before B2`, async () => {
+  const b1 = eligibleClosedBatch();
+  const other = structuredClone(b1); other.plan_handle = "c".repeat(32);
+  Object.assign(other.documents[0], { document_handle: "d".repeat(32), reservation_handle: "e".repeat(32), attempt_id: "f".repeat(32) });
+  const otherId = "9".repeat(32);
+  sessionStorage.setItem(key, JSON.stringify({ pending: null, entries: [{ request_id: otherId, op: "submit" }] }));
+  let firstSubmit = "", reviewId = "", submits = 0;
+  const observed: { value: Response; bytes: string }[] = [];
+  const transport = vi.fn<ReceiptTransport>(async (c) => {
+    let result: Response;
+    if (c.op === "prepare") result = response(c, successorReview(false, Date.now()));
+    else if (c.op === "submit") {
+      if (++submits === 1) { firstSubmit = c.request_id; result = response(c, b1, "refused", "sequence_not_started"); }
+      else result = { ...successorResult(), request_id: c.request_id };
+    } else if (c.op === "re_review") {
+      reviewId = c.request_id;
+      result = recovered ? response(c, null, "unavailable", "result_unconfirmed") : response(c, successorReview(true, Date.now()));
+    } else if (c.op === "recover") {
+      const rereview = c.args.original_request_id === reviewId;
+      result = response(c, { original_request_id: c.args.original_request_id, original_op: rereview ? "re_review" : "submit", original_state: rereview ? "ok" : "refused", original_reason: rereview ? null : "sequence_not_started", original_data: rereview ? successorReview(true, Date.now()) : c.args.original_request_id === otherId ? other : b1 });
+    } else result = await baseTransport(c);
+    observed.push({ value: result, bytes: JSON.stringify(result) }); return result;
+  });
+  const h = await mount(transport, locale, manager.id, [{ document_handle: closedIds.document, role: "FRIO" }]);
+  await h.preview(); await h.click(locale === "es" ? "Imprimir 1 boleto" : "Print 1 ticket");
+  const old = h.host.querySelector('[data-testid="receipt-history-group"]')!;
+  const facts = () => [...old.querySelectorAll("h3,p,time")].map((x) => x.outerHTML);
+  const before = facts();
+  expect(old.querySelector<HTMLButtonElement>("button")!.disabled).toBe(false);
+  expect(old.querySelector<HTMLSelectElement>("select")!.disabled).toBe(false);
+  await h.click((locale === "es" ? "Revisar registro " : "Review record ") + "1");
+  const unrelated = h.host.querySelectorAll('[data-testid="receipt-history-group"]')[1];
+  const untouched = unrelated.innerHTML;
+  await h.click(locale === "es" ? "Revisar boletos pendientes" : "Review pending tickets");
+  if (recovered) {
+    expect(old.querySelectorAll("button,select")).toHaveLength(2);
+    await h.click(locale === "es" ? "Revisar este intento" : "Review this attempt");
+  }
+  expect(old.querySelectorAll("button,select,input")).toHaveLength(0);
+  expect(facts()).toEqual(before); expect(unrelated.innerHTML).toBe(untouched);
+  expect(submits).toBe(1); // Suppression happens before B2 acceptance.
+  await h.click(locale === "es" ? "Imprimir 1 boleto" : "Print 1 ticket");
+  expect(h.host.querySelectorAll('[data-testid="receipt-history-group"]')).toHaveLength(3);
+  expect(old.querySelectorAll("button,select,input")).toHaveLength(0);
+  expect(facts()).toEqual(before); expect(unrelated.innerHTML).toBe(untouched);
+  // A delayed old projection cannot re-enable this membership's stale controls.
+  const entryIndex = JSON.parse(sessionStorage.getItem(key)!).entries.findIndex((e: { request_id: string }) => e.request_id === firstSubmit) + 1;
+  await h.click((locale === "es" ? "Revisar registro " : "Review record ") + entryIndex);
+  expect(old.querySelectorAll("button,select,input")).toHaveLength(0);
+  expect(facts()).toEqual(before); expect(unrelated.innerHTML).toBe(untouched);
+  expect(transport.mock.calls.map(([c]) => c.op)).toEqual(["read_defaults", "prepare", "submit", "recover", "re_review", ...(recovered ? ["recover"] : []), "submit", "recover"]);
+  expect(observed.every(({ value, bytes }) => JSON.stringify(value) === bytes)).toBe(true);
+});
+
+for (const outcome of ["refused", "malformed", "same-plan", "older-revision", "other-reservation"] as const) it(`successor control suppression ignores ${outcome} review results`, async () => {
+  const b1 = eligibleClosedBatch();
+  const transport = vi.fn<ReceiptTransport>(async (c) => {
+    if (c.op === "prepare") return response(c, successorReview(false, Date.now()));
+    if (c.op === "submit") return response(c, b1, "refused", "sequence_not_started");
+    if (c.op !== "re_review") return baseTransport(c);
+    const r = successorReview(true, Date.now());
+    if (outcome === "refused") return response(c, { ...r, submit_allowed: false, blocked_reason: "stale_plan" }, "refused", "stale_plan");
+    if (outcome === "malformed") r.expires_at = r.created_at;
+    if (outcome === "same-plan") r.plan_handle = b1.plan_handle;
+    if (outcome === "older-revision") r.documents[0].reservation_revision = 2;
+    if (outcome === "other-reservation") r.documents[0].reservation_handle = "e".repeat(32);
+    return response(c, r);
+  });
+  const h = await mount(transport, "en", manager.id, [{ document_handle: closedIds.document, role: "FRIO" }]);
+  await h.preview(); await h.click("Print 1 ticket");
+  const old = h.host.querySelector('[data-testid="receipt-history-group"]')!;
+  await h.click("Review pending tickets");
+  expect(old.querySelectorAll("button,select")).toHaveLength(2);
+  expect(old.querySelector("time")?.dateTime).toBe(b1.documents[0].last_event_at);
+  expect(transport.mock.calls.map(([c]) => c.op)).toEqual(["read_defaults", "prepare", "submit", "re_review"]);
 });

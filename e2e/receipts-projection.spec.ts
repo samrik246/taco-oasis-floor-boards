@@ -123,3 +123,45 @@ for (const locale of ["es", "en"] as const) for (const order of [[1, 2], [2, 1]]
   expect(commands[2].args).toEqual({ attempt_id: closed.examples.identities.attempt, observation: "accepted", evidence_handle: null });
   writeFileSync(path.join(h.out, locale + "_closed_" + order.join("_") + "_calls.json"), JSON.stringify({ commands, preservedClosedText: prior }, null, 2));
 });
+
+for (const locale of ["es", "en"] as const) test(locale + ": eligible B1 controls stop at successor review while failed review and unrelated controls are preserved", async ({ page }) => {
+  const h = await open(page, locale, "transition=1");
+  const text = (es: string, en: string) => locale === "es" ? es : en;
+  await page.getByRole("button", { name: text("Cargar destinos actuales", "Load current destinations"), exact: true }).click();
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: text("Usar destinos predeterminados", "Use default destinations"), exact: true }).click();
+  await page.getByRole("button", { name: text("Revisar boletos y destinos", "Review tickets and destinations"), exact: true }).click();
+  await page.getByRole("button", { name: text("Imprimir 1 boleto", "Print 1 ticket"), exact: true }).click();
+  const groups = page.getByTestId("receipt-history-group");
+  const b1 = groups.nth(0);
+  const facts = () => b1.locator("h3,p,time").evaluateAll((xs) => xs.map((x) => x.outerHTML));
+  const originalFacts = await facts();
+  await page.getByText(text("Intentos recientes", "Recent attempts"), { exact: true }).click();
+  await page.getByRole("button", { name: text("Revisar registro 1", "Review record 1"), exact: true }).click();
+  const unrelated = groups.nth(1);
+  const untouched = await unrelated.innerHTML();
+  const rereview = b1.getByRole("button", { name: text("Revisar boletos pendientes", "Review pending tickets"), exact: true });
+  await expect(rereview).toBeEnabled(); await expect(b1.getByRole("combobox")).toBeEnabled();
+  await h.capture("continuation_eligible");
+  await rereview.click(); // Deliberate failed review must not erase eligibility.
+  await expect(page.getByRole("alert")).toContainText(text("Revisa una nueva vista previa", "Review a new preview"));
+  await expect(rereview).toBeEnabled(); await expect(b1.getByRole("combobox")).toBeEnabled();
+  expect(await facts()).toEqual(originalFacts); expect(await unrelated.innerHTML()).toBe(untouched);
+  await h.capture("continuation_failed_review");
+  await rereview.click();
+  await expect(page.getByRole("button", { name: text("Imprimir 1 boleto", "Print 1 ticket"), exact: true })).toBeEnabled();
+  expect(await b1.locator("button,select,input").count()).toBe(0);
+  expect(await facts()).toEqual(originalFacts); expect(await unrelated.innerHTML()).toBe(untouched);
+  expect((await calls(page)).filter((c) => c.op === "submit")).toHaveLength(1);
+  await h.capture("continuation_successor_review");
+  await page.getByRole("button", { name: text("Imprimir 1 boleto", "Print 1 ticket"), exact: true }).click();
+  await expect(groups).toHaveCount(3);
+  expect(await b1.locator("button,select,input").count()).toBe(0);
+  expect(await facts()).toEqual(originalFacts); expect(await unrelated.innerHTML()).toBe(untouched);
+  await expect(groups.nth(2)).toContainText(text("Enviado · papel por revisar", "Sent · check paper"));
+  await h.capture("continuation_successor_sent");
+  await page.clock.fastForward(30000);
+  const commands = await calls(page);
+  expect(commands.map((c) => c.op)).toEqual(["read_defaults", "prepare", "submit", "recover", "re_review", "re_review", "submit"]);
+  writeFileSync(path.join(h.out, locale + "_continuation_calls.json"), JSON.stringify({ commands, originalFacts, unrelatedHtml: untouched }, null, 2));
+});

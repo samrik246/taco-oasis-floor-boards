@@ -188,6 +188,14 @@ null observation and empty continuation actions through successor activity.
 Not-attempted wording is scoped to that send. A successful older read cannot
 clear a newer unresolved request or replace its pending notice.
 
+A validated successful successor re_review (direct or recovered) also hides
+the earlier closed membership's stale continuation controls immediately, before
+the successor is submitted. This is a transient per-group/per-reservation UI
+mask: received row facts and allowed_actions are preserved, unrelated rows and
+groups keep their controls, and replay of that old group cannot restore the
+stale controls. Refused, malformed, same-plan or older-revision reviews do not
+establish this suppression. No automatic read or durable state update occurs.
+
 Observe still names only attempt_id publicly. The view retains the selected
 claimed group and validates matching row identity/state before updating only
 that group. A recovered observation with no selected membership asks for a

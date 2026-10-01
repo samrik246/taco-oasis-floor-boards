@@ -8,7 +8,7 @@ import { documentText, OBSERVATION_COPY, priorObservationDetails, statusText, wo
 export type ReceiptDocumentChoice = { document_handle: string; role: Role };
 type Entry = { request_id: string; op: Op };
 type Journal = { pending: Entry | null; entries: Entry[] };
-type HistoryGroup = { key: string; request_id: string; plan_handle: string; state: Response["state"]; reason: Response["reason"]; documents: Document[] };
+type HistoryGroup = { key: string; request_id: string; plan_handle: string; state: Response["state"]; reason: Response["reason"]; documents: Document[]; suppressedContinuations: string[] };
 const MUTATIONS = new Set<Op>(["prepare", "prepare_test", "re_review", "submit", "observe", "save_defaults"]);
 const BUTTON = "min-h-14 rounded-lg border-2 border-neutral-900 bg-white px-4 py-2 text-xl font-bold text-neutral-950 disabled:opacity-40 active:bg-neutral-200";
 const BOX = "rounded-xl border-2 border-neutral-400 bg-white p-4";
@@ -71,11 +71,24 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
 
   function accept(op: Op, data: Data | null, requestId: string, state: Response["state"], resultReason: Response["reason"], selectedGroup?: string): boolean {
     if (!data) return true;
-    if ("review_handle" in data) setReview(data);
+    if ("review_handle" in data) {
+      setReview(data);
+      if (op === "re_review" && state === "ok") {
+        // A validated successor review makes the older membership's controls
+        // stale. Keep its received facts/actions intact; this mask only hides
+        // local controls and survives a later replay of that same old group.
+        setGroups((old) => old.map((group) => ({ ...group, suppressedContinuations: [...new Set([
+          ...group.suppressedContinuations,
+          ...group.documents.filter((row) => row.state === "not_attempted" && row.allowed_actions.includes("review_pending") && group.plan_handle !== data.plan_handle && data.documents.some((next) =>
+            next.reservation_handle === row.reservation_handle && next.document_handle === row.document_handle && next.role === row.role && next.reservation_revision >= row.reservation_revision
+          )).map((row) => row.reservation_handle),
+        ])] })));
+      }
+    }
     else if ("plan_handle" in data) {
       const key = requestId + ":" + data.plan_handle;
-      const group: HistoryGroup = { key, request_id: requestId, plan_handle: data.plan_handle, state, reason: resultReason, documents: data.documents };
-      setGroups((old) => { const index = old.findIndex((g) => g.key === key); return index < 0 ? [...old, group] : old.map((g, i) => i === index ? group : g); });
+      const group: HistoryGroup = { key, request_id: requestId, plan_handle: data.plan_handle, state, reason: resultReason, documents: data.documents, suppressedContinuations: [] };
+      setGroups((old) => { const index = old.findIndex((g) => g.key === key); return index < 0 ? [...old, group] : old.map((g, i) => i === index ? { ...group, suppressedContinuations: g.suppressedContinuations } : g); });
       setReview(null);
     } else if ("attempt" in data) {
       // Observe names only A. Retain the selected claimed membership locally;
@@ -251,18 +264,21 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
         return <section key={group.key} data-testid="receipt-history-group" className="my-4 rounded-lg border-2 border-neutral-600 p-3">
         <h3 className="text-xl font-bold">{t("Resultado de este envío", "Result of this send")} · {groupIndex + 1}</h3>
         {message && <p data-testid="receipt-group-outcome">{message}</p>}
-        {group.documents.map((row) => <article data-testid="receipt-history-row" key={row.reservation_handle} className="my-4 rounded-lg border-2 border-neutral-300 p-3">
+        {group.documents.map((row) => {
+        const actions = group.suppressedContinuations.includes(row.reservation_handle) ? [] : row.allowed_actions;
+        return <article data-testid="receipt-history-row" key={row.reservation_handle} className="my-4 rounded-lg border-2 border-neutral-300 p-3">
         <h3 className="font-bold">{row.role} → {row.device_id}</h3>
         <p>{t("Último estado registrado: ", "Last recorded state: ")}{row.state === "not_attempted" ? t("No se intentó enviar en este envío", "No send was attempted in this send") : documentText(row.state, locale)}</p>
         <p>{t("Fecha del resultado de este envío: ", "Result time for this send: ")}<time dateTime={row.last_event_at}>{new Date(row.last_event_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</time></p>
         {(row.state === "uncertain" || row.state === "transmitted" || row.observation === "not_seen") && <p>{t("Puede haber salido papel. Cambiar de impresora puede producir una copia duplicada. No se reenviará automáticamente.", "Paper may have printed. Changing printers can produce a duplicate. Nothing will be resent automatically.")}</p>}
         {row.observation && <p>{OBSERVATION_COPY[row.observation][locale === "es" ? 0 : 1]}</p>}
-        {row.allowed_actions.includes("observe") && row.attempt_id && <fieldset disabled={blocked} className="my-2 flex flex-wrap gap-2"><legend>{t("Registrar lo que salió", "Record what printed")}</legend>{OBSERVATIONS.map((o) => <button key={o} className={BUTTON} onClick={() => void issue(command("observe", { attempt_id: row.attempt_id!, observation: o, evidence_handle: null }), group.key)}>{OBSERVATION_COPY[o][locale === "es" ? 0 : 1]}</button>)}</fieldset>}
-        {row.allowed_actions.some((a) => ["retry", "cambio", "review_pending"].includes(a)) && printerSelect(destination(row.reservation_handle, row.device_id), (v) => changeDestination(row.reservation_handle, v), t("Destino siguiente ", "Next destination ") + row.role)}
-        {row.allowed_actions.includes("retry") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "retry")}>{t("Reintentar este boleto", "Retry this ticket")}</button>}
-        {row.allowed_actions.includes("cambio") && row.observation && row.observation !== "pending" && <button className={BUTTON} disabled={blocked || !defaults || !reason.trim() || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "cambio")}>{t("Preparar copia CAMBIO", "Prepare CAMBIO copy")}</button>}
-        {row.allowed_actions.includes("review_pending") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => reReview([row])}>{t("Revisar boletos pendientes", "Review pending tickets")}</button>}
-      </article>)}
+        {actions.includes("observe") && row.attempt_id && <fieldset disabled={blocked} className="my-2 flex flex-wrap gap-2"><legend>{t("Registrar lo que salió", "Record what printed")}</legend>{OBSERVATIONS.map((o) => <button key={o} className={BUTTON} onClick={() => void issue(command("observe", { attempt_id: row.attempt_id!, observation: o, evidence_handle: null }), group.key)}>{OBSERVATION_COPY[o][locale === "es" ? 0 : 1]}</button>)}</fieldset>}
+        {actions.some((a) => ["retry", "cambio", "review_pending"].includes(a)) && printerSelect(destination(row.reservation_handle, row.device_id), (v) => changeDestination(row.reservation_handle, v), t("Destino siguiente ", "Next destination ") + row.role)}
+        {actions.includes("retry") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "retry")}>{t("Reintentar este boleto", "Retry this ticket")}</button>}
+        {actions.includes("cambio") && row.observation && row.observation !== "pending" && <button className={BUTTON} disabled={blocked || !defaults || !reason.trim() || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "cambio")}>{t("Preparar copia CAMBIO", "Prepare CAMBIO copy")}</button>}
+        {actions.includes("review_pending") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => reReview([row])}>{t("Revisar boletos pendientes", "Review pending tickets")}</button>}
+      </article>;
+      })}
       </section>;
       })}
     </section>}
