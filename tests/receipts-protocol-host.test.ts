@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseCommand, parseJSON, parseResponse, parseResponseFor, refusal } from "@/lib/receipts/protocol";
-import { handleReceipt, translateResult, type ReceiptDependencies } from "@/lib/receipts/host";
+import { handleReceipt, translateResult, type ReceiptDependencies, type DurableReceiptAdapter } from "@/lib/receipts/host";
 import { actor, devices, example, first, fixtureHash, fixtures, review } from "./helpers/receipt-fixtures";
 
 function request(value: unknown, headers: Record<string, string> = {}) {
@@ -9,9 +9,9 @@ function request(value: unknown, headers: Record<string, string> = {}) {
 function dependencies() {
   const host = first().host_translation_example!;
   const engine = {
-    contentHandles: vi.fn(async () => host.request.args.content_handles as string[]),
-    plan: vi.fn(async () => ({ plan_id: "1".repeat(32), plan_sha256: "2".repeat(64) })),
-    rememberReview: vi.fn(async () => {}),
+    lookupRequest: vi.fn<DurableReceiptAdapter["lookupRequest"]>(async () => ({ kind: "absent" })),
+    contentHandles: vi.fn<DurableReceiptAdapter["contentHandles"]>(async () => ({ kind: "resolved", value: host.request.args.content_handles as string[] })),
+    plan: vi.fn<DurableReceiptAdapter["plan"]>(async () => ({ kind: "resolved", value: { plan_id: "1".repeat(32), plan_sha256: "2".repeat(64) } })),
     execute: vi.fn<NonNullable<ReceiptDependencies["engine"]>["execute"]>(async () => JSON.stringify(host.response) + "\n"),
   };
   return { devices, authenticate: vi.fn(async () => actor as string | null), engine };
@@ -66,14 +66,13 @@ describe("closed receipt boundary", () => {
 });
 
 describe("authenticated host with only injected fake engine", () => {
-  it("substitutes owned handles, authenticates actor, strips private fields and stores validated review binding", async () => {
+  it("substitutes owned handles, authenticates actor, strips private fields and returns the validated review without host persistence", async () => {
     const deps = dependencies(), fixture = first();
     const result = await handleReceipt(request(fixture.request), deps);
     expect(result.status).toBe(200);
     expect(await result.json()).toEqual(fixture.expect.response);
-    expect(deps.engine.execute).toHaveBeenCalledExactlyOnceWith(fixture.host_translation_example!.request);
+    expect(deps.engine.execute).toHaveBeenCalledExactlyOnceWith(fixture.host_translation_example!.request, { authenticatedActor: actor, browserCommand: fixture.request });
     expect(deps.engine.contentHandles).toHaveBeenCalledWith(actor, (fixture.request as { args: { document_handles: string[] } }).args.document_handles);
-    expect(deps.engine.rememberReview).toHaveBeenCalledWith(actor, review().review_handle, expect.objectContaining({ plan_id: expect.stringMatching(/^[a-f0-9]{32}$/) }));
   });
   it("substitutes only the bound private plan on submit and read_review", async () => {
     for (const op of ["submit", "read_review"] as const) {
@@ -101,6 +100,9 @@ describe("authenticated host with only injected fake engine", () => {
       const res = await handleReceipt(req, deps);
       expect(res.status).toBeGreaterThanOrEqual(400); expect((await res.json()).state).toBe("refused");
       expect(deps.engine.execute).not.toHaveBeenCalled();
+      expect(deps.engine.lookupRequest).not.toHaveBeenCalled();
+      expect(deps.engine.contentHandles).not.toHaveBeenCalled();
+      expect(deps.engine.plan).not.toHaveBeenCalled();
     }
   });
   it("refuses malformed UTF8 and never passes raw child diagnostics to a browser", async () => {
@@ -112,7 +114,6 @@ describe("authenticated host with only injected fake engine", () => {
       deps.engine.execute.mockResolvedValue(bad);
       const result = await handleReceipt(request(first().request), deps);
       expect(await result.json()).toEqual(refusal(first().request, "result_unconfirmed", "unavailable"));
-      expect(deps.engine.rememberReview).not.toHaveBeenCalled();
     }
   });
   it("does not execute when a handle is not owned and never equates lost output with no send", async () => {
@@ -120,16 +121,16 @@ describe("authenticated host with only injected fake engine", () => {
     const res = await handleReceipt(request(first().request), deps);
     expect(await res.json()).toEqual(refusal(first().request, "result_unconfirmed", "unavailable"));
     expect(deps.engine.execute).not.toHaveBeenCalled();
-    deps.engine.contentHandles.mockResolvedValue(["1".repeat(32), "2".repeat(32)]);
+    deps.engine.contentHandles.mockResolvedValue({ kind: "resolved", value: ["1".repeat(32), "2".repeat(32)] });
     deps.engine.execute.mockRejectedValue(new Error("lost"));
     expect((await (await handleReceipt(request(first().request), deps)).json()).reason).toBe("result_unconfirmed");
   });
   it("requires recovery of the original request and correlated device status", async () => {
-    const deps = dependencies(), cmd = example("V4-01", "two-documents", 3).request;
+    const cmd = example("V4-01", "two-documents", 3).request;
     const result = { ...example("V4-13", "unknown-history").expect.response, schema: "receipt-result/v1", request_id: cmd.request_id };
-    expect(await translateResult(JSON.stringify(result) + "\n", cmd, actor, deps.engine, devices)).toMatchObject({ state: "unavailable", reason: "unknown_request" });
+    expect(await translateResult(JSON.stringify(result) + "\n", cmd, devices)).toMatchObject({ state: "unavailable", reason: "unknown_request" });
     const mismatch = { ...result, state: "ok", reason: null, data: { original_request_id: "f".repeat(32), original_op: "read_defaults", original_state: "ok", original_reason: null, original_data: fixtures.common_setup.defaults } };
-    await expect(translateResult(JSON.stringify(mismatch) + "\n", cmd, actor, deps.engine, devices)).rejects.toThrow();
+    await expect(translateResult(JSON.stringify(mismatch) + "\n", cmd, devices)).rejects.toThrow();
   });
   it("production dependency absence stays unavailable regardless of command and never creates history", async () => {
     const deps: ReceiptDependencies = { devices, authenticate: async () => actor };
@@ -155,7 +156,6 @@ it("rejects correctly shaped responses for a different test device/count/mode or
   deps.engine.execute.mockResolvedValue(JSON.stringify(malformed) + "\n");
   const result = await handleReceipt(request(first().request), deps);
   expect((await result.json()).reason).toBe("result_unconfirmed");
-  expect(deps.engine.rememberReview).not.toHaveBeenCalled();
 });
 
 describe("G2 exact child-result framing", () => {
@@ -175,29 +175,23 @@ describe("G2 exact child-result framing", () => {
     ["trailing JSON on the same line", json + "{}\n"],
     ["duplicate key with valid framing", json.replace('"schema":', '"schema":"receipt-result/v1","schema":') + "\n"],
   ];
-  it.each(invalidFrames)("refuses %s without retaining a review binding", async (_name, raw) => {
+  it.each(invalidFrames)("refuses %s without retrying or accepting malformed output", async (_name, raw) => {
     const deps = dependencies();
-    await expect(translateResult(raw, first().request, actor, deps.engine, devices)).rejects.toThrow();
-    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+    await expect(translateResult(raw, first().request, devices)).rejects.toThrow();
     deps.engine.execute.mockResolvedValue(raw);
     const result = await handleReceipt(request(first().request), deps);
     expect(result.status).toBe(503);
     expect(await result.json()).toEqual(refusal(first().request, "result_unconfirmed", "unavailable"));
     expect(deps.engine.execute).toHaveBeenCalledTimes(1);
-    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
   });
   it("accepts one terminal LF and counts it in the inclusive 64 KiB limit", async () => {
-    const deps = dependencies();
     const bytes = new TextEncoder().encode(json).length;
     const atLimit = json + " ".repeat(65536 - bytes - 1) + "\n";
     expect(new TextEncoder().encode(atLimit)).toHaveLength(65536);
     for (const raw of [json + "\n", atLimit]) {
-      expect(await translateResult(raw, first().request, actor, deps.engine, devices)).toEqual(first().expect.response);
+      expect(await translateResult(raw, first().request, devices)).toEqual(first().expect.response);
     }
-    expect(deps.engine.rememberReview).toHaveBeenCalledTimes(2);
-    deps.engine.rememberReview.mockClear();
-    await expect(translateResult(" " + atLimit, first().request, actor, deps.engine, devices)).rejects.toThrow("size");
-    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+    await expect(translateResult(" " + atLimit, first().request, devices)).rejects.toThrow("size");
   });
 });
 

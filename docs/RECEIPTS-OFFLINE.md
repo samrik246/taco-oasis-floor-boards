@@ -64,3 +64,40 @@ child READY/source/interpreter/cache-prefix verification, provisioning, separate
 gates, physical identity/profile commissioning and attended paper proof remain
 outside this slice. Real installation/enablement requires its separate owner go.
 No current-version release packet contains these changes.
+
+## Private adapter V2 dispatch
+
+The injected host dependency implements the agreed private API V2
+`cfd5978caadf61b7d6b91f03b18d1d7a4c34480b9ef4fc6e56f845a2dd6fda38`.
+It does not change frozen V4 wire fields. Production still supplies no engine.
+
+After authentication and schema validation, the host snapshots and recursively
+freezes the complete browser command and authenticated actor. For prepare,
+prepare_test, re_review, submit, observe and save_defaults, required lookupRequest
+runs before any mutable handle resolution. Only an exact absent result proceeds.
+Bound/conflict/unavailable results pass the same strict framing, size, correlation
+and projection checks; conflict must be refused/request_conflict/null, and
+unavailable must be unavailable/history_unavailable/null. Missing lookup support,
+malformed variants and unknown exceptions cannot become absence. Execute receives
+the identical immutable context alongside the translated private command.
+
+Typed content/plan resolution distinguishes known unavailable history, known
+unavailable source and unauthorized handles. Those pre-dispatch outcomes produce
+correlated null-data responses with no execute call (503 unavailable, 403
+unauthorized). Unknown throws and malformed outcomes retain the operation's
+existing unavailable/unconfirmed mapping, without exposing exception text.
+Read-only operations and diagnostic status_refresh create no new browser
+association through this dispatch path.
+
+Review/content mappings belong to retained engine history. The host does not
+write a rememberReview cache after projection. A restarted host must obtain its
+mapping through the engine's plan resolution; a lost response must use durable
+lookup/recovery. There is no second B4 request ledger or association repair.
+
+Tests inject fake lookup/translation/execute results to establish the host call
+order, immutable context, failure handling and projection. They do not establish
+origin migration, cross-namespace absence, transaction races, accepted/refused
+atomic associations or durable mapping retention. Igor's engine must repeat the
+same lookup in its acceptance transaction and validate mappings there. The real
+collector, child integrity/READY, ownership/deadlines and legacy sender exclusion
+remain separate integration obligations before any real injection or enablement.
