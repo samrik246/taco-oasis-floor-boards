@@ -39,6 +39,7 @@ export type DateCounts = Omit<DatePreview, "assignmentsToRemove" | "assignmentsT
 
 export type FolderImportOutcome =
   | "imported"
+  | "replayed"
   | "held"
   | "refused"
   | "no-file";
@@ -58,6 +59,7 @@ export type FolderImportResult = {
 /** Exit code per outcome, for whoever runs the command. */
 export const EXIT_CODES: Record<FolderImportOutcome, number> = {
   imported: 0,
+  replayed: 0,
   held: 2,
   refused: 3,
   "no-file": 4,
@@ -197,7 +199,7 @@ export async function runFolderImport(
     });
     return {
       ...base,
-      outcome: "imported",
+      outcome: result.replayed ? "replayed" : "imported",
       file: name,
       code: null,
       rowCount: result.rowCount,

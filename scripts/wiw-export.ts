@@ -1,4 +1,4 @@
-import { withClaimedReleaseLease } from "../src/lib/quarter/lease";
+import { withClaimedReleaseLease, quarterLeaseAppDir } from "../src/lib/quarter/lease";
 import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
 /**
  * When I Work schedule export for the floor boards (B2), run by a LaunchAgent
@@ -161,11 +161,12 @@ async function main() {
   // it) is logged and retried, never skipped past: the browser and the
   // import start only once this run holds the lock, so they cannot overlap
   // an install. The hourly 06:00-21:00 slots still run, as soon as the lock can be taken.
-  await acquireReleaseLockForPull(appDir, process.pid, {
+  const leaseAppDir = await quarterLeaseAppDir(prisma);
+  await acquireReleaseLockForPull(leaseAppDir, process.pid, {
     onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
   });
   try {
-    await withClaimedReleaseLease(appDir, async () => {
+    await withClaimedReleaseLease(leaseAppDir, async () => {
     await assertArtifactCompatibility(prisma);
     const result = await runWiwExport(settings, {
       exporter: playwrightExporter({ profileDir: settings.profileDir, nextWeek: nextWeekDialog() }),
@@ -177,7 +178,7 @@ async function main() {
     process.exitCode = result.exitCode;
     });
   } finally {
-    await releaseReleaseLock(appDir, process.pid);
+    await releaseReleaseLock(leaseAppDir, process.pid);
   }
 }
 

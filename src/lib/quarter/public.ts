@@ -4,8 +4,18 @@ import { CAPABILITY_SHA256 } from "./schema";
 import { assignedIntervals, resolvePaintWorld, type PaintWorld } from "./world";
 import { projectCoverDisplay } from "@/lib/board/cover-display";
 
+/** Filter only the public projection. The canonical world and ledger retain all history. */
+function visibleWorld(world:PaintWorld):PaintWorld {
+  const history = new Set(assignedIntervals(world,false).map(a=>a.shiftId));
+  const sources = world.sources.filter(s=>!s.boardRemoved && (!s.supersededAt || history.has(s.id)));
+  const ids = new Set(sources.map(s=>s.id));
+  return {...world,sources,hours:world.hours.filter(h=>ids.has(h.shiftId))};
+}
+
 /** Safe names and saved movement share the caller's canonical snapshot. No abilities or credentials. */
 export async function quarterCoverDisplay(db:QuarterDb, world:PaintWorld, board:string, now:Date) {
+  const removedIds=new Set(world.sources.filter(s=>s.boardRemoved).map(s=>s.id));
+  world=visibleWorld(world);
   const names=await db.employee.findMany({where:{id:{in:world.sources.map(s=>s.employeeId)}},select:{id:true,firstName:true,lastName:true}});
   const byId=new Map(names.map(n=>[n.id,n]));
   const intervals=assignedIntervals(world,false);
@@ -13,14 +23,16 @@ export async function quarterCoverDisplay(db:QuarterDb, world:PaintWorld, board:
     startAt:true,endAt:true,coverEmployeeId:true,coverShiftId:true,shuffleEmployeeId:true,shuffleShiftId:true,auto:true}});
   const overlays=await db.boardOverlay.findMany({where:{date:world.date},orderBy:[{createdAt:"desc"},{id:"desc"}],select:{board:true,kind:true,employeeId:true,partnerEmployeeId:true,
     stationId:true,fromStationId:true,startAt:true,endAt:true,cancelledAt:true}});
-  return projectCoverDisplay({board,date:world.date,now,stations:world.stations,bookings,overlays,shifts:world.sources.map(s=>({...s,
+  return projectCoverDisplay({board,date:world.date,now,stations:world.stations,bookings:bookings.filter(b=>![b.shiftId,b.coverShiftId,b.shuffleShiftId].some(id=>id && removedIds.has(id))),
+    overlays:overlays.filter(o=>byId.has(o.employeeId) && (!o.partnerEmployeeId || byId.has(o.partnerEmployeeId))),shifts:world.sources.map(s=>({...s,
     employee:{firstName:byId.get(s.employeeId)?.firstName??"",lastName:byId.get(s.employeeId)?.lastName??""},
     // Private adapter accepts exact bounds; these are not exposed as Assignment DTOs.
     assignments:intervals.filter(a=>a.shiftId===s.id).map(a=>({stationId:a.stationId!,hourStart:new Date(a.startMs),hourEnd:new Date(a.endMs)})),
   }))});
 }
 export async function readQuarterDay(db:QuarterDb, board:string, date:string, now=new Date()) {
-  const world=await resolvePaintWorld(db,date);
+  const canonicalWorld=await resolvePaintWorld(db,date);
+  const world=visibleWorld(canonicalWorld);
   projectSeatNumbers(world);
   const employees=await db.employee.findMany({where:{id:{in:world.sources.map(s=>s.employeeId)}},select:{id:true,firstName:true,lastName:true}});
   return {schemaVersion:2,databaseEpoch:world.state?.databaseEpoch??null,worldRevision:world.revision,phase:world.state?.phase??"legacy",
@@ -32,5 +44,5 @@ export async function readQuarterDay(db:QuarterDb, board:string, date:string, no
     hours:world.hours.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision,
       ...(h.revision===null?{legacySha256:h.legacySha256}:{}),intervals:h.segments.map(s=>({startAt:new Date(s.startMs).toISOString(),endAt:new Date(s.endMs).toISOString(),
         state:s.state,stationId:s.stationId,seatNumber:s.seatNumber,provenance:h.id?{kind:"v2",paintHourId:h.id,segmentId:s.id}:{kind:"legacy",assignmentId:s.assignmentId??null}}))})),
-    coverDisplay:await quarterCoverDisplay(db,world,board,now)};
+    coverDisplay:await quarterCoverDisplay(db,canonicalWorld,board,now)};
 }

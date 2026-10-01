@@ -196,7 +196,7 @@ export function keepsWorkbook(result: FolderImportResult | null): boolean {
 
 /** The next week runs only after this week imported or came back DUPLICATE. */
 export function startsNextWeek(result: FolderImportResult): boolean {
-  return result.outcome === "imported" || (result.outcome === "refused" && result.code === "DUPLICATE");
+  return result.outcome === "imported" || result.outcome === "replayed" || (result.outcome === "refused" && result.code === "DUPLICATE");
 }
 
 /** The skip reason when this week's import does not start the next week. */
@@ -263,7 +263,7 @@ async function runNextWeek(ctx: NextWeekContext, week: ExportWeek): Promise<Next
       await log("next=imported");
       return { status: "imported", reason: null, importResult: result };
     }
-    if (result.outcome === "refused" && result.code === "DUPLICATE") {
+    if (result.outcome === "replayed" || (result.outcome === "refused" && result.code === "DUPLICATE")) {
       await log("next=duplicate");
       return { status: "duplicate", reason: null, importResult: result };
     }

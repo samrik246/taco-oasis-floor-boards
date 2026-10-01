@@ -56,6 +56,7 @@ export class ImportRefusedError extends Error {
     message: string,
     readonly code: "DUPLICATE" | "EMPTY" | "REFUSED" | "PREVIEW_REQUIRED" | "FINGERPRINT_MISMATCH" | "BOARD_CHANGED" | "DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",
     readonly refusals: Refusal[] = [],
+    readonly originalImport?: { importBatchId:string; filename:string; importedAt:string; rowCount:number; fingerprint:string|null },
   ) {
     super(message);
     this.name = "ImportRefusedError";
@@ -79,6 +80,12 @@ export type ImportCommitResult = {
   fixedSkipped?: { shiftId:string;hour:number;reason:string }[];
   replayed?: boolean;
 };
+
+function legacyDuplicate(batch:{id:string;filename:string;importedAt:Date;rowCount:number;fingerprint:string|null}) {
+  return new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE",[],{
+    importBatchId:batch.id,filename:batch.filename,importedAt:batch.importedAt.toISOString(),rowCount:batch.rowCount,fingerprint:batch.fingerprint,
+  });
+}
 
 const DUPLICATE_MESSAGE =
   "This exact schedule was already imported. Nothing changed: no shifts, assignments or abilities were touched.";
@@ -172,7 +179,7 @@ export async function previewImport(
     const schema=await quarterState(tx);
     if (!schema || schema.phase==="prepared") throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
     const replay=await importReceipt(tx,fingerprint,duplicate.id);
-    if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
+    if (!replay) throw legacyDuplicate(duplicate);
     return {fingerprint,planDigest:"receipt-replay",needsConfirm:false,dates:replay.dates,refusals:[],rowCount:replay.rowCount};
   }
   const plan = await buildPlan(tx, parsed, fingerprint, opts.now ?? new Date());
@@ -226,7 +233,7 @@ export async function commitImport(
     if (duplicate) {
       if (!schema || schema.phase==="prepared") throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE");
       const replay=await importReceipt(tx,fingerprint,duplicate.id);
-      if (!replay) throw new ImportRefusedError(DUPLICATE_MESSAGE,"DUPLICATE_LEGACY_RECEIPT_UNAVAILABLE");
+      if (!replay) throw legacyDuplicate(duplicate);
       return {...replay,replayed:true};
     }
 
@@ -455,7 +462,7 @@ export async function commitImport(
     if(schema)await saveImportReceipt(tx,{parsed,initiator:opts.initiator,fingerprint,filename,planDigest:plan.digest,revisionBefore:revisionBefore!,result,now});
     return result;
   }, IMPORT_TX);
-  });
+  },client);
   return committed;
 }
 

@@ -24,6 +24,7 @@ import { chicagoHourStart } from "@/lib/hour-grid";
 const date="2038-10-12", nextDate="2038-10-13", hour=+chicagoHourStart(date,13), now=new Date(hour-3600000);
 const actor={id:"synthetic-reviewer",name:"Synthetic"};
 const root=fs.mkdtempSync(path.join(process.env.FLOOR_BOARDS_TEST_ROOT!,"quarter-adapters-"));
+const originalDatabaseUrl=process.env.DATABASE_URL;
 const template=path.join(root,"prepared.db");let db:PrismaClient,dbFile:string;
 const url=(p:string)=>`file:${p}`;
 async function activate(){await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2,activatedAtMs=? WHERE id=1",+now);}
@@ -64,15 +65,16 @@ describe("quarter server adapters and data preservation",()=>{
     for(const [id,board] of [["green1","caja"],["green2","caja"],["purple1","caja"],["purple2","caja"],["pdf_tq1r","cocina"]])
       await init.station.create({data:{id,board,label:id,color:"green",sortOrder:1,maxConcurrent:1}});
     const before=await init.$transaction(tx=>captureQuarterPreservation(tx,false));
-    await withReleaseLease(()=>migrateQuarterStorage(init));
+    process.env.DATABASE_URL=url(template);
+    await withReleaseLease(()=>migrateQuarterStorage(init),init);
     const after=await init.$transaction(tx=>captureQuarterPreservation(tx));
     expect(Object.keys(PRESERVATION_COLUMNS)).toHaveLength(26);
     for(const table of Object.keys(before.tables).filter(t=>t!=="StaffBreakLock"))expect(after.tables[table]).toEqual(before.tables[table]);
     expect(after.foreignKeys).toBe(1);expect(after.foreignKeyViolations).toBe(0);
     await init.$disconnect();
   },60_000);
-  beforeEach(()=>{dbFile=path.join(root,`${randomUUID()}.db`);fs.copyFileSync(template,dbFile);db=new PrismaClient({datasources:{db:{url:url(dbFile)}}});});
-  afterEach(async()=>{await db.$disconnect();});
+  beforeEach(()=>{dbFile=path.join(root,`${randomUUID()}.db`);fs.copyFileSync(template,dbFile);db=new PrismaClient({datasources:{db:{url:url(dbFile)}}});process.env.DATABASE_URL=url(dbFile);});
+  afterEach(async()=>{await db.$disconnect();process.env.DATABASE_URL=originalDatabaseUrl;});
   afterAll(()=>fs.rmSync(root,{recursive:true,force:true}));
 
   it("500 source hours expand to 2000 quarter intents and commit as one receipt",async()=>{
@@ -92,7 +94,7 @@ describe("quarter server adapters and data preservation",()=>{
     await activate();
     let release!:()=>void,entered!:()=>void;
     const enteredPromise=new Promise<void>(resolve=>{entered=resolve;});
-    const held=withReleaseLease(async()=>{entered();await new Promise<void>(resolve=>{release=resolve;});});
+    const held=withReleaseLease(async()=>{entered();await new Promise<void>(resolve=>{release=resolve;});},db);
     await enteredPromise;
     let completed=false;
     const queued=importSchedule(schedule([{id:"new-import"}])).then(result=>{completed=true;return result;});

@@ -1,15 +1,38 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { prisma } from "@/lib/db";
+import { assertSyntheticDatabase, syntheticDatabasePath } from "./test-boundary";
 import { acquireReleaseLock, releaseReleaseLock, releaseLockPathFor } from "@/lib/release-lock";
-import { QuarterRefused } from "./schema";
+import { QuarterRefused, type QuarterDb } from "./schema";
 
 type Lease = { path:string; claim:string; pid:number };
 const context = new AsyncLocalStorage<Lease>();
 let tail:Promise<void>=Promise.resolve();
+/** Walk from the loaded module (source or .next server bundle), never the launch cwd. */
+export function artifactAppDir():string {
+  let dir=realpathSync(__dirname);
+  for (;;) {
+    const manifest=path.join(dir,"package.json");
+    if(existsSync(manifest) && JSON.parse(readFileSync(manifest,"utf8")).name==="taco-oasis-floor-boards"
+      && existsSync(path.join(dir,"prisma/schema.prisma")))return dir;
+    const parent=path.dirname(dir);
+    if(parent===dir)throw new QuarterRefused("ARTIFACT_ROOT_NOT_FOUND",503);
+    dir=parent;
+  }
+}
 export function quarterAppDir() {
-  // The established test runner provides an isolated root, never the shared installation lease.
-  return process.env.FLOOR_BOARDS_TEST_ROOT ? path.join(process.env.FLOOR_BOARDS_TEST_ROOT,"app") : process.cwd();
+  if(process.env.FLOOR_BOARDS_TEST_ROOT){
+    syntheticDatabasePath();
+    return path.join(process.env.FLOOR_BOARDS_TEST_ROOT,"app");
+  }
+  return artifactAppDir();
+}
+export async function quarterLeaseAppDir(db:QuarterDb=prisma):Promise<string> {
+  const dir=quarterAppDir();
+  if(process.env.FLOOR_BOARDS_TEST_ROOT)await assertSyntheticDatabase(db);
+  return dir;
 }
 export async function assertReleaseLease():Promise<Lease> {
   const lease=context.getStore();
@@ -19,13 +42,15 @@ export async function assertReleaseLease():Promise<Lease> {
   return lease;
 }
 /** Adopt only the actual claim acquired by this process, never an HTTP-supplied lease flag. */
-export async function withClaimedReleaseLease<T>(appDir:string,run:()=>Promise<T>):Promise<T> {
+export async function withClaimedReleaseLease<T>(appDir:string,run:()=>Promise<T>,db:QuarterDb=prisma):Promise<T> {
+  if(appDir!==await quarterLeaseAppDir(db))throw new QuarterRefused("RELEASE_LEASE_IDENTITY_MISMATCH",503);
   const dir=releaseLockPathFor(appDir);
   const claims=(await readdir(dir)).filter(n=>n.startsWith(`${process.pid}.`));
   if(claims.length!==1)throw new QuarterRefused("RELEASE_LEASE_REQUIRED",503);
   return context.run({path:dir,claim:claims[0],pid:process.pid},async()=>{await assertReleaseLease();return run();});
 }
-export async function withReleaseLease<T>(run:()=>Promise<T>,appDir=quarterAppDir()):Promise<T> {
+export async function withReleaseLease<T>(run:()=>Promise<T>,db:QuarterDb=prisma):Promise<T> {
+  const appDir=await quarterLeaseAppDir(db);
   if(context.getStore()){await assertReleaseLease();return run();}
   // Existing lock release is PID-based. Serialize this process's owners so releasing one cannot
   // remove a concurrent owner's claim. Cross-process exclusion remains the existing protocol.
@@ -34,7 +59,7 @@ export async function withReleaseLease<T>(run:()=>Promise<T>,appDir=quarterAppDi
   await previous;
   try {
     if(!await acquireReleaseLock(appDir,process.pid,{},10_000))throw new QuarterRefused("RELEASE_BUSY",503);
-    try{return await withClaimedReleaseLease(appDir,run);}
+    try{return await withClaimedReleaseLease(appDir,run,db);}
     finally{await releaseReleaseLock(appDir,process.pid);}
   }finally{releaseQueue();}
 }

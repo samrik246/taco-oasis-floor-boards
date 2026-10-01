@@ -542,7 +542,7 @@ export async function cancelOverlay(input: {
 }): Promise<void> {
   const now = input.now ?? new Date();
   if (input.date !== chicagoToday(now)) throw new OverlayRefused("NOT_TODAY");
-  await prisma.$transaction(async (tx) => {
+  await withStaffBreakLock(async (tx) => {
     const row = await tx.boardOverlay.findFirst({
       where: { id: input.id, board: input.board, date: input.date, cancelledAt: null },
     });

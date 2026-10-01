@@ -16,6 +16,7 @@ import { chicagoHourStart } from "@/lib/hour-grid";
 
 const date="2038-10-12", now=new Date("2038-10-12T12:00:00Z"), actor={id:"synthetic-manager",name:"Synthetic"};
 const root=fs.mkdtempSync(path.join(process.env.FLOOR_BOARDS_TEST_ROOT!,"quarter-foundation-"));
+const originalDatabaseUrl=process.env.DATABASE_URL;
 const dbUrl=`file:${path.join(root,"test.db")}`;
 const db=new PrismaClient({datasources:{db:{url:dbUrl}}});
 const hour=+chicagoHourStart(date,13);
@@ -30,6 +31,7 @@ async function command(shiftId:string,quarter:string,action:{action:"erase"}|{ac
 }
 describe("quarter foundation, isolated prepared migration and active transaction proofs",()=>{
   beforeAll(async()=>{
+    process.env.DATABASE_URL=dbUrl;
     fs.writeFileSync(path.join(root,"test.db"),"");
     execFileSync("pnpm",["exec","prisma","db","push","--skip-generate"],{cwd:process.cwd(),env:{...process.env,DATABASE_URL:dbUrl},stdio:"pipe"});
     for(const [id,order] of [["green1",1],["green2",2],["purple1",3],["purple2",4]] as const)
@@ -41,15 +43,15 @@ describe("quarter foundation, isolated prepared migration and active transaction
     await db.assignment.create({data:{id:"legacy-a",shiftId:"shift-a",employeeId:"a",stationId:"green1",hourStart:new Date(hour),hourEnd:new Date(hour+3600000)}});
     await db.assignment.create({data:{id:"legacy-b",shiftId:"shift-b",employeeId:"b",stationId:"green2",hourStart:new Date(hour),hourEnd:new Date(hour+3600000)}});
   },60_000);
-  afterAll(async()=>{await db.$disconnect();fs.rmSync(root,{recursive:true,force:true});});
+  afterAll(async()=>{await db.$disconnect();process.env.DATABASE_URL=originalDatabaseUrl;fs.rmSync(root,{recursive:true,force:true});});
   it("requires release ownership; migration repeats without epoch/revision reset and leaves hourly rows intact",async()=>{
     await expect(migrateQuarterStorage(db)).rejects.toMatchObject({code:"RELEASE_LEASE_REQUIRED"});
-    const first=await withReleaseLease(()=>migrateQuarterStorage(db));
+    const first=await withReleaseLease(()=>migrateQuarterStorage(db),db);
     expect(first.repeated).toBe(false);
     expect(await worldRevision(db)).toBe("0");
     await db.assignment.update({where:{id:"legacy-a"},data:{seatNumber:null}});
     expect(await worldRevision(db)).toBe("1");
-    expect(await withReleaseLease(()=>migrateQuarterStorage(db))).toEqual({...first,repeated:true});
+    expect(await withReleaseLease(()=>migrateQuarterStorage(db),db)).toEqual({...first,repeated:true});
     expect(await worldRevision(db)).toBe("1");
     expect(await db.assignment.count()).toBe(2);
     await expect(refuseSchemaPush(db)).rejects.toMatchObject({code:"QUARTER_EXPLICIT_MIGRATION_REQUIRED"});
@@ -144,6 +146,6 @@ describe("quarter foundation, isolated prepared migration and active transaction
   it("schema drift refuses an idempotent migration instead of resetting the epoch",async()=>{
     await db.$executeRawUnsafe("DROP TRIGGER qv2_legacy_assignment_delete");
     await expect(verifyQuarterSchema(db)).rejects.toMatchObject({code:"QUARTER_SCHEMA_DRIFT:qv2_legacy_assignment_delete"});
-    await expect(withReleaseLease(()=>migrateQuarterStorage(db))).rejects.toMatchObject({code:"QUARTER_SCHEMA_DRIFT:qv2_legacy_assignment_delete"});
+    await expect(withReleaseLease(()=>migrateQuarterStorage(db),db)).rejects.toMatchObject({code:"QUARTER_SCHEMA_DRIFT:qv2_legacy_assignment_delete"});
   });
 });

@@ -1,3 +1,5 @@
+import { legacyHttpGuard, quarterError } from "@/lib/quarter/http";
+import { QuarterRefused } from "@/lib/quarter/schema";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { MOVE_REASONS } from "@/lib/position-moves";
@@ -46,6 +48,8 @@ const postSchema = z.object({
 export async function POST(req: Request) {
   const auth = await requireManagerSession(req);
   if (!auth.ok) return auth.response;
+  const upgrade = await legacyHttpGuard();
+  if (upgrade) return upgrade;
   try {
     const body = postSchema.parse(await req.json());
     const access = await requireDayAccess(req, body.date);
@@ -70,6 +74,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ log: result.log });
   } catch (e) {
+    if (e instanceof QuarterRefused) return quarterError(e);
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.message }, { status: 422 });
     }

@@ -11,7 +11,8 @@ R0 and cannot activate quarter painting on the installation.
   reads/writes remain available; interval commands refuse `QUARTER_NOT_ACTIVE`.
 - `active`: supported only in disposable test databases by this foundation.
   Startup and import entry points refuse an active database outside the established
-  test root. Legacy paint/import/removal/task consumers refuse upgrade instead of
+  test root, using the shared positive disposable-path guard and a configured/actual
+  connection match. Symlink, ancestor-root and alternate-database overrides refuse. Legacy paint/import/removal/task consumers refuse upgrade instead of
   reading or overwriting mixed interval paint.
 
 The `GET /api/paint/capabilities` handshake advertises `artifactRole: foundation`,
@@ -22,6 +23,7 @@ this refusal is not a substitute for the future compatible controller.
 ## Prepared migration
 
 `pnpm exec tsx scripts/quarter-migrate.ts` acquires the existing release lease,
+identified from the loaded artifact root (independent of the launch directory),
 then the shared database mutex, verifies the existing preservation columns and
 source storage, installs the exact six-table DDL and verifies every table/index/
 trigger. Repeating it preserves the epoch. Partial schema or drift refuses.
@@ -42,7 +44,7 @@ authentication. No client flag grants a release lease or manager authority.
 
 | Interface | Purpose |
 | --- | --- |
-| GET `/api/v2/boards/{board}/days/{date}` | Safe explicit interval/source/revision DTO, both-board cover evidence |
+| GET `/api/v2/boards/{board}/days/{date}` | Safe explicit interval/source/revision DTO, both-board cover evidence; removed sources excluded |
 | PUT `/api/v2/assignments/paint` | Quarter/hour station, family or erase; full atomic validation |
 | POST `/api/v2/assignments/operations` | Whole-shift, atomic swap and explicit preview/commit copy |
 | GET `/api/v2/assignments/paint/receipts/{requestId}` | Current manager's exact durable result with every original date reauthorized |
@@ -62,7 +64,8 @@ it never restores an erased Assignment row.
 ## Transaction and compatibility rules
 
 `StaffBreakLock` is the first statement in every affected write transaction.
-Request receipts replay before checking current revisions; an altered payload with
+Current HTTP authorization runs first. Exact actor/request/hash/epoch receipts
+replay before comparing the current capability hash or revisions; an altered payload with
 the same actor/request identity refuses. Source/hour/world expectations are checked
 before staging departures and arrivals. Hour revisions advance once per command.
 Paint mutations, audit, source changes and response receipt commit together.
@@ -84,7 +87,8 @@ The parsed-schedule fingerprint maps to actor `system:import-v2` in
 takeovers retain interval erasures; started-hour changes preserve history. Optional
 fixed placements skip/report conflicts; import reconciliation itself is atomic.
 Prepared mode retains its accepted duplicate-import response. Legacy imports with
-no compatible receipt are identified rather than fabricated or reimported.
+no compatible receipt include safe original batch metadata rather than fabricated
+result/skip lists. Folder replay is labeled `replayed` and keeps the original result.
 
 Raw Prisma INTEGER epoch results are cast to TEXT and decoded as safe epoch
 numbers; revisions remain decimal strings. See the synthetic regression coverage
@@ -94,7 +98,7 @@ in `tests/quarter-foundation.test.ts` and `tests/quarter-adapters.test.ts`.
 
 | Stage | Required work before activation |
 | --- | --- |
-| R0 client consumers | V2 schedule/timeline/floor/wall/editor, admin/import/removal presentation, agent CLI read/command flow; all 27 contract reader dispositions |
+| R0 client consumers | V2 schedule/timeline/floor/wall/editor, admin/import/removal presentation, agent CLI read/command flow; H15 station-use/palette ordering; all 27 contract reader dispositions |
 | R0 draft/cache | Explicit V2 cache sanitization; IndexedDB CAS on the existing remote HTTP origin; immutable generations, V1 retention, receipt cleanup and episode rules |
 | R0 release/recovery | Real artifact manifest and independently pinned R0; schema/client evidence preflight; lease-held promotion and both rollback/exception recovery paths |
 | R0 preservation | Extend packet capture to all 26 table allowlists and browser stores; successful writes during checker wait followed by rejection/timeout, exact same-file preservation and fixed-now picker/import proofs in both artifacts |
@@ -105,3 +109,14 @@ in `tests/quarter-foundation.test.ts` and `tests/quarter-adapters.test.ts`.
 safe hash capture for synthetic migration evidence. The foundation's registry is
 not a completed release packet, activation readback or recovery proof. No device
 readbacks, R0/Q1 artifact pins, staff messages or live writes are claimed here.
+
+Public visibility filters sources, employees, hours and cover evidence together.
+Superseded assigned history and cross-board cover identities remain visible; the
+canonical resolver, ledger and authorized removal review keep removal history.
+
+Cancellation takes StaffBreakLock before reading overlay state. The hourly
+position-move POST and helper refuse active mode before legacy audit DML; its
+prepared behavior and historical reads remain. Quarter moves use PaintMutation.
+Legacy traffic/position-map seed writes invalidate world expectations through the
+world triggers; their explicit R0/server dispositions and concurrency evidence
+remain in the all-reader/writer inventory.

@@ -130,7 +130,7 @@ export async function handleImport(request: Request, protocol2:boolean) {
     if (err instanceof ImportRefusedError) {
       const status = err.code === "PREVIEW_REQUIRED" || err.code === "BOARD_CHANGED" ? 409 : 400;
       return NextResponse.json(
-        { error: err.message, code: err.code, refusals: err.refusals },
+        { error: err.message, code: err.code, refusals: err.refusals, ...(err.originalImport?{originalImport:err.originalImport}:{}) },
         { status },
       );
     }
