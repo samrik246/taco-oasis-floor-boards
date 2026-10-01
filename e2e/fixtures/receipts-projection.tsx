@@ -29,7 +29,8 @@ async function transport(command: Command): Promise<Response> {
     return refusal(command, "unsupported_action");
   }
   if (command.op !== "recover") return refusal(command, "unsupported_action");
-  const step = steps[Math.min(index++, steps.length - 1)];
+  if (index >= steps.length) throw new Error("synthetic history read failed");
+  const step = steps[index++];
   return { ...structuredClone(step.expect.public_response) as Response, request_id: command.request_id };
 }
 createRoot(document.getElementById("root")!).render(<main className="min-h-dvh bg-neutral-50 p-5 text-xl text-neutral-950" style={{ colorScheme: "light" }}>

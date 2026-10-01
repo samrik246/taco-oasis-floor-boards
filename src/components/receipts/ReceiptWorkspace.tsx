@@ -245,7 +245,9 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       <p>{t("Revisa el resultado de cada boleto. Algunos pueden haber salido. No repitas el pedido completo para resolver un solo boleto pendiente.", "Review each ticket result. Some may have printed. Do not repeat the whole order to resolve one pending ticket.")}</p>
       <label className="my-3 block">{t("Motivo de la copia CAMBIO", "Reason for CAMBIO copy")}<input className="ml-3 border-2 p-2" value={reason} maxLength={160} onChange={(e) => setReason(e.target.value)} /></label>
       {groups.map((group, groupIndex) => {
-        const message = responseNotice({ schema: "receipt-public/v1", request_id: group.request_id, op: "submit", state: group.state, reason: group.reason, data: { plan_handle: group.plan_handle, documents: group.documents, total_documents: group.documents.length } });
+        // Positive execution belongs to the latest successful read notice,
+        // not the retained row history after a later read loses that proof.
+        const message = group.state === "pending" ? null : responseNotice({ schema: "receipt-public/v1", request_id: group.request_id, op: "submit", state: group.state, reason: group.reason, data: { plan_handle: group.plan_handle, documents: group.documents, total_documents: group.documents.length } });
         return <section key={group.key} data-testid="receipt-history-group" className="my-4 rounded-lg border-2 border-neutral-600 p-3">
         <h3 className="text-xl font-bold">{t("Resultado de este envío", "Result of this send")} · {groupIndex + 1}</h3>
         {message && <p data-testid="receipt-group-outcome">{message}</p>}

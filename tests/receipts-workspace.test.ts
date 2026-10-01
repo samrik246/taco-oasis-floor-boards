@@ -252,6 +252,7 @@ for (const locale of ["es", "en"] as const) it(locale + ": original-ID recovery 
   }
   await h.click(recover); // A failed read cannot retain an earlier positive execution notice.
   expect(h.host.querySelector('[role="status"]')?.textContent).toContain(locale === "es" ? "Puede haber salido papel" : "Paper may have printed");
+  expect(h.host.textContent).not.toContain(locale === "es" ? "Envío en curso" : "Send in progress");
   expect(transport.mock.calls.every(([c]) => c.op === "recover")).toBe(true);
 });
 

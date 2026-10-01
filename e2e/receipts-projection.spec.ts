@@ -43,7 +43,13 @@ for (const locale of ["es", "en"] as const) test(locale + ": recovered outcome f
     await page.clock.fastForward(30000);
     expect((await calls(page)).length).toBe(turn + 1);
   }
+  await recover.click();
+  await expect(page.getByRole("alert")).toContainText(locale === "es" ? "Puede haber salido papel" : "Paper may have printed");
+  await expect(page.getByTestId("receipt-workspace")).not.toContainText(locale === "es" ? "Envío en curso" : "Send in progress");
+  expect(await page.getByTestId("receipt-history-row").allTextContents()).toEqual(originalRows);
+  await h.capture("failed_read");
   const commands = await calls(page);
+  expect(commands).toHaveLength(4);
   expect(commands.every((c) => c.op === "recover")).toBe(true);
   expect(new Set(commands.map((c) => c.args.original_request_id)).size).toBe(1);
   writeFileSync(path.join(h.out, locale + "_recovery-calls.json"), JSON.stringify({ commands, retainedRows: originalRows }, null, 2));
