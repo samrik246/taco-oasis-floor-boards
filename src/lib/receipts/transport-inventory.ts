@@ -11,13 +11,14 @@ const file = z.object({ path: filePath, size: safeInteger, sha256: hashSchema })
 const origin = z.enum(["release", "stdlib", "native"]);
 const entry = file.extend({ origin }).strict();
 const inventorySchema = z.object({
-  schema: z.literal("receipt-application-inventory/v1"), engine_sha: sha1Schema, release_root: filePath,
+  schema: z.literal("receipt-application-inventory/v1"), engine_sha: sha1Schema, release_root: absolutePath,
   interpreter: z.object({ version: z.literal("3.13.15"), launcher: file, app_stub: file, framework: file, team_id: z.literal("BMM5U3QVKW") }).strict(),
   files: z.array(entry).min(1).max(INVENTORY_LIMITS.entries),
 }).strict();
 export type ApplicationInventory = z.infer<typeof inventorySchema>;
-const bindingSchema = z.object({ releaseRoot: filePath, configPath: filePath, engineSha: sha1Schema, inventoryHash: hashSchema }).strict();
+const bindingSchema = z.object({ releaseRoot: absolutePath, configPath: filePath, engineSha: sha1Schema, inventoryHash: hashSchema }).strict();
 export type InventoryBinding = z.infer<typeof bindingSchema>;
+const rootPrefix = (root: string) => root === "/" ? "/" : root + "/";
 
 /** Python's scalar ordering, not JS UTF-16 ordering or locale collation. */
 export function compareScalarPaths(a: string, b: string): number {
@@ -39,7 +40,7 @@ export function parseApplicationInventory(input: Uint8Array, expected: Inventory
   const value = inventorySchema.parse(decodeLine(bytes, INVENTORY_LIMITS.file));
   if (digest(bytes.subarray(0, -1)) !== binding.inventoryHash) throw new Error("inventory digest");
   if (value.release_root !== binding.releaseRoot || value.engine_sha !== binding.engineSha) throw new Error("inventory binding");
-  const sidecar = `${value.release_root}/${INVENTORY_SIDECAR}`;
+  const sidecar = rootPrefix(value.release_root) + INVENTORY_SIDECAR;
   if (sidecar === binding.configPath) throw new Error("separate config");
   const images = [value.interpreter.launcher, value.interpreter.app_stub, value.interpreter.framework];
   for (const image of images) {
@@ -50,7 +51,7 @@ export function parseApplicationInventory(input: Uint8Array, expected: Inventory
     const current = value.files[i];
     if (i && compareScalarPaths(value.files[i - 1].path, current.path) >= 0) throw new Error("inventory order/duplicate");
     if (current.path === sidecar || current.path === binding.configPath) throw new Error("self hash");
-    if (current.origin === "release" && !current.path.startsWith(value.release_root + "/")) throw new Error("release path");
+    if (current.origin === "release" && !current.path.startsWith(rootPrefix(value.release_root))) throw new Error("release path");
     for (const image of images) if (current.path === image.path && (current.origin !== "native" || current.size !== image.size || current.sha256 !== image.sha256)) throw new Error("interpreter entry");
   }
   return freeze(value);
@@ -73,7 +74,7 @@ const closureSchema = z.object({
   complete: z.literal(true), operationClosure: z.literal(true), supportedImageStorage: z.literal(true),
 }).strict();
 const intakeBinding = z.object({
-  releaseRoot: filePath, packageRoot: filePath, python: filePath, configPath: filePath, configHash: hashSchema, engineSha: sha1Schema,
+  releaseRoot: absolutePath, packageRoot: absolutePath, python: filePath, configPath: filePath, configHash: hashSchema, engineSha: sha1Schema,
 }).strict();
 export type InventoryIntakeBinding = z.infer<typeof intakeBinding>;
 export type InventoryDependencies = {
@@ -102,7 +103,7 @@ export async function intakeApplicationInventory(expected: InventoryIntakeBindin
   if (!dependencies) throw new Error("inventory verifier unavailable");
   const binding = intakeBinding.parse(expected);
   if (binding.packageRoot !== binding.releaseRoot) throw new Error("package root");
-  const sidecar = `${binding.releaseRoot}/${INVENTORY_SIDECAR}`;
+  const sidecar = rootPrefix(binding.releaseRoot) + INVENTORY_SIDECAR;
   if (sidecar === binding.configPath) throw new Error("separate config");
   const identity = identitySchema.parse(await dependencies.serviceIdentity());
   if (identity.uid === 0 || new Set(identity.groups).size !== identity.groups.length) throw new Error("service identity");

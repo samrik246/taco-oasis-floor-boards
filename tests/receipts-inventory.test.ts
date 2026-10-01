@@ -22,6 +22,15 @@ function parse(value = inventory()) { const bytes = encoded(value); return parse
 const valid = encoded();
 
 describe("application inventory exact bytes", () => {
+  it("accepts / as a directory with a canonical fixed sidecar, while / remains invalid as a file", () => {
+    const v = inventory(); v.release_root = "/"; v.files.at(-1)!.path = "/worker.py";
+    const bytes = encoded(v); const expected = { ...binding(bytes), releaseRoot: "/" };
+    expect(parseApplicationInventory(bytes, expected).release_root).toBe("/");
+    expect(() => parseApplicationInventory(bytes, { ...expected, configPath: "/" + INVENTORY_SIDECAR })).toThrow("separate config");
+    v.files.push({ ...v.files[0], path: "/" + INVENTORY_SIDECAR, origin: "release" });
+    v.files.sort((a, b) => compareScalarPaths(a.path, b.path)); const self = encoded(v);
+    expect(() => parseApplicationInventory(self, { ...binding(self), releaseRoot: "/" })).toThrow("self hash");
+  });
   it("accepts canonical scalar UTF-8, escaped controls and maximum safe sizes against a Python golden", () => {
     const bytes = readFileSync("fixtures/receipts/application-inventory-v1.json");
     const expected = JSON.parse(readFileSync("fixtures/receipts/application-inventory-v1-sha.json", "utf8"));
