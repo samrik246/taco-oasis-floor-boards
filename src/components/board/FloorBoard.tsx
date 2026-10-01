@@ -12,6 +12,7 @@ import { findBoardViolations } from "@/lib/violations";
 import type { AbilityLevel } from "@/lib/rules/types";
 import type { BoardKindUi, DayBoardDto, ShiftDto } from "./types";
 import { stationColorClass } from "./board-helpers";
+import { AuxiliaryPanel } from "./AuxiliaryPanel";
 import {
   abilityFor,
   abilityBadgeClass,
@@ -1925,8 +1926,13 @@ export function FloorBoard() {
         </div>
       )}
 
+      {day && ["board", "schedule", "timeline"].includes(mainView) && <div className="px-3 pb-3 sm:px-4 sm:pb-4">
+        <AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} />
+      </div>}
+
       <MoveReasonModal
         pending={pendingMove}
+        stations={day?.stations ?? []}
         onCancel={() => setPendingMove(null)}
         onConfirm={(reason, note) => void confirmClear(reason, note)}
         locale={locale}

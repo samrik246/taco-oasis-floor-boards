@@ -13,6 +13,7 @@ import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { PaintEdit } from "@/lib/assignments/paint";
 import { PAINT_FAMILIES, PAINT_FAMILY_LABELS, isPaintFamily, type PaintFamily } from "@/lib/assignments/paint-families";
 import { paletteStationIds } from "@/lib/assignments/palette-order";
+import { scheduledHeadcounts } from "@/lib/board/headcounts";
 import { readPaintDraft, writePaintDraft } from "@/lib/board/paint-drafts";
 import { isHourInShift } from "@/lib/rules/shift-window";
 import { eligibilityCellKind, eligibilityDots, isDefaultMandatory, mandatoryGapLabel, uncoveredMandatory, type EligibilityDot } from "@/lib/mandatory";
@@ -262,6 +263,7 @@ export function ManagerColorEditor({
     ));
   }, [day, date, hours, locale, t, rowSort]);
   const choices = useMemo(() => paletteChoices(day), [day]);
+  const headcounts = useMemo(() => scheduledHeadcounts(day, hours), [day, hours]);
   const gaps = useMemo(() => {
     if (!day?.mandatory) return [];
     return uncoveredMandatory({
@@ -496,7 +498,7 @@ export function ManagerColorEditor({
       <div className="grid min-w-0 gap-3 md:grid-cols-[11rem_minmax(0,1fr)]">
         <aside className="min-w-0" aria-label={copy.palette}>
           <h3 className="mb-2 text-sm font-bold">{copy.palette}</h3>
-          <div className="flex gap-2 overflow-x-auto pb-1 md:max-h-[65vh] md:flex-col md:overflow-y-auto" data-testid="paint-palette">
+          <div className="flex flex-col gap-2 pb-1" data-testid="paint-palette">
             {choices.map((choice) => {
               const people = day ? choice.stationIds.flatMap((id) => assignmentsAtStationHour(day.shifts, id, date, selectedHour).map(({ shift }) => displayName(shift))) : [];
               const stationId = choice.id;
@@ -522,6 +524,9 @@ export function ManagerColorEditor({
             <thead>{gapRow}<tr>
               <th className="sticky left-0 z-20 min-w-[10rem] border-b-2 border-r-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" scope="col">{t.person}</th>
               {hours.map((hour) => <th key={hour} className={cn("min-w-[5rem] border-b-2 border-neutral-900 px-1 text-center", selectedHour === hour && "bg-neutral-900 text-white")} scope="col"><button type="button" className="touch-target min-h-11 w-full font-bold" onClick={() => onSelectHour(hour)} aria-label={formatHourLabel(hour)}>{formatCompactHour(hour)}</button></th>)}
+            </tr><tr data-testid="paint-headcount-row">
+              <th className="sticky left-0 z-20 border-b border-neutral-300 bg-neutral-50 px-2 text-[11px]" scope="row">{locale === "es" ? "Personal programado" : "Scheduled workers"}</th>
+              {headcounts.map((count, index) => <td key={hours[index]} data-testid={`paint-headcount-${hours[index]}`} className="border-b border-neutral-300 bg-neutral-50 py-1 text-center font-bold tabular-nums">{count}</td>)}
             </tr></thead>
             <tbody>{rows.map(({ shift, cells, ended, laterShiftOfPerson }) => <tr key={shift.id} data-testid={`paint-row-${shift.id}`}>
               <th className="sticky left-0 z-10 border-b border-r-2 border-neutral-300 bg-white px-2 py-1.5 text-sm font-bold" scope="row">

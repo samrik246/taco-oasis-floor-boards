@@ -43,6 +43,12 @@ textarea {
   min-width: var(--touch-min);
 }
 
+/* Press feedback is shared by every board action, including Refresh and summaries. */
+:is([data-testid="floor-board"], [data-testid="wall-board"]) :is(button:not(:disabled), a, summary, [role="button"]):active {
+  filter: brightness(0.78);
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
 /* Android tablet landscape: comfortable scroll + safe padding */
 @supports (padding: env(safe-area-inset-bottom)) {
   body {

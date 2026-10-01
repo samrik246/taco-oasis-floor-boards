@@ -79,6 +79,8 @@ export type DayBoardDto = {
   date: string;
   stations: StationDto[];
   shifts: ShiftDto[];
+  /** Shared read-only backup schedule; never included in primary paint or coverage. */
+  auxiliaryShifts?: AuxiliaryShiftDto[];
   /**
    * Per-station saved counts for the 28 days before `date`.
    * Absent only on a snapshot written before this field existed.
@@ -95,3 +97,7 @@ export type DayBoardDto = {
 };
 
 export type BoardKindUi = "caja" | "cocina";
+
+export type AuxiliaryShiftDto = Pick<ShiftDto, "id" | "date" | "startAt" | "endAt" | "sourcePosition"> & {
+  employee: Pick<EmployeeDto, "id" | "firstName" | "lastName">;
+};

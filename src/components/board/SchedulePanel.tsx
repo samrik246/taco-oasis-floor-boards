@@ -363,8 +363,17 @@ function renderRowCells(
   let i = 0;
   while (i < hours.length) {
     const hour = hours[i]!;
-    const block = row.blocks.find((b) => b.startHour === hour);
-    const blockHasOpen = block != null && hours.slice(i, i + block.span).some((h) => openAt(h) || markedAt(h));
+    const original = row.blocks.find((b) => b.startHour <= hour && hour < b.startHour + b.span);
+    const needsOwnCell = (h: number) => openAt(h) || markedAt(h) || marks.removedHours.has(h);
+    // A marked hour splits only itself. Adjacent unmarked hours in the same
+    // assignment/seat block still join, including the evening after a BREAK.
+    let span = 1;
+    if (original && !needsOwnCell(hour)) {
+      while (i + span < hours.length && hours[i + span] === hour + span &&
+        hours[i + span]! < original.startHour + original.span && !needsOwnCell(hours[i + span]!)) span += 1;
+    }
+    const block = original ? { ...original, startHour: hour, span } : undefined;
+    const blockHasOpen = block != null && needsOwnCell(hour);
     if (block && !blockHasOpen) {
       const fullLabel = stationLabels.get(block.stationId) ?? block.code;
       const visibleText = block.textKind === "position" ? fullLabel : block.text;

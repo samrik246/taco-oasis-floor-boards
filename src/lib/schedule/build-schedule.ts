@@ -260,6 +260,7 @@ export function buildBlocksForHours(
     let span = 1;
     while (
       i + span < hours.length &&
+      hours[i + span] === hours[i + span - 1]! + 1 &&
       hourStations.get(hours[i + span]!) === sid &&
       seatAt(hours[i + span]!) === seat
     ) {

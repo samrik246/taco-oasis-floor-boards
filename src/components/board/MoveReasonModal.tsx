@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MOVE_REASONS, type MoveReason } from "@/lib/position-moves";
-import { moveReasonLabel, stationLabel, type Locale, type Messages } from "@/lib/i18n";
+import { moveReasonLabel, boardStationLabel, type Locale, type Messages } from "@/lib/i18n";
+import type { StationDto } from "./types";
 
 export type PendingMove = {
   assignmentId: string;
@@ -14,6 +15,7 @@ export type PendingMove = {
 
 type Props = {
   pending: PendingMove | null;
+  stations?: StationDto[];
   onCancel: () => void;
   onConfirm: (reason: MoveReason, note: string) => void;
   locale: Locale;
@@ -22,6 +24,7 @@ type Props = {
 
 export function MoveReasonModal({
   pending,
+  stations = [],
   onCancel,
   onConfirm,
   locale,
@@ -32,7 +35,7 @@ export function MoveReasonModal({
 
   if (!pending) return null;
 
-  const seat = stationLabel(locale, pending.fromStationId);
+  const seat = boardStationLabel(locale, pending.fromStationId, stations);
 
   return (
     <div

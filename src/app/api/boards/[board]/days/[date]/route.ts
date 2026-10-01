@@ -11,6 +11,8 @@ import { loadStationUse } from "@/lib/assignments/station-use";
 import { boardBreakStripes } from "@/lib/breaks/stripe";
 import { loadOverlayRecords, overlayDto } from "@/lib/overlays/read";
 import { chicagoToday } from "@/lib/upcoming/source";
+import { isAuxiliaryPosition, isMainBoardPosition } from "@/lib/board/auxiliary";
+import { paletteStationIds } from "@/lib/assignments/palette-order";
 
 export const runtime = "nodejs";
 
@@ -31,7 +33,7 @@ export async function GET(request: Request, context: RouteContext) {
     const manager = await optionalManager(request);
     const owner = manager ? await requestIsOwner(request) : false;
 
-    const [stations, shifts, columnDefaults] = await Promise.all([
+    const [stations, boardShifts, columnDefaults, auxiliaryCandidates, mandatory] = await Promise.all([
       prisma.station.findMany({
         where: { board },
         orderBy: { sortOrder: "asc" },
@@ -58,7 +60,19 @@ export async function GET(request: Request, context: RouteContext) {
         orderBy: [{ startAt: "asc" }, { sourcePosition: "asc" }],
       }),
       loadColumnDefaults(prisma),
+      prisma.shift.findMany({
+        where: { date, boardRemoved: false, supersededAt: null },
+        select: { id: true, date: true, startAt: true, endAt: true, sourcePosition: true,
+          employee: { select: { id: true, firstName: true, lastName: true } } },
+        orderBy: [{ startAt: "asc" }, { sourcePosition: "asc" }, { id: "asc" }],
+      }),
+      loadMandatoryDay(board, date, owner),
     ]);
+
+    const shifts = boardShifts.filter(shift => isMainBoardPosition(shift.sourcePosition));
+    const stationUse = await loadStationUse(board, date, stations.map(station => station.id));
+    const stationIds = paletteStationIds({ stations, stationUse, extraStationIds: mandatory.extraStationIds });
+    const byId = new Map(stations.map(station => [station.id, station]));
 
     const seatNumbers = fillMissingSeatNumbers(shifts.flatMap((sh) => sh.assignments.map((a) => ({
       id: a.id,
@@ -70,7 +84,8 @@ export async function GET(request: Request, context: RouteContext) {
     const body = {
       board,
       date,
-      stations: stations.map((s) => ({
+      // Presentation ranks shared by Horario, Pintar, tiles and menus. Stored order is unchanged.
+      stations: stationIds.map((id, rank) => ({ ...byId.get(id)!, sortOrder: rank })).map((s) => ({
         id: s.id,
         label: s.label,
         color: s.color,
@@ -78,6 +93,9 @@ export async function GET(request: Request, context: RouteContext) {
         sortOrder: s.sortOrder,
         priority: s.priority,
         shortCode: s.shortCode,
+      })),
+      auxiliaryShifts: auxiliaryCandidates.filter(shift => isAuxiliaryPosition(shift.sourcePosition)).map(shift => ({
+        ...shift, startAt: shift.startAt.toISOString(), endAt: shift.endAt.toISOString(),
       })),
       shifts: shifts.map((sh) => ({
         id: sh.id,
@@ -121,11 +139,11 @@ export async function GET(request: Request, context: RouteContext) {
           seatNumber: seatNumbers.get(a.id) ?? null,
         })),
       })),
-      stationUse: await loadStationUse(board, date, stations.map((s) => s.id)),
+      stationUse,
       breaks: await boardBreakStripes(board, date),
       overlays: (await loadOverlayRecords(prisma, board, date)).map(overlayDto),
       overlayMenu: Boolean(manager) && date === chicagoToday(),
-      ...(manager ? { mandatory: await loadMandatoryDay(board, date, owner) } : {}),
+      ...(manager ? { mandatory } : {}),
     };
 
     return NextResponse.json(body, { headers: NO_STORE });
