@@ -7,7 +7,8 @@ from datetime import date as calendar_date, timedelta
 from quarter_artifacts import MANIFEST, atomic_json, copy, verify
 from quarter_guard import capture, canonical, file_hash, preserved, connect
 from quarter_release import cutover, load_packet, record
-from quarter_service import Service, checker_wait
+from quarter_service import checker_wait
+from quarter_managed_service import synthetic_service
 
 
 def run_scenario(root, manifest_file, scenario):
@@ -38,7 +39,7 @@ def run_scenario(root, manifest_file, scenario):
             db.execute("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2,activatedAtMs=1 WHERE id=1")
         record(root / 'evidence/rehearsal.jsonl', 'synthetic-r0-self-fixture-active', scope='not-activation-acceptance')
     os.environ.update(MANAGER_SESSION_SECRET='quarter-rehearsal-session-0000000000', STAFF_PASSCODE_PEPPER='quarter-rehearsal-pepper-0000000000')
-    service = Service(app, database, 3100, run)
+    service = synthetic_service(app, database, 3100, run)
     writes = run / 'acknowledged-writes.json'
     before_recovery = None
     date = (calendar_date.fromisoformat(fixture['date']) + timedelta(days=index)).isoformat()

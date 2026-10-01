@@ -222,12 +222,24 @@ def main():
     parser.add_argument('operation', choices=['install', 'rollback', 'activate', 'bootstrap', 'bootstrap-resume'])
     for name in ('packet', 'app', 'database', 'run'):
         parser.add_argument('--' + name, required=True)
-    parser.add_argument('--port', type=int, default=3100)
+    parser.add_argument('--port', type=int)
     args = parser.parse_args()
-    if args.operation == 'activate':
-        Path(args.run).mkdir(parents=True, exist_ok=True); activate(args.packet, args.app, args.database, Path(args.run) / 'events.jsonl'); return
+    packet = load_packet(args.packet)
     from quarter_service import Service, checker_wait
-    service = Service(args.app, args.database, args.port, args.run)
+    if packet.get('service'):
+        from quarter_managed_service import ManagedService
+        service = ManagedService(args.app, args.database, args.run, packet['service'])
+        if args.port is not None and args.port != service.port:
+            raise ValueError('SERVICE_PORT_PROFILE_MISMATCH')
+    else:
+        from quarter_guard import disposable
+        disposable(args.database)
+        if not packet.get('syntheticR0SelfRehearsal'):
+            raise ValueError('SERVICE_PROFILE_REQUIRED')
+        service = Service(args.app, args.database, args.port or 3100, args.run)
+    if args.operation == 'activate':
+        service.readback()
+        Path(args.run).mkdir(parents=True, exist_ok=True); activate(args.packet, args.app, args.database, Path(args.run) / 'events.jsonl'); return
     if args.operation.startswith('bootstrap'):
         from quarter_bootstrap import bootstrap
         result = bootstrap(args.packet, args.app, args.database, args.run, service, lambda phase: checker_wait(args.run, phase), resume=args.operation == 'bootstrap-resume')

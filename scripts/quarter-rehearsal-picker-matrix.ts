@@ -6,6 +6,7 @@ import {prisma} from "../src/lib/db";
 import {assertArtifactCompatibility} from "../src/lib/quarter/compatibility";
 import {assertSyntheticDatabase} from "../src/lib/quarter/test-boundary";
 import {pickDueCovers,setAfterPickReadForTests} from "../src/lib/breaks/auto-pick";
+import {assessBreak} from "../src/lib/breaks/rules";
 import {paintV2,quarterWrite} from "../src/lib/quarter/transaction";
 import {chicagoHourStart} from "../src/lib/hour-grid";
 import {readQuarterDay} from "../src/lib/quarter/public";
@@ -36,6 +37,8 @@ async function main(){
   if(mode==="before"){
    if(index===16)await paint([{shiftId:requester,quarter:"13:00",granularity:"quarter",action:"erase"}]);
    if(index===17){
+    const sources=await prisma.shift.findMany({where:{id:requester}});
+    assert.deepEqual(assessBreak({date,startAt:new Date(start+900000),endAt:new Date(start+2700000),shifts:sources,otherBreaks:[]}),{shiftId:requester,board:"caja"},"mixed-destination: valid rolled allowance required");
     await quarterWrite(prisma,tx=>tx.staffBreak.update({where:{id:`${id}-due`},data:{endAt:new Date(start+1800000)}}));
     await paint([{shiftId:requester,quarter:"13:15",granularity:"quarter",action:"station",stationId:"blue"}]);
    }

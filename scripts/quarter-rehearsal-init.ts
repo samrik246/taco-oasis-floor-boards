@@ -25,7 +25,10 @@ async function main(){
       for(const stationId of MANDATORY_STATIONS_BY_BOARD.caja){
         const person=`${id}-picker-${stationId}`;
         await tx.employee.create({data:{id:person,externalId:person,firstName:"Picker",lastName:stationId}});
-        await tx.shift.create({data:{id:person,employeeId:person,date,board:"caja",sourcePosition:"Caja",startAt:pickStart,endAt:pickEnd}});
+        // Mixed-destination case needs a valid 30-minute allowance before its
+        // seat conflict is assessed. A one-hour source allows only 15 minutes.
+        const sourceStart=index===17&&stationId==="green1"?new Date(+pickEnd-7*3600000):pickStart;
+        await tx.shift.create({data:{id:person,employeeId:person,date,board:"caja",sourcePosition:"Caja",startAt:sourceStart,endAt:pickEnd}});
         await tx.assignment.create({data:{id:person,employeeId:person,shiftId:person,stationId,hourStart:pickStart,hourEnd:pickEnd}});
       }
       for(const [suffix,minutes] of [["partial",5],["full",60]] as const){

@@ -70,7 +70,7 @@ def init(root, date, bootstrap_hourly=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
-    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify', 'picker-matrix', 'importer-proofs'):
+    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify', 'picker-matrix', 'importer-proofs', 'agent-proofs', 'client-proofs'):
         p = sub.add_parser(action); p.add_argument('--root', required=True)
         if action == 'init':
             p.add_argument('--date', required=True)
@@ -79,7 +79,7 @@ def main():
             p.add_argument('--manifest', required=True)
         if action == 'activate':
             p.add_argument('--inventory', required=True); p.add_argument('--client-evidence', required=True)
-        if action == 'picker-matrix':
+        if action in ('picker-matrix', 'agent-proofs'):
             p.add_argument('--mode', choices=['before','after'], required=True)
         if action == 'run':
             p.add_argument('--scenario', choices=SCENARIOS, required=True)
@@ -88,6 +88,12 @@ def main():
         print(canonical(init(root, args.date, args.bootstrap_hourly))); return
     value, database = fixture(root); os.environ['FLOOR_BOARDS_TEST_ROOT'] = str(root); os.environ['DATABASE_URL'] = 'file:' + str(database)
     packet = load_packet(args.manifest)
+    if args.action == 'client-proofs':
+        from quarter_rehearsal_measurements import run
+        run(root,value,database,args.manifest);return
+    if args.action == 'agent-proofs':
+        from quarter_rehearsal_agent import run
+        run(root,value,database,args.mode);return
     if args.action == 'importer-proofs':
         from quarter_rehearsal_importers import run
         run(root,value,database);return

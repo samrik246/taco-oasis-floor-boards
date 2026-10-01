@@ -61,6 +61,17 @@ def run(root, fixture, database):
     before=capture(database)
     child=None
     try:
+        if phase == 'active':
+            # The earlier prepared import's receipt must survive activation and
+            # intervening writes, not merely replay another active-phase file.
+            previous = root / 'synthetic-exports-prepared'
+            if not previous.is_dir(): raise ValueError('PREPARED_IMPORT_PROOF_REQUIRED')
+            child = spawn('import-from-folder.ts', overrides={'FLOOR_BOARDS_IMPORT_DIR': str(previous)})
+            finish(child, 'prepared-receipt-after-activation', contains='outcome=replayed'); child = None
+            retained = capture(database)
+            for table in before['tables']:
+                if table != 'StaffBreakLock' and before['tables'][table] != retained['tables'][table]:
+                    raise ValueError('PREPARED_IMPORT_REPLAY_CHANGED:' + table)
         with release_lease(app):
             child=spawn('import-from-folder.ts');registered=wait_registered(child)
             refuse(inventory([registered]),'IMPORTER_OLD_OR_WAITING')
