@@ -79,8 +79,8 @@ describe("authenticated host with only injected fake engine", () => {
     for (const op of ["submit", "read_review"] as const) {
       const deps = dependencies();
       const command = { schema: "receipt-browser/v1" as const, request_id: "3".repeat(32), op, args: { review_handle: "4".repeat(32) } };
-      deps.engine.execute.mockImplementation(async () => JSON.stringify({ ...refusal(command, "stale_plan"), schema: "receipt-result/v1" }));
-      await handleReceipt(request(command), deps);
+      deps.engine.execute.mockImplementation(async () => JSON.stringify({ ...refusal(command, "stale_plan"), schema: "receipt-result/v1" }) + "\n");
+      expect(await (await handleReceipt(request(command), deps)).json()).toEqual(refusal(command, "stale_plan"));
       expect(deps.engine.plan).toHaveBeenCalledExactlyOnceWith(actor, command.args.review_handle);
       expect(deps.engine.execute.mock.calls[0][0]).toMatchObject({ actor_id: actor, args: { plan_id: "1".repeat(32), plan_sha256: "2".repeat(64) } });
     }
@@ -108,7 +108,7 @@ describe("authenticated host with only injected fake engine", () => {
     const req = new Request("http://local/api/receipts", { method: "POST", headers: { "content-type": "application/json", "x-manager-session": "synthetic" }, body: new Uint8Array([0xc3, 0x28]) });
     expect((await handleReceipt(req, deps)).status).toBe(400); expect(deps.engine.execute).not.toHaveBeenCalled();
     const originals = JSON.stringify(first().host_translation_example!.response);
-    for (const bad of [originals + "\n{}", originals.replace('"plan_id":', '"secret":"PRIVATE", "plan_id":'), originals.replace('"plan_id":', '"_plan":{}, "plan_id":'), originals.replace(first().request.request_id, "f".repeat(32)), "x".repeat(65537)]) {
+    for (const bad of [originals + "\n{}\n", originals.replace('"plan_id":', '"secret":"PRIVATE", "plan_id":') + "\n", originals.replace('"plan_id":', '"_plan":{}, "plan_id":') + "\n", originals.replace(first().request.request_id, "f".repeat(32)) + "\n", "x".repeat(65536) + "\n"]) {
       deps.engine.execute.mockResolvedValue(bad);
       const result = await handleReceipt(request(first().request), deps);
       expect(await result.json()).toEqual(refusal(first().request, "result_unconfirmed", "unavailable"));
@@ -127,9 +127,9 @@ describe("authenticated host with only injected fake engine", () => {
   it("requires recovery of the original request and correlated device status", async () => {
     const deps = dependencies(), cmd = example("V4-01", "two-documents", 3).request;
     const result = { ...example("V4-13", "unknown-history").expect.response, schema: "receipt-result/v1", request_id: cmd.request_id };
-    expect(await translateResult(JSON.stringify(result), cmd, actor, deps.engine, devices)).toMatchObject({ state: "unavailable", reason: "unknown_request" });
+    expect(await translateResult(JSON.stringify(result) + "\n", cmd, actor, deps.engine, devices)).toMatchObject({ state: "unavailable", reason: "unknown_request" });
     const mismatch = { ...result, state: "ok", reason: null, data: { original_request_id: "f".repeat(32), original_op: "read_defaults", original_state: "ok", original_reason: null, original_data: fixtures.common_setup.defaults } };
-    await expect(translateResult(JSON.stringify(mismatch), cmd, actor, deps.engine, devices)).rejects.toThrow();
+    await expect(translateResult(JSON.stringify(mismatch) + "\n", cmd, actor, deps.engine, devices)).rejects.toThrow();
   });
   it("production dependency absence stays unavailable regardless of command and never creates history", async () => {
     const deps: ReceiptDependencies = { devices, authenticate: async () => actor };
@@ -152,10 +152,53 @@ it("rejects correctly shaped responses for a different test device/count/mode or
   const deps = dependencies();
   const malformed = structuredClone(first().host_translation_example!.response) as { data: { documents: unknown[]; totals: unknown[] } };
   malformed.data.documents.reverse(); malformed.data.totals.reverse();
-  deps.engine.execute.mockResolvedValue(JSON.stringify(malformed));
+  deps.engine.execute.mockResolvedValue(JSON.stringify(malformed) + "\n");
   const result = await handleReceipt(request(first().request), deps);
   expect((await result.json()).reason).toBe("result_unconfirmed");
   expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+});
+
+describe("G2 exact child-result framing", () => {
+  const json = JSON.stringify(first().host_translation_example!.response);
+  const invalidFrames: [string, string][] = [
+    ["empty output", ""],
+    ["empty line", "\n"],
+    ["missing terminal LF", json],
+    ["two terminal LFs", json + "\n\n"],
+    ["leading blank line", "\n" + json + "\n"],
+    ["CRLF", json + "\r\n"],
+    ["CR delimiter", json + "\r"],
+    ["leading CR", "\r" + json + "\n"],
+    ["interior newline", json.replace('{', '{\n') + "\n"],
+    ["whitespace after delimiter", json + "\n "],
+    ["second JSON line", json + "\n{}\n"],
+    ["trailing JSON on the same line", json + "{}\n"],
+    ["duplicate key with valid framing", json.replace('"schema":', '"schema":"receipt-result/v1","schema":') + "\n"],
+  ];
+  it.each(invalidFrames)("refuses %s without retaining a review binding", async (_name, raw) => {
+    const deps = dependencies();
+    await expect(translateResult(raw, first().request, actor, deps.engine, devices)).rejects.toThrow();
+    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+    deps.engine.execute.mockResolvedValue(raw);
+    const result = await handleReceipt(request(first().request), deps);
+    expect(result.status).toBe(503);
+    expect(await result.json()).toEqual(refusal(first().request, "result_unconfirmed", "unavailable"));
+    expect(deps.engine.execute).toHaveBeenCalledTimes(1);
+    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+  });
+  it("accepts one terminal LF and counts it in the inclusive 64 KiB limit", async () => {
+    const deps = dependencies();
+    const bytes = new TextEncoder().encode(json).length;
+    const atLimit = json + " ".repeat(65536 - bytes - 1) + "\n";
+    expect(new TextEncoder().encode(atLimit)).toHaveLength(65536);
+    for (const raw of [json + "\n", atLimit]) {
+      expect(await translateResult(raw, first().request, actor, deps.engine, devices)).toEqual(first().expect.response);
+    }
+    expect(deps.engine.rememberReview).toHaveBeenCalledTimes(2);
+    deps.engine.rememberReview.mockClear();
+    await expect(translateResult(" " + atLimit, first().request, actor, deps.engine, devices)).rejects.toThrow("size");
+    expect(deps.engine.rememberReview).not.toHaveBeenCalled();
+  });
 });
 
 

@@ -55,8 +55,9 @@ async function projectData(op: Op, raw: unknown, actor: string, engine: NonNulla
 }
 
 export async function translateResult(raw: string, command: Command, actor: string, engine: NonNullable<ReceiptDependencies["engine"]>, devices: readonly string[] = RECEIPT_DEVICES): Promise<ReceiptResponse> {
-  // Exactly one JSON line, including its complete recovery wrapper, <=64 KiB.
-  if (raw.trim().includes("\n")) throw new Error("line");
+  // One terminal LF, no other LF or CR. Count the untrimmed frame (including
+  // its delimiter and complete recovery wrapper) against the 64 KiB bound.
+  if (!raw.endsWith("\n") || raw.indexOf("\n") !== raw.length - 1 || raw.includes("\r")) throw new Error("line");
   const v = object(parseJSON(raw, 65536));
   if (v.schema !== "receipt-result/v1" || v.request_id !== command.request_id || v.op !== command.op) throw new Error("correlation");
   const projected = await projectData(command.op, v.data, actor, engine);

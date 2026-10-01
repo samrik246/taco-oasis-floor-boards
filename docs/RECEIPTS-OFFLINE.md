@@ -29,6 +29,12 @@ hashes. Wrong correlation, incomplete/malformed output or missing dependencies
 stay unavailable. Engine durability, ownership mappings and uniqueness remain
 engine/host-integration obligations, not in-memory mock claims.
 
+Engine result framing requires exactly one terminal LF, with no other LF or CR.
+The complete untrimmed UTF-8 frame, including that LF, is limited to 65,536 bytes.
+Malformed framing cannot create a remembered review binding or a positive no-send
+claim. The future child collector must separately enforce this bound while reading;
+the current injected string dependency does not implement a pipe collector.
+
 Order destinations and saved defaults are separate. Reviews retain ordered
 customer-free lines, destinations, one copy per document, totals and expiry;
 submit carries only the immutable review handle. Per-document outcomes retain
