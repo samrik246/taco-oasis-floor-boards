@@ -101,3 +101,57 @@ atomic associations or durable mapping retention. Igor's engine must repeat the
 same lookup in its acceptance transaction and validate mappings there. The real
 collector, child integrity/READY, ownership/deadlines and legacy sender exclusion
 remain separate integration obligations before any real injection or enablement.
+
+## Resident transport V2 — injected implementation
+
+The next offline boundary implements the B4 side of private transport V2
+`8b9e76422d7f39024a1084f1d4486c3105ace70bc195d5021d07d1a5effd873f`.
+`transport-codec.ts` produces canonical bounded calls and incrementally collects
+1,024-byte headers plus raw bodies (65,536-byte result or 8,192-byte Resolution).
+Result bytes retain the existing G2 framing/correlation checks. Oversize, invalid
+UTF-8, duplicate keys, extra/late frames and invalid kind/body combinations poison
+the generation; none can establish positive absence. Queued calls retain an
+immutable canonical template; only its fixed-width server UTC slot is filled at
+dispatch. Arrays, nulls and all authenticated browser fields remain unchanged.
+
+`transport-config.ts` validates config bytes, both retained inventories, their
+canonical hashes, root/catalog agreement and closed schemas. It does not inspect
+the filesystem or authenticate a caller's claimed integrity result. The trusted
+release config selects a compatible accepted schema5 ControlStore with both
+retained attestations. It cannot initialize, migrate, refresh an inventory or
+choose an older constructor dynamically.
+
+`transport-supervisor.ts` requires injected runtime verification, spawning,
+process-group cleanup/proof, clock and retained lifecycle-record dependencies.
+There is deliberately no installed implementation of these dependencies and no
+default child_process launcher. Its tests supply fake workers and fake integrity
+proofs. A real H implementation must establish interpreter/import identities,
+effective service non-writability of release/config/ancestors including ACLs,
+environment/cache predicates and the accepted engine constructor. A collection
+of true flags in a fake is not such proof.
+
+Only an explicit trusted lifecycle call starts/restarts a worker, after proven
+prior absence and retained startup evidence. Calls never start it. The supervisor
+checks actual injected spawn PID/group, generation and pinned READY identities;
+uses one active call, at most32 waiting calls and two-second queue expiry; and
+includes writes/backpressure in the ten-second response deadline. TERM and KILL
+each have a two-second closure window. Pipe closure or a PID alone never releases
+ownership; unresolved descendant/reap proof blocks replacement. The injected
+group operations must bind to actual spawn provenance before real integration.
+Lifecycle persistence is separate from the engine request/outcome history.
+
+`resident-adapter.ts` maps the four private methods into DurableReceiptAdapter.
+Known pre-dispatch history failures retain their typed unavailable mapping;
+unknown completion preserves original-request uncertainty without retry.
+Authenticated status_refresh returns fixed refused/gate_off with no worker call,
+history write or query. Cached reads do not fall back to a diagnostic action.
+Malformed semantic result/Resolution data also retires the worker generation.
+
+The production route continues to inject no engine. The Python worker belongs to
+the engine owner; no Python main, socket, sender, second ledger, environment
+activation switch or service change is supplied here. Real Node/Python golden
+bytes and persistence, schema5 constructor behavior, hard worker self-deadline,
+parent death and actual group reaping require the independently judged pair and
+real OS tests. Protected-release provisioning, legacy-sender exclusion, trusted
+content/grants and paper activation remain separate gates. The accepted
+unfinished-batch projection addendum belongs to its later source boundary.
