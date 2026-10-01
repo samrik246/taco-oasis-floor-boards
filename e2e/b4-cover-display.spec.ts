@@ -58,6 +58,15 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     const paint = editor.getByTestId("paint-cell-primary-shift-9"); await expect(paint.getByTestId("break-stripe")).toBeVisible();
     await expect(editor.getByTestId("paint-headcount-9")).toHaveText("1");
     await expect(editor.getByTestId("cover-row-cover-shift")).toContainText("Dan Example");
+    const savedCover = editor.getByTestId("cover-row-cover-shift").locator('[data-hour="9"]');
+    const approvedText = await savedCover.innerText();
+    await page.getByTestId(`paint-palette-${payload!.stations[1].id}`).click();
+    await paint.click();
+    const paintedCell = paint.locator("xpath=..");
+    await expect(paintedCell).toHaveAttribute("data-pending", "1");
+    await expect(paintedCell).toContainText(locale === "es" ? "Guardado" : "Saved");
+    await expect(paintedCell.getByTestId("break-stripe")).toBeVisible();
+    await expect(savedCover).toHaveText(approvedText);
     await page.screenshot({ path: path.join(screens, `${board}_${locale}_pintar.png`), fullPage: true });
     await page.goto(`/?wall=1&board=${board}`);
     await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).toContainText("Dan Example");

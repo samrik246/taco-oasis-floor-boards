@@ -25,7 +25,9 @@ for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] a
    const shift=(id:string,position:string):ShiftDto=>({id,date,board,sourcePosition:position,startAt:at("4:00 pm"),endAt:at("10:00 pm"),employee:{id,firstName:"Example",lastName:id,email:null},assignments:[]});
    const seated=shift("seated",board==="caja"?"Caja":"Cocina");
    seated.assignments=Array.from({length:6},(_,i)=>({id:`a${i}`,stationId:station.id,hourStart:chicagoDateTime(date,`${4+i}:00 pm`).toISOString(),hourEnd:chicagoDateTime(date,`${5+i}:00 pm`).toISOString(),seatNumber:1}));
-   payload={...original,shifts:[seated,shift("unpainted",board==="caja"?"Caja":"Cocina")],overlays:[],breaks:[{employeeId:"seated",shiftId:"seated",startAt:at("5:00 pm"),endAt:at("5:15 pm")}],auxiliaryShifts:[shift("backup","Caja - GM"),shift("other","Produccion")]};
+   // This legacy snapshot replaces every shift and break. Do not retain a
+   // server projection derived from the unrelated disposable database rows.
+   payload={...original,coverDisplay:undefined,shifts:[seated,shift("unpainted",board==="caja"?"Caja":"Cocina")],overlays:[],breaks:[{employeeId:"seated",shiftId:"seated",startAt:at("5:00 pm"),endAt:at("5:15 pm")}],auxiliaryShifts:[shift("backup","Caja - GM"),shift("other","Produccion")]};
    await route.fulfill({response,json:payload});
   });
   await page.goto(`/?board=${board}`);

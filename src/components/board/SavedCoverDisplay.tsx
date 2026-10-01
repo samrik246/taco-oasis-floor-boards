@@ -21,7 +21,7 @@ export function SavedHour({ day, hour, segments, locale, emptyLabel = "·" }: { 
       const destination = s.station && s.station.board !== day.board ? `${boardDisplayName(locale, s.station.board === "caja" ? "caja" : "cocina")} · ${station}` : station;
       const label = s.kind === "break" ? "BREAK" : away ? `${locale === "es" ? "Fuera" : "Away"} → ${destination}` : s.kind === "cover" ? `${locale === "es" ? "Cubre" : "Cover"} · ${destination}` : destination;
       const time = intervalLabel(s.startAt, s.endAt);
-      return <span key={index} data-testid={s.kind === "break" ? "break-stripe" : undefined} data-break={s.kind === "break" ? time : undefined} data-kind={s.kind} data-away={away ? "1" : "0"} data-start={s.startAt} data-end={s.endAt}
+      return <span key={index} data-testid={s.kind === "break" ? "break-stripe" : undefined} data-break={s.kind === "break" ? time.replace("–", "-") : undefined} data-kind={s.kind} data-away={away ? "1" : "0"} data-start={s.startAt} data-end={s.endAt}
         className={`absolute inset-y-0 flex min-w-0 flex-col justify-center overflow-hidden border border-neutral-500 px-0.5 text-center text-[10px] font-bold leading-tight ${s.kind === "break" ? "bg-neutral-950 text-white" : away ? "bg-neutral-200 text-neutral-950" : s.station ? stationColorClass(s.station.color) : "bg-amber-50 text-neutral-950"}`}
         style={{ left: `${(Date.parse(s.startAt) - start) / 36000}%`, width: `${(Date.parse(s.endAt) - Date.parse(s.startAt)) / 36000}%` }} title={`${label} · ${time}`} aria-label={`${label} · ${time}`}>
         <span>{label}</span><span className="mt-0.5 text-[9px]">{time}</span>{s.auto && <span>auto</span>}
