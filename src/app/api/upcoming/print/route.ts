@@ -45,10 +45,11 @@ export async function GET(req: Request) {
   if (!TAIL_RE.test(tail)) return json({ error: "bad tail" }, 400);
   if (!(await tailIsUpcoming(tail))) return json({ error: "unknown order" }, 404);
   const ledger = await readLedger(tail, cfg);
+  if (ledger === null) return json({ printing: true, history_available: false, error: "history_unavailable" }, 503);
   return json({
     printing: true,
-    printed: ledger?.printed ?? false,
-    locked_until: ledger?.locked_until ?? null,
+    printed: ledger.printed,
+    locked_until: ledger.locked_until,
   });
 }
 

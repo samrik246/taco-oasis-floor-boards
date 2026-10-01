@@ -262,6 +262,15 @@ describe("child contract (checks 3, 7, 12)", () => {
     expect(printConfigFromEnv({ ...base, T4G_PRINT_MODEL_SOURCE: "sheet" })).toBeNull();
   });
 
+  it("GET does not replace an unreadable ledger with printed:false", async () => {
+    child.reply = () => ({ error: new Error("synthetic lost history"), stdout: "", stderr: "" });
+    const res = await GET(new Request("http://local/api/upcoming/print?tail=AgIeZY"));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ printing: true, history_available: false, error: "history_unavailable" });
+    expect(child.calls[0].args).toContain("--status");
+    expect(child.calls[0].args).not.toContain("--model");
+  });
+
   it("GET reads the ledger through --status and never prints", async () => {
     child.reply = () => ({ error: null, stdout: JSON.stringify({ id_tail: "AgIeZY", printed: true, locked_until: null }) + "\n", stderr: "" });
     const res = await GET(new Request("http://local/api/upcoming/print?tail=AgIeZY"));

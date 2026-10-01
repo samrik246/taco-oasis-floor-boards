@@ -104,3 +104,11 @@ Tests: `tests/t4g-imprimir.test.ts` (gates and child contract, child faked);
 `tests/t4g-imprimir-real.test.ts` and `playwright.t4g-print.config.ts` run the
 real CLI against a fake Epson on 127.0.0.1 when `T4G_PRINT_TEST_DIR` and
 `T4G_PRINT_TEST_PYTHON` are set, and skip otherwise.
+
+## Next-version receipt interface (offline)
+
+The Imprimir entry now opens the receipt picker behind manager access, with a
+separate all-printer diagnostics page at `/receipts`. See `RECEIPTS-OFFLINE.md`
+for the frozen contract and limits. Production has neither an engine dependency
+nor a trusted receipt catalog, so operations remain unavailable/held. No tail
+is converted into a receipt identity; no printer is contacted by the new route.
