@@ -51,18 +51,18 @@ export function schemas(devices: readonly string[] = RECEIPT_DEVICES) {
   return { command, args, document, reviewDocument, review, batch, defaults, observed, status };
 }
 
-const publicSchemas = schemas();
+type PublicSchemas = ReturnType<typeof schemas>;
 export type Op = typeof OPS[number];
 export type Role = typeof ROLES[number];
 export type Reason = typeof REASONS[number];
 export type Observation = typeof OBSERVATIONS[number];
-export type Command = { [K in Op]: { schema: "receipt-browser/v1"; request_id: string; op: K; args: z.infer<typeof publicSchemas.args[K]> } }[Op];
-export type Review = z.infer<typeof publicSchemas.review>;
-export type Document = z.infer<typeof publicSchemas.document>;
-export type Batch = z.infer<typeof publicSchemas.batch>;
-export type Defaults = z.infer<typeof publicSchemas.defaults>;
-export type Status = z.infer<typeof publicSchemas.status>;
-export type Observed = z.infer<typeof publicSchemas.observed>;
+export type Command = { [K in Op]: { schema: "receipt-browser/v1"; request_id: string; op: K; args: z.infer<PublicSchemas["args"][K]> } }[Op];
+export type Review = z.infer<PublicSchemas["review"]>;
+export type Document = z.infer<PublicSchemas["document"]>;
+export type Batch = z.infer<PublicSchemas["batch"]>;
+export type Defaults = z.infer<PublicSchemas["defaults"]>;
+export type Status = z.infer<PublicSchemas["status"]>;
+export type Observed = z.infer<PublicSchemas["observed"]>;
 export type Data = Review | Batch | Defaults | Status | Observed;
 export type Recovery = { original_request_id: string; original_op: Op; original_state: Response["state"]; original_reason: Reason | null; original_data: Data | null };
 export type Response = { schema: "receipt-public/v1"; request_id: string | null; op: Op | null; state: "ok" | "refused" | "pending" | "partial" | "unavailable"; reason: Reason | null; data: Data | Recovery | null };

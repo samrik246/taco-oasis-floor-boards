@@ -38,3 +38,20 @@ export const OBSERVATION_COPY: Record<Observation, [string, string]> = {
   duplicate: ["Salió más de una copia", "More than one copy"],
   pending: ["Todavía no lo he revisado", "Not checked yet"],
 };
+
+
+const PROBLEM: Record<NonNullable<Status["last_valid"]>["problems"][number], [string, string]> = {
+  offline: ["Sin conexión", "Offline"],
+  cover_open: ["Tapa abierta", "Cover open"],
+  feed_button: ["Botón de avance activo", "Feed button active"],
+  paper_end_stop: ["Impresión detenida por falta de papel", "Stopped at paper end"],
+  error_occurred: ["Error de la impresora", "Printer error"],
+  autocutter_error: ["Error del cortador", "Cutter error"],
+  unrecoverable_error: ["Error que requiere atención", "Error requiring attention"],
+  auto_recoverable_error: ["Error recuperable", "Recoverable error"],
+  paper_out: ["Sin papel", "Out of paper"],
+};
+export function priorObservationDetails(observation: NonNullable<Status["last_valid"]>, locale: ReceiptLocale) {
+  return [...observation.problems.map((p) => PROBLEM[p][locale === "es" ? 0 : 1]),
+    ...observation.warnings.map(() => words(locale, "Revisar papel", "Check paper"))];
+}

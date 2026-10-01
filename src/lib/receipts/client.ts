@@ -2,7 +2,9 @@ import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { parseJSON, parseResponse, type Command, type Response } from "./protocol";
 
 export type ReceiptTransport = (command: Command, token: string) => Promise<Response>;
-export const requestId = () => crypto.randomUUID().replaceAll("-", "");
+// getRandomValues is available on the existing HTTP tablet origin as well as
+// secure origins. No time/random fallback may weaken the 128-bit request ID.
+export const requestId = () => [...crypto.getRandomValues(new Uint8Array(16))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 export const receiptTransport: ReceiptTransport = async (command, token) => {
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 12_000);

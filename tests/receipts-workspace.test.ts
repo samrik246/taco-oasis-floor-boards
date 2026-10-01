@@ -143,3 +143,20 @@ it("cached/explicit diagnostics target one device and failed refresh never promo
   await h.click("Prepare test"); expect(transport.mock.calls.at(-1)?.[0]).toMatchObject({ op: "prepare_test", args: { device_id: devices[0], mode: "manager_test" } });
   expect(transport.mock.calls.some(([c]) => c.op === "submit")).toBe(false);
 });
+
+for (const locale of ["es", "en"] as const) for (const phase of ["failed", "busy", "throttled", "expired"] as const) it(`${locale}: RP1 retains all dated paper/cover faults after ${phase}`, async () => {
+  const prior = { ...status(), last_request_at: "2026-10-01T04:01:05.000Z", last_probe_at: "2026-10-01T04:01:05.000Z", last_valid: { observed_at: "2026-10-01T04:00:00.000Z", expires_at: "2026-10-01T04:01:00.000Z", condition: "blocked" as const, identity_match: true as const, problems: ["paper_out", "cover_open"] as const, warnings: ["paper_near_end"] as const } };
+  const old = { ...prior.last_valid, problems: [...prior.last_valid.problems], warnings: [...prior.last_valid.warnings] };
+  const result = { ...prior, last_valid: old, last_outcome: phase === "expired" ? "valid" as const : phase, condition: phase === "expired" ? "stale" as const : phase === "throttled" ? "rate_limited" as const : phase === "busy" ? "busy" as const : "unknown" as const, display_code: phase === "expired" ? "stale" as const : phase === "throttled" ? "rate_limited" as const : phase === "busy" ? "busy" as const : "no_response" as const };
+  const transport = vi.fn<ReceiptTransport>(async (c) => response(c, result));
+  const h = await mount(transport, locale);
+  await h.click(locale === "es" ? "Consultar estado" : "Check status");
+  const saved = h.host.querySelector('aside[aria-label]')!;
+  expect(saved.textContent).toContain(locale === "es" ? "Último estado conocido" : "Last known status");
+  expect(saved.textContent).toContain(locale === "es" ? "Sin papel" : "Out of paper");
+  expect(saved.textContent).toContain(locale === "es" ? "Tapa abierta" : "Cover open");
+  expect(saved.textContent).toContain(locale === "es" ? "Revisar papel" : "Check paper");
+  expect([...saved.querySelectorAll("time")].map((t) => t.dateTime)).toEqual([old.observed_at, old.expires_at]);
+  expect(h.host.textContent).not.toContain(locale === "es" ? "Sin avisos · respuesta reciente" : "No warnings · recent response");
+  expect(transport).toHaveBeenCalledTimes(1);
+});

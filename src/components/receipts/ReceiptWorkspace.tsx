@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RECEIPT_DEVICES, ROLES, OBSERVATIONS, id, parseResponse, type Command, type Data, type Defaults, type Document, type Op, type Response, type Review, type Role, type Status } from "@/lib/receipts/protocol";
 import { receiptTransport, requestId, type ReceiptTransport } from "@/lib/receipts/client";
-import { documentText, OBSERVATION_COPY, statusText, words, type ReceiptLocale } from "./copy";
+import { documentText, OBSERVATION_COPY, priorObservationDetails, statusText, words, type ReceiptLocale } from "./copy";
 
 export type ReceiptDocumentChoice = { document_handle: string; role: Role };
 type Entry = { request_id: string; op: Op };
@@ -248,6 +248,13 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
           <p>{status?.commissioned_for_orders ? t("Habilitada para pedidos; revisa cada envío en papel.", "Commissioned for orders; check paper after every send.") : t("Pendiente de prueba en papel", "Paper commissioning pending")}</p>
           <p>{t("Última consulta: ", "Last request: ")}{status?.last_request_at ? new Date(status.last_request_at).toLocaleString(locale, { timeZone: "America/Chicago" }) : "—"}</p>
           <p>{t("Última respuesta válida: ", "Last valid response: ")}{status?.last_valid ? new Date(status.last_valid.observed_at).toLocaleString(locale, { timeZone: "America/Chicago" }) : t("Sin respuesta válida registrada.", "No valid response recorded.")}</p>
+          {status?.last_valid && <aside className="my-3 rounded border-2 border-dashed border-neutral-500 bg-neutral-100 p-3" aria-label={t("Último estado conocido", "Last known status")}>
+            <p className="font-bold">{t("Último estado conocido: ", "Last known status: ")}{status.last_valid.condition === "blocked" ? t("Con avisos", "With faults") : t("Sin bloqueo informado", "No blocking fault reported")}</p>
+            <ul>{priorObservationDetails(status.last_valid, locale).map((detail) => <li key={detail}>{detail}</li>)}</ul>
+            <p>{t("Respuesta del ", "Response from ")}<time dateTime={status.last_valid.observed_at}>{new Date(status.last_valid.observed_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</time></p>
+            <p>{t("Validez de esa respuesta hasta ", "That response valid until ")}<time dateTime={status.last_valid.expires_at}>{new Date(status.last_valid.expires_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</time></p>
+            <p>{t("Este dato anterior no confirma cómo está ahora.", "This prior observation does not confirm its current condition.")}</p>
+          </aside>}
           {status?.last_valid && ["failed", "busy", "throttled"].includes(status.last_outcome) && <p>{t("Se conserva la hora de la última respuesta válida. La consulta no se repetirá automáticamente.", "The last valid response time is retained. This check will not repeat automatically.")}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <button className={BUTTON} disabled={busy} onClick={() => void issue(command("status_cached", { device_id: device }))}>{t("Ver registro", "View saved status")}</button>
