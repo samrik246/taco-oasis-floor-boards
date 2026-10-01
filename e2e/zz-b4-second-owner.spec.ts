@@ -61,6 +61,11 @@ for (const locale of ["es", "en"] as const) {
   test(`${locale}: real alternate-time approval reaches both unsigned boards`, async ({ page, context }) => {
     // This file runs last, in one worker. Only its disposable current-date world is replaced.
     await db.staffBreak.deleteMany({ where: { date } });
+    await db.boardOverlay.deleteMany({ where: { date } });
+    await db.mandatoryMark.deleteMany({ where: { date } });
+    // Removed shifts still own unique station/hour rows. Clear this fixture's
+    // station windows in the disposable database before installing its crew.
+    await db.assignment.deleteMany({ where: { stationId: { in: [...MANDATORY_STATIONS_BY_BOARD.cocina] }, hourStart: { gte: at("8:00 am"), lt: at("4:00 pm") } } });
     await db.shift.updateMany({ where: { date }, data: { boardRemoved: true } });
     const tag = `second-owner-${locale}-${Date.now()}`;
     let asker = "", cover = "";
@@ -74,6 +79,7 @@ for (const locale of ["es", "en"] as const) {
       if (!stationId) cover = employee.id;
       if (stationId) await db.assignment.createMany({ data: Array.from({ length: 8 }, (_, j) => ({ employeeId: employee.id, shiftId: shift.id, stationId, hourStart: new Date(at("8:00 am").getTime()+j*3600000), hourEnd: new Date(at("8:00 am").getTime()+(j+1)*3600000) })) });
     }
+    await db.employeeStationAbility.create({ data: { employeeId: cover, stationId: "pdf_guia", level: "ok" } });
     const pending = await db.staffBreak.create({ data: { employeeId: asker, shiftId: members.find(p => p.id === asker)!.shiftId, date, board: "cocina", actor: asker, status: "pending", startAt: at("2:00 pm"), endAt: at("2:30 pm") } });
     const manager = await db.manager.create({ data: { name: "Gerente Ejemplo", role: "owner", active: true, longIdle: true, codeHash: hashManagerCode(`${tag}-credential`) } });
     const paintBefore = await db.assignment.findMany({ where: { shiftId: { in: members.map(p => p.shiftId) } }, orderBy: { id: "asc" } });
