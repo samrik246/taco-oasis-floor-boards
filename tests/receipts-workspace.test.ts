@@ -371,7 +371,7 @@ for (const locale of ["es", "en"] as const) for (const which of [1, 2] as const)
   // Use the document's synthetic destination explicitly, independent of saved routes.
   await act(async () => { const select = h.host.querySelector<HTMLSelectElement>('select[aria-label$="FRIO"]')!; select.value = devices[0]; select.dispatchEvent(new Event("change", { bubbles: true })); });
   await h.click(locale === "es" ? "Revisar boletos y destinos" : "Review tickets and destinations");
-  await h.click(locale === "es" ? "Imprimir 1 boletos" : "Print 1 tickets");
+  await h.click(locale === "es" ? "Imprimir 1 boleto" : "Print 1 ticket");
   expect(h.host.querySelectorAll('[data-testid="receipt-history-group"]')).toHaveLength(1);
   const old = h.host.querySelector('[data-testid="receipt-history-group"]')!.textContent;
   await h.click((locale === "es" ? "Revisar registro " : "Review record ") + "2");
