@@ -45,6 +45,8 @@ class Service:
 
     def stop(self):
         if not self.state.exists():
+            if not port_idle(self.port):
+                raise ValueError('SERVICE_UNOWNED_LISTENER')
             return
         state = json.loads(self.state.read_text())
         if state['app'] != str(self.app) or state['database'] != str(self.database):

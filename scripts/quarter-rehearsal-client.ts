@@ -2,6 +2,7 @@
 import {randomUUID} from "node:crypto";
 import {writeFileSync,readFileSync} from "node:fs";
 import {z} from "zod";
+import {canonicalJson} from "../src/lib/quarter/client/primitives";
 const [origin,date,shiftId,output,mode="write",prior]=process.argv.slice(2);
 const url=new URL(origin);if(url.hostname!=="127.0.0.1"||url.protocol!=="http:"||!process.env.FLOOR_BOARDS_TEST_ROOT)throw new Error("SYNTHETIC_LOOPBACK_REQUIRED");
 z.iso.date().parse(date);
@@ -15,8 +16,9 @@ async function main(){
   if(mode==="replay"){
     const original=JSON.parse(readFileSync(prior,"utf8")),receipts=[];
     for(const command of original.requests){const response=await fetch(`${origin}/api/v2/assignments/paint`,{method:"PUT",headers,body:JSON.stringify(command)});if(!response.ok)throw new Error("REHEARSAL_REPLAY_FAILED");receipts.push(await response.json());}
-    if(JSON.stringify(receipts)!==JSON.stringify(original.receipts))throw new Error("REHEARSAL_RECEIPTS_CHANGED");
-    writeFileSync(output,JSON.stringify({receipts,snapshot:await snapshot()})+"\n");return;
+    writeFileSync(output,JSON.stringify({receipts,snapshot:await snapshot()})+"\n");
+    if(canonicalJson(receipts)!==canonicalJson(original.receipts))throw new Error("REHEARSAL_RECEIPTS_CHANGED");
+    return;
   }
   const receipts:unknown[]=[],requests:unknown[]=[];
   for(const intents of [[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],

@@ -157,6 +157,23 @@ describe("quarter foundation review boundaries",()=>{
       expect(await db.importBatch.count()).toBe(before);expect(await worldRevision(db)).toBe(revision);
     },db);
   },40_000);
+  it("the migration child inherits only its live direct parent's exact sole claim",async()=>{
+    const dir=releaseLockPathFor(quarterAppDir());
+    const run=(claim:string)=>new Promise<{code:number|null;output:string}>(resolve=>{
+      const processChild=spawn(process.execPath,["--import",path.join(repo,"node_modules/tsx/dist/loader.mjs"),path.join(repo,"scripts/quarter-migrate.ts"),"--controller-claim",claim],{cwd:repo,env:process.env,stdio:["ignore","pipe","pipe"]});
+      let output="";processChild.stdout.on("data",part=>output+=part);processChild.stderr.on("data",part=>output+=part);processChild.on("close",code=>resolve({code,output}));
+    });
+    await withReleaseLease(async()=>{
+      const claim=fs.readdirSync(dir).find(name=>name.startsWith(`${process.pid}.`))!;
+      const before=await db.$queryRawUnsafe("SELECT * FROM QuarterSchema");
+      expect(await run(claim)).toMatchObject({code:0});
+      expect(await db.$queryRawUnsafe("SELECT * FROM QuarterSchema")).toEqual(before);
+      expect(fs.existsSync(path.join(dir,claim))).toBe(true);
+      const wrong=await run(`1.${"a".repeat(32)}`);expect(wrong.code).not.toBe(0);expect(wrong.output).toContain("CONTROLLER_PARENT_REQUIRED");
+      const rival=path.join(dir,`${process.pid}.rival`);fs.writeFileSync(rival,"");
+      try{const busy=await run(claim);expect(busy.code).not.toBe(0);expect(busy.output).toContain("RELEASE_LEASE_LOST");}finally{fs.unlinkSync(rival);}
+    },db);
+  },15000);
   it("legacy duplicate imports include original metadata and folder receipt replay is labeled accurately",async()=>{
     const csv=syntheticCsv([{employeeId:"imported",firstName:"Synthetic",lastName:"Fixture",position:"Caja - Regular",date,start:"1:00 pm",end:"2:00 pm"}]);
     const parsed=await parseSchedulesCsv(Buffer.from(csv));

@@ -31,12 +31,14 @@ def ignored(name):
     return name == '.next/cache' or name.startswith('.next/cache/') or '__pycache__' in PurePosixPath(name).parts
 
 
-def inventory(app, dependencies=True):
+def inventory(app, dependencies=True, roots=None):
     app = Path(app).absolute()
     if app.resolve(strict=True) != app:
         raise ValueError('ARTIFACT_ROOT_LINK')
     result = []
-    roots = ROOTS + (['node_modules'] if dependencies else [])
+    roots = roots if roots is not None else ROOTS + (['node_modules'] if dependencies else [])
+    if not set(roots).issubset(set(ROOTS + ['node_modules'])):
+        raise ValueError('ARTIFACT_ROOT_FORBIDDEN')
     for root in roots:
         start = app / root
         if not start.exists():

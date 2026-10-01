@@ -56,6 +56,7 @@ export async function migrateQuarterStorage(client: PrismaClient): Promise<{ dat
     const prior = await quarterState(db);
     if (prior) {
       await verifyQuarterSchema(db);
+      await assertReleaseLease();
       return { databaseEpoch: prior.databaseEpoch, repeated: true };
     }
     // Refuse partial installations or non-Prisma date storage. Never coerce source rows.
@@ -69,6 +70,7 @@ export async function migrateQuarterStorage(client: PrismaClient): Promise<{ dat
     await db.$executeRawUnsafe("INSERT INTO QuarterWorldRevision VALUES (1,0)");
     for (const sql of QUARTER_MIGRATION.filter(s => s.startsWith("CREATE TRIGGER"))) await db.$executeRawUnsafe(sql);
     await verifyQuarterSchema(db);
+    await assertReleaseLease();
     return { databaseEpoch, repeated: false };
   }, { timeout: 30_000, maxWait: 10_000 });
 }

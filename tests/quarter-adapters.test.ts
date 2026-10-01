@@ -85,11 +85,12 @@ describe("quarter server adapters and data preservation",()=>{
     const today=await shift("usage-today",{date:nextDate,start:+chicagoHourStart(nextDate,13),end:+chicagoHourStart(nextDate,14)});
     const oldDate="2038-09-14",old=await shift("usage-old",{date:oldDate,start:+chicagoHourStart(oldDate,13),end:+chicagoHourStart(oldDate,14)});
     for(const source of [a,b,other,today,old])await db.assignment.create({data:{shiftId:source.id,employeeId:source.employeeId,stationId:"green1",hourStart:source.startAt,hourEnd:source.endAt}});
-    await activate();
     const before=await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1","purple1"]));
     expect(before).toEqual([{stationId:"green1",count:60},{stationId:"purple1",count:0}]);
     // The legacy cross-board anomaly proves read scoping; remove it before validating new writes.
     await db.assignment.deleteMany({where:{shiftId:other.id}});
+    await activate();
+    expect(await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1","purple1"]))).toEqual(before);
     await paint("usage-a","13:00","green1");
     expect(await db.$transaction(tx=>loadIntervalStationUse(tx,"caja",nextDate,["green1","purple1"]))).toEqual(before);
     await paint("usage-a","13:00",null);

@@ -36,7 +36,7 @@ def run_command(root, argv, database):
         raise ValueError('REHEARSAL_COMMAND_FAILED:' + str(log))
 
 
-def init(root, date):
+def init(root, date, bootstrap_hourly=False):
     root = Path(root).absolute()
     if root.parent != Path('/tmp').resolve() or not re.fullmatch(r'color-boards-test-[A-Za-z0-9]+', root.name):
         raise ValueError('TEST_DB_ROOT_NOT_DISPOSABLE')
@@ -49,9 +49,13 @@ def init(root, date):
     # The only destructive-schema command in the harness: exclusive empty-file initialization.
     run_command(root, ['node', str(APP / 'node_modules/prisma/build/index.js'), 'db', 'push', '--skip-generate'], database)
     run_command(root, ['node', str(APP / 'node_modules/tsx/dist/cli.mjs'), 'scripts/quarter-rehearsal-init.ts', date], database)
-    run_command(root, ['node', str(APP / 'node_modules/tsx/dist/cli.mjs'), 'scripts/quarter-migrate.ts'], database)
     runtime = copy(APP, root / 'r0', file_hash(APP / MANIFEST), runtime=True)
-    copy(runtime, root / 'app', file_hash(runtime / MANIFEST))
+    if bootstrap_hourly:
+        from quarter_bootstrap_rehearsal import rehearse
+        rehearse(root, APP, runtime, database)
+    else:
+        run_command(root, ['node', str(APP / 'node_modules/tsx/dist/cli.mjs'), 'scripts/quarter-migrate.ts'], database)
+        copy(runtime, root / 'app', file_hash(runtime / MANIFEST))
     value = {'version': 1, 'synthetic': True, 'date': date, 'database': str(database), 'identity': [database.stat().st_dev, database.stat().st_ino], 'r0': {'path': str(runtime), 'manifestSha256': file_hash(runtime / MANIFEST)}}
     atomic_json(root / 'fixture.json', value); atomic_json(root / 'evidence/prepared-guard.json', capture(database))
     return value
@@ -64,6 +68,7 @@ def main():
         p = sub.add_parser(action); p.add_argument('--root', required=True)
         if action == 'init':
             p.add_argument('--date', required=True)
+            p.add_argument('--bootstrap-hourly', action='store_true')
         else:
             p.add_argument('--manifest', required=True)
         if action == 'activate':
@@ -72,7 +77,7 @@ def main():
             p.add_argument('--scenario', choices=SCENARIOS, required=True)
     args = parser.parse_args(); root = Path(args.root).absolute()
     if args.action == 'init':
-        print(canonical(init(root, args.date))); return
+        print(canonical(init(root, args.date, args.bootstrap_hourly))); return
     value, database = fixture(root); os.environ['FLOOR_BOARDS_TEST_ROOT'] = str(root); os.environ['DATABASE_URL'] = 'file:' + str(database)
     packet = load_packet(args.manifest)
     if args.action == 'check-migration-repeat':

@@ -19,6 +19,8 @@
   "scripts/quarter_artifacts.py",
   "scripts/quarter_guard.py",
   "scripts/quarter_release.py",
+  "scripts/quarter_bootstrap.py",
+  "scripts/quarter_bootstrap_rehearsal.py",
   "scripts/quarter-rehearse.py",
   "scripts/quarter-agent.ts",
   "scripts/quarter-control.ts",

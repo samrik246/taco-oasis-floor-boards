@@ -13,6 +13,7 @@ import quarter_guard as guard
 import quarter_release as release
 import quarter_importers as importers
 import quarter_service as service_runtime
+import quarter_bootstrap as bootstrap
 from unittest.mock import Mock
 from datetime import datetime, timezone
 
@@ -32,7 +33,7 @@ class ControllerChecks(unittest.TestCase):
             db.execute("INSERT INTO Manager(id,name,codeHash) VALUES('m','Synthetic','excluded-one')")
         self.app = self.root / 'app'; self.app.mkdir(); self.run = self.root / 'run'
         self.packet = self.root / 'packet.json'
-        self.packet.write_text(json.dumps({'version':1,'controllerSha256':guard.file_hash(release.__file__),'currentManifestSha256':'initial','r0':{'path':'r0','manifestSha256':'r0'},'candidate':{'path':'candidate','manifestSha256':'candidate'}}))
+        self.packet.write_text(json.dumps({'version':1,'controllerSha256':guard.file_hash(release.__file__),'currentManifestSha256':'initial','legacy':{},'r0':{'path':'r0','manifestSha256':'r0'},'candidate':{'path':'candidate','manifestSha256':'candidate'}}))
         self.events = []; self.serving = True
         outer = self
         class Service:
@@ -68,6 +69,13 @@ class ControllerChecks(unittest.TestCase):
         with patch.object(service_runtime.os,'killpg',side_effect=PermissionError(1,'Operation not permitted')):
             self.assertTrue(service_runtime.group_alive(12345))
 
+    def test_absent_service_record_does_not_authorize_unowned_listener_stop(self):
+        service=service_runtime.Service(self.app,self.db,3100,self.run)
+        with patch.object(service_runtime,'port_idle',return_value=False), patch.object(service_runtime.os,'killpg') as kill:
+            with self.assertRaisesRegex(ValueError,'SERVICE_UNOWNED_LISTENER'):service.stop()
+            kill.assert_not_called()
+        with patch.object(service_runtime,'port_idle',return_value=True):service.stop()
+
     def test_service_exit_race_requires_group_and_port_absence(self):
         service=service_runtime.Service(self.app,self.db,3100,self.run)
         state={'app':str(self.app),'database':str(self.db),'pid':12345,'started':'identity'}
@@ -79,6 +87,66 @@ class ControllerChecks(unittest.TestCase):
         with patch.object(service_runtime,'process_start',return_value='identity'), patch.object(service_runtime.os,'getpgid',side_effect=ProcessLookupError()), patch.object(service_runtime,'group_alive',return_value=False), patch.object(service_runtime,'port_idle',return_value=False):
             with self.assertRaisesRegex(ValueError,'SERVICE_ORPHAN_REQUIRES_REVIEW'):service.stop()
         self.assertTrue(service.state.exists())
+
+    def legacy_database(self):
+        with sqlite3.connect(self.db) as db:
+            definitions=db.execute("SELECT sql FROM sqlite_master WHERE type='table'").fetchall()
+            quarter=[row[0] for row in definitions if any(('"'+table+'"') in row[0] for table in guard.QUARTER_TABLES)]
+            for table in guard.QUARTER_TABLES:db.execute('DROP TABLE '+guard.quote(table))
+        return quarter
+
+    def run_bootstrap(self, checker=lambda phase:'pass', resume=False, fault=lambda phase:None):
+        def migrate(*args):
+            self.events.append('migrate')
+            with sqlite3.connect(self.db) as db:
+                if not db.execute("SELECT name FROM sqlite_master WHERE name='QuarterSchema'").fetchall():
+                    for ddl in self.quarter_ddl:db.execute(ddl)
+                    db.execute("INSERT INTO QuarterSchema VALUES(1,2,'prepared','new-epoch',1,1,'migration',NULL)")
+        with patch.object(bootstrap,'verify_legacy',return_value='old'), patch.object(bootstrap,'target',return_value={}), patch.object(bootstrap.artifacts,'verify',return_value={}), patch.object(bootstrap,'promote',side_effect=lambda *args:self.events.append('promote')), patch.object(bootstrap,'migrate',side_effect=migrate):
+            return bootstrap.bootstrap(self.packet,self.app,self.db,self.run,self.service,checker,resume=resume,fault=fault)
+
+    def test_bootstrap_additive_transition_preserves_legacy_data_and_file(self):
+        self.quarter_ddl=self.legacy_database();before=bootstrap.before_migration(self.db)
+        self.assertEqual(self.run_bootstrap(),'accepted')
+        after=guard.capture(self.db);bootstrap.migration_preserved(before,after,self.db)
+        self.assertEqual(after['state'][1],'prepared');self.assertTrue(self.serving)
+        self.assertEqual(self.events,['stop','promote','migrate','start','readback'])
+
+    def test_bootstrap_active_or_partial_refuses_before_stop(self):
+        with patch.object(bootstrap,'target',return_value={}), patch.object(bootstrap,'verify_legacy',return_value='old'):
+            with self.assertRaisesRegex(ValueError,'PREPARED_EMPTY'):
+                bootstrap.bootstrap(self.packet,self.app,self.db,self.run,self.service,lambda phase:'pass')
+            self.assertEqual(self.events,[])
+            with sqlite3.connect(self.db) as db:db.execute('DROP TABLE PaintHour')
+            with self.assertRaisesRegex(ValueError,'PARTIAL_SCHEMA'):
+                bootstrap.bootstrap(self.packet,self.app,self.db,self.run,self.service,lambda phase:'pass')
+            self.assertEqual(self.events,[])
+
+    def test_bootstrap_rejection_stops_and_resume_keeps_acknowledged_writes(self):
+        self.quarter_ddl=self.legacy_database()
+        def checker(phase):
+            with sqlite3.connect(self.db) as db:db.execute("INSERT INTO BoardChangeLog(id,summary) VALUES('ack','prepared write')")
+            return 'reject'
+        self.assertEqual(self.run_bootstrap(checker),'recovery-blocked');self.assertFalse(self.serving)
+        before=guard.capture(self.db)
+        self.assertEqual(self.run_bootstrap(resume=True),'accepted')
+        guard.preserved(before,guard.capture(self.db));self.assertTrue(self.serving)
+
+    def test_bootstrap_resume_refuses_rebound_packet_and_changed_original_data(self):
+        self.quarter_ddl=self.legacy_database()
+        def fault(phase):
+            if phase=='before-migrate':raise ValueError('stopped-before-migration')
+        self.assertEqual(self.run_bootstrap(fault=fault),'recovery-blocked')
+        with sqlite3.connect(self.db) as db:db.execute("UPDATE Manager SET name='Changed'")
+        with self.assertRaisesRegex(ValueError,'PRESERVATION_CHANGED:Manager'):self.run_bootstrap(resume=True)
+        p=json.loads(self.packet.read_text());p['changed']=True;self.packet.write_text(json.dumps(p))
+        with self.assertRaisesRegex(ValueError,'RESUME_BINDING_MISMATCH'):self.run_bootstrap(resume=True)
+
+    def test_bootstrap_guard_rejects_legacy_ddl_changes(self):
+        self.quarter_ddl=self.legacy_database();before=bootstrap.before_migration(self.db)
+        with sqlite3.connect(self.db) as db:db.execute('ALTER TABLE BoardChangeLog ADD COLUMN unexpected TEXT')
+        with self.assertRaisesRegex(ValueError,'EXISTING_DDL_CHANGED:BoardChangeLog'):
+            bootstrap.migration_preserved(before,guard.capture(self.db,include_quarter=False),self.db)
 
     def test_guard_excludes_credentials_and_detects_interval_and_schema_change(self):
         before=guard.capture(self.db)

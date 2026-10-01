@@ -50,6 +50,7 @@ def require_lease(directory, claim):
     claims = [p.name for p in directory.iterdir() if re.fullmatch(r'[1-9][0-9]*\.[A-Za-z0-9]+', p.name)]
     if claims != [claim.name]:
         raise ValueError('RELEASE_LEASE_LOST')
+    return claim.name
 
 
 def load_packet(path):
@@ -212,7 +213,7 @@ def cutover(packet_path, app, database, run, operation, service, checker, fault=
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['install', 'rollback', 'activate'])
+    parser.add_argument('operation', choices=['install', 'rollback', 'activate', 'bootstrap', 'bootstrap-resume'])
     for name in ('packet', 'app', 'database', 'run'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--port', type=int, default=3100)
@@ -221,7 +222,11 @@ def main():
         Path(args.run).mkdir(parents=True, exist_ok=True); activate(args.packet, args.app, args.database, Path(args.run) / 'events.jsonl'); return
     from quarter_service import Service, checker_wait
     service = Service(args.app, args.database, args.port, args.run)
-    result = cutover(args.packet, args.app, args.database, args.run, args.operation, service, lambda phase: checker_wait(args.run, phase))
+    if args.operation.startswith('bootstrap'):
+        from quarter_bootstrap import bootstrap
+        result = bootstrap(args.packet, args.app, args.database, args.run, service, lambda phase: checker_wait(args.run, phase), resume=args.operation == 'bootstrap-resume')
+    else:
+        result = cutover(args.packet, args.app, args.database, args.run, args.operation, service, lambda phase: checker_wait(args.run, phase))
     print(canonical({'outcome': result}))
     if result == 'recovery-blocked':
         raise SystemExit(2)

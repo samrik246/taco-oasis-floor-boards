@@ -9,7 +9,8 @@ async function session(){
 }
 const api={
  async save(){
-  const {scope,token}=await session(),response=await fetch(`/api/v2/boards/caja/days/${date}`);
+  const {scope,token}=await session(),response=await fetch(`/api/v2/boards/caja/days/${date}`,{headers:{"x-manager-session":token}});
+  if(!response.ok)throw new Error(`synthetic day read failed: ${response.status}`);
   const day=publicDaySchema.parse(await response.json()),source=day.sources.find(s=>s.shiftId==="r0-http-source")!;
   const hours=day.hours.filter(h=>h.shiftId===source.shiftId).map(h=>h.revision===null?{shiftId:h.shiftId,hourStart:h.hourStart,revision:null,legacySha256:h.legacySha256}:{shiftId:h.shiftId,hourStart:h.hourStart,revision:h.revision});
   return savedAction(scope,day,"assignments/operations",{operation:"whole-shift",board:"caja",sources:[source],hours,shiftId:source.shiftId,stationId:"green1"},token);
