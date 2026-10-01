@@ -13,7 +13,10 @@ const bundle=buildSync({entryPoints:["scripts/quarter-rehearsal-browser-client.t
 async function main(){
  const context=await chromium.launchPersistentContext(profile,{headless:true,args:["--host-resolver-rules=MAP floor-boards.test 127.0.0.1","--no-proxy-server"]});
  try{
-  const page=await context.newPage();await page.goto("http://floor-boards.test:3100/__quarter-recovery-storage");await page.addScriptTag({content:bundle});
+  const page=await context.newPage();
+  if(mode==="inspect")await context.route("**/*",route=>route.request().url()==="http://floor-boards.test:3100/__quarter-recovery-storage"
+    ?route.fulfill({status:200,contentType:"text/html",body:"<!doctype html><title>Synthetic storage inspection</title>"}):route.abort());
+  await page.goto("http://floor-boards.test:3100/__quarter-recovery-storage");await page.addScriptTag({content:bundle});
   if(await page.evaluate(()=>isSecureContext||typeof navigator.locks!=="undefined"))throw new Error("ORDINARY_HTTP_REQUIRED");
   let result:unknown;
   if(mode==="seed"){

@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -66,6 +67,48 @@ class EditorTests(unittest.TestCase):
         with sqlite3.connect(self.db) as db:
             db.execute('INSERT INTO "Assignment" VALUES (?,?,?,?,?,?)',
                        ("cell", "shift", "person", "green1", hour, hour + 3600000))
+
+    def test_active_and_unknown_schema_refuse_before_describe_or_backup(self):
+        path,digest=self.packet([self.ability()])
+        with sqlite3.connect(self.db) as db:
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'active')")
+        for phase in ('active','unknown'):
+            with sqlite3.connect(self.db) as db:db.execute('UPDATE QuarterSchema SET phase=?',(phase,))
+            for apply in (False,True):
+                with patch.object(edit_board,'describe') as describe, patch.object(edit_board,'backup_database') as backup:
+                    with self.assertRaisesRegex(edit_board.Refusal,'QUARTER_PROTOCOL_REQUIRED'):
+                        edit_board.run(self.app,path,digest,apply)
+                    describe.assert_not_called();backup.assert_not_called()
+        self.assertEqual(self.query('SELECT level FROM EmployeeStationAbility'),[('forbidden',)])
+        self.assertFalse((self.app/'var/backups').exists())
+
+    def test_actual_cli_refuses_active_preflight_and_apply_without_backup(self):
+        path,digest=self.packet([self.ability()])
+        with sqlite3.connect(self.db) as db:
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'active')")
+        for mode in ('--preflight-only','--apply'):
+            result=subprocess.run([sys.executable,str(SCRIPT),'--app-dir',str(self.app),'--packet',str(path),'--expected-packet-sha256',digest,mode],capture_output=True,text=True)
+            self.assertEqual(result.returncode,1,result.stderr)
+            self.assertIn('QUARTER_PROTOCOL_REQUIRED',result.stderr)
+        self.assertFalse((self.app/'var/backups').exists())
+        self.assertEqual(self.query('SELECT level FROM EmployeeStationAbility'),[('forbidden',)])
+
+    def test_activation_between_preflight_and_write_lock_refuses(self):
+        path,digest=self.packet([self.ability()])
+        with sqlite3.connect(self.db) as db:
+            db.execute('CREATE TABLE QuarterSchema(id INTEGER PRIMARY KEY,phase TEXT)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,'prepared')")
+        original=edit_board.backup_database
+        def activate_after_backup(*args):
+            result=original(*args)
+            with sqlite3.connect(self.db) as db:db.execute("UPDATE QuarterSchema SET phase='active'")
+            return result
+        with patch.object(edit_board,'backup_database',side_effect=activate_after_backup):
+            with self.assertRaisesRegex(edit_board.Refusal,'QUARTER_PROTOCOL_REQUIRED'):
+                edit_board.run(self.app,path,digest,True)
+        self.assertEqual(self.query('SELECT level FROM EmployeeStationAbility'),[('forbidden',)])
 
     def test_ability_preflight_backup_apply_and_exact_postcheck(self):
         path, digest = self.packet([self.ability()])

@@ -21,8 +21,9 @@ async function main(){
     return;
   }
   const receipts:unknown[]=[],requests:unknown[]=[];
-  for(const intents of [[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],
-    [{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"blue"}]] as const){
+  const batches=mode==="fresh"?[[{shiftId,quarter:"11:00",granularity:"quarter",action:"station",stationId:"yellow"}]] as const:[[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],
+    [{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"blue"}]] as const;
+  for(const intents of batches){
     const day=await getDay();const command={protocol:2,requestId:randomUUID(),capabilitySha256:day.capabilitySha256,board:"caja",date,expected:{databaseEpoch:day.databaseEpoch,worldRevision:day.worldRevision},
       sources:day.sources.filter((s:{shiftId:string})=>s.shiftId===shiftId),hours:day.hours.filter((h:{shiftId:string})=>h.shiftId===shiftId).map((h:{shiftId:string;hourStart:string;revision:string|null;legacySha256?:string})=>({shiftId:h.shiftId,hourStart:h.hourStart,revision:h.revision,...(h.revision===null?{legacySha256:h.legacySha256}:{})})),intents};
     const response=await fetch(`${origin}/api/v2/assignments/paint`,{method:"PUT",headers,body:JSON.stringify(command)}),receipt=await response.json();

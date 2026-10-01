@@ -1,3 +1,4 @@
+import { firstAutoCover } from "@/lib/breaks/covers";
 import { assessStarGate } from "@/lib/slices/break-gate";
 import { describe,it,expect } from "vitest";
 import { buildDaySlices,type DaySliceInput } from "@/lib/slices/day-slices";
@@ -51,6 +52,12 @@ describe("canonical decision intervals",()=>{
     const result=assessStarGate({...input,employeeId:"a",requesterShiftId:"a",canonical:true,startAt:at(0),endAt:at(30),coverEmployeeId:"b",coverShiftId:"b"});
     expect(result).toMatchObject({status:"booked",coverShiftId:"b"});
     expect(assessStarGate({...input,employeeId:"a",requesterShiftId:"a",canonical:true,startAt:at(0),endAt:at(30),coverEmployeeId:"b",coverShiftId:"absent"})).toEqual({code:"BAD_COVER"});
+  });
+  it("ordinary automatic choice cannot substitute another requester source",()=>{
+    const input=fixture();input.breaks=[];input.shifts=[...input.shifts,{...input.shifts[0],id:"old-requester",endAt:at(0)}];
+    const request={...input,employeeId:"a",canonical:true,startAt:at(0),endAt:at(30),abilities:[],names:new Map(input.shifts.map(s=>[s.employeeId,s.employeeId]))};
+    expect(firstAutoCover({...request,requesterShiftId:"a"})).not.toBeNull();
+    expect(firstAutoCover({...request,requesterShiftId:"old-requester"})).toBeNull();
   });
   it("refuses an ambiguous overlapping source even when a cover source is explicitly selected",()=>{
     const input=fixture();input.breaks=[];input.shifts=[{...input.shifts[1],id:"shadow"},...input.shifts];

@@ -7,13 +7,19 @@ from pathlib import Path
 import re
 import subprocess
 import time
+# Ignore all cached application bytecode before importing the pinned source modules.
+import sys
+sys.dont_write_bytecode = True
+sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
+if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
+    raise ValueError('Packet bytecode prefix must remain absent')
 from quarter_guard import canonical, capture, disposable, file_hash, preserved
 from quarter_artifacts import MANIFEST, atomic_json, copy, verify
 from quarter_release import activate, load_packet, record
 
 APP = Path(__file__).resolve().parent.parent
 SCENARIOS = ['normal-r0-q1-r0-q1', 'explicit-rollback-after-write', 'checker-reject-after-write', 'checker-timeout-after-write',
-             'recovery-failure-offline', 'incompatible-target-never-starts', 'r0-self-rollback', 'r0-self-reject', 'r0-self-timeout', 'r0-self-blocked', 'r0-self-incompatible']
+             'recovery-failure-offline', 'incompatible-target-never-starts', 'r0-self-rollback', 'r0-self-reject', 'r0-self-timeout', 'r0-self-blocked', 'r0-self-incompatible', *['r0-self-fault-' + phase for phase in ('before-promote','after-promote','after-start','readback','recovery-verify')]]
 
 
 def fixture(root):
@@ -64,7 +70,7 @@ def init(root, date, bootstrap_hourly=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
-    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify'):
+    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify', 'picker-matrix', 'importer-proofs'):
         p = sub.add_parser(action); p.add_argument('--root', required=True)
         if action == 'init':
             p.add_argument('--date', required=True)
@@ -73,6 +79,8 @@ def main():
             p.add_argument('--manifest', required=True)
         if action == 'activate':
             p.add_argument('--inventory', required=True); p.add_argument('--client-evidence', required=True)
+        if action == 'picker-matrix':
+            p.add_argument('--mode', choices=['before','after'], required=True)
         if action == 'run':
             p.add_argument('--scenario', choices=SCENARIOS, required=True)
     args = parser.parse_args(); root = Path(args.root).absolute()
@@ -80,6 +88,15 @@ def main():
         print(canonical(init(root, args.date, args.bootstrap_hourly))); return
     value, database = fixture(root); os.environ['FLOOR_BOARDS_TEST_ROOT'] = str(root); os.environ['DATABASE_URL'] = 'file:' + str(database)
     packet = load_packet(args.manifest)
+    if args.action == 'importer-proofs':
+        from quarter_rehearsal_importers import run
+        run(root,value,database);return
+    if args.action == 'picker-matrix':
+        app=root/'app';verify(app,file_hash(app/MANIFEST),database)
+        output=root/'evidence'/('picker-matrix-'+args.mode+'.json')
+        if output.exists():raise ValueError('PICKER_MATRIX_EVIDENCE_EXISTS')
+        run_command(root,['node',str(app/'node_modules/tsx/dist/cli.mjs'),'--tsconfig',str(app/'tsconfig.json'),str(app/'scripts/quarter-rehearsal-picker-matrix.ts'),value['date'],args.mode,str(output),str(root/'evidence/picker-matrix-before.json')],database)
+        record(root/'evidence/rehearsal.jsonl','picker-matrix-proof',mode=args.mode,evidenceSha256=file_hash(output));return
     if args.action == 'check-migration-repeat':
         before = capture(database)
         run_command(root, ['node', str(APP / 'node_modules/tsx/dist/cli.mjs'), 'scripts/quarter-migrate.ts'], database)

@@ -94,11 +94,35 @@ class Service:
         env = dict(os.environ, DATABASE_URL='file:' + str(self.database), NEXT_TELEMETRY_DISABLED='1')
         with (self.run / ('server-' + str(time.time_ns()) + '.log')).open('wb') as output:
             child = subprocess.Popen(['node', str(self.app / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1', '-p', str(self.port)], cwd=self.app, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
-        started = process_start(child.pid)
-        if not started:
-            raise ValueError('SERVICE_START_FAILED')
-        atomic_json(self.state, {'pid': child.pid, 'started': started, 'app': str(self.app), 'database': str(self.database), 'manifestSha256': file_hash(self.app / 'QUARTER_ARTIFACT.json')})
-        self.child = child
+        self.child = child  # Keep ownership even if publishing the disk record fails.
+        try:
+            started = process_start(child.pid)
+            if not started:
+                raise ValueError('SERVICE_START_FAILED')
+            atomic_json(self.state, {'pid': child.pid, 'started': started, 'app': str(self.app), 'database': str(self.database), 'manifestSha256': file_hash(self.app / 'QUARTER_ARTIFACT.json')})
+        except BaseException:
+            if self.state.exists():
+                self.stop()
+            else:
+                # An unreaped live Popen child cannot have its PID reused. Never signal
+                # a group after that direct child has gone away without an identity record.
+                for sig, seconds in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
+                    if child.poll() is not None:
+                        break
+                    try:
+                        if os.getpgid(child.pid) != child.pid:
+                            raise ValueError('SERVICE_PROCESS_CHANGED')
+                        os.killpg(child.pid, sig)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        child.wait(timeout=seconds)
+                    except subprocess.TimeoutExpired:
+                        continue
+                    break
+                if self.owned_group_alive(child.pid) or not port_idle(self.port):
+                    raise ValueError('SERVICE_UNPUBLISHED_CLEANUP_REQUIRED')
+            raise
 
     def readback(self):
         manifest = json.loads((self.app / 'QUARTER_ARTIFACT.json').read_text())

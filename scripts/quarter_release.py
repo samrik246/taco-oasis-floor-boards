@@ -8,6 +8,12 @@ import re
 import shutil
 import time
 import uuid
+# Ignore all cached application bytecode before importing the pinned source modules.
+import sys
+sys.dont_write_bytecode = True
+sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
+if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
+    raise ValueError('Packet bytecode prefix must remain absent')
 from quarter_guard import canonical, capture, connect, file_hash, hash_value, preserved
 import quarter_artifacts as artifacts
 

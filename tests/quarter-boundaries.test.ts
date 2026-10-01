@@ -41,6 +41,8 @@ import { parseSchedulesCsv } from "@/lib/parser/schedule-parser";
 import { syntheticCsv } from "./helpers/synthetic-schedule";
 import { chicagoToday } from "@/lib/upcoming/source";
 import { chicagoHourStart } from "@/lib/hour-grid";
+import { pickDueCovers } from "@/lib/breaks/auto-pick";
+import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { releaseLockPathFor } from "@/lib/release-lock";
 
 const testRoot=process.env.FLOOR_BOARDS_TEST_ROOT!;
@@ -157,6 +159,19 @@ describe("quarter foundation review boundaries",()=>{
       expect(await db.importBatch.count()).toBe(before);expect(await worldRevision(db)).toBe(revision);
     },db);
   },40_000);
+  it("active pending picker ends a stale requester ID without substituting their current shift",async()=>{
+    for(const stationId of MANDATORY_STATIONS_BY_BOARD.caja){
+      const shift=await source(stationId);
+      await db.assignment.create({data:{shiftId:shift.id,employeeId:stationId,stationId,hourStart:now,hourEnd:new Date(hour+3600000)}});
+    }
+    await source("auxiliary",{board:"other"});
+    await db.shift.create({data:{id:"ended-requester",employeeId:"green1",date,board:"caja",sourcePosition:"Caja",startAt:new Date(hour-3600000),endAt:now}});
+    await db.staffBreak.create({data:{id:"stale-requester",employeeId:"green1",shiftId:"ended-requester",board:"caja",date,startAt:now,endAt:new Date(hour+900000),status:"pending",actor:"staff"}});
+    await activate();
+    expect(await pickDueCovers(new Date(hour-300000),db)).toEqual({picked:0,rolled:0,ended:1});
+    expect(await pickDueCovers(new Date(hour-300000),db)).toEqual({picked:0,rolled:0,ended:0});
+    expect(await db.staffBreak.findUnique({where:{id:"stale-requester"}})).toMatchObject({status:"ended",shiftId:"ended-requester",coverEmployeeId:null,coverShiftId:null});
+  });
   it("the migration child inherits only its live direct parent's exact sole claim",async()=>{
     const dir=releaseLockPathFor(quarterAppDir());
     const run=(claim:string)=>new Promise<{code:number|null;output:string}>(resolve=>{
@@ -166,7 +181,7 @@ describe("quarter foundation review boundaries",()=>{
     await withReleaseLease(async()=>{
       const claim=fs.readdirSync(dir).find(name=>name.startsWith(`${process.pid}.`))!;
       const before=await db.$queryRawUnsafe("SELECT * FROM QuarterSchema");
-      expect(await run(claim)).toMatchObject({code:0});
+      const inherited=await run(claim);expect(inherited.code,inherited.output).toBe(0);
       expect(await db.$queryRawUnsafe("SELECT * FROM QuarterSchema")).toEqual(before);
       expect(fs.existsSync(path.join(dir,claim))).toBe(true);
       const wrong=await run(`1.${"a".repeat(32)}`);expect(wrong.code).not.toBe(0);expect(wrong.output).toContain("CONTROLLER_PARENT_REQUIRED");

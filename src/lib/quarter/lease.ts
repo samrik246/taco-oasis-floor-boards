@@ -37,7 +37,7 @@ export async function assertReleaseLease():Promise<Lease> {
 }
 /** Private migration CLI: the actual direct parent owns the sole, retained release claim. */
 export async function withControllerReleaseLease<T>(claim:string,run:()=>Promise<T>,db:QuarterDb=prisma):Promise<T>{
-  const match=/^([1-9][0-9]*)\.[a-f0-9]{32}$/.exec(claim);
+  const match=/^([1-9][0-9]*)\.[A-Za-z0-9]+$/.exec(claim);
   if(!match||Number(match[1])!==process.ppid)throw new QuarterRefused("CONTROLLER_PARENT_REQUIRED",503);
   const dir=releaseLockPathFor(await quarterLeaseAppDir(db));
   if(await realpath(dir)!==dir)throw new QuarterRefused("RELEASE_LEASE_IDENTITY_MISMATCH",503);

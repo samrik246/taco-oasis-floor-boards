@@ -266,24 +266,28 @@ def backup_database(db, app):
     return backup, sha256(backup)
 
 
+def require_hourly_schema(connection):
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='QuarterSchema'").fetchone():
+        phase = connection.execute("SELECT phase FROM QuarterSchema WHERE id=1").fetchone()
+        if not phase or phase[0] != "prepared":
+            raise Refusal("QUARTER_PROTOCOL_REQUIRED: use the V2 board workflow")
+
+
 def run(app, packet_path, expected_packet_sha, apply):
     packet, packet_sha = read_packet(packet_path)
     if packet_sha != expected_packet_sha:
         raise Refusal("packet SHA-256 differs from reviewed command")
     db = check_app(app, packet["release"])
     with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as connection:
+        require_hourly_schema(connection)
         check_database(connection)
         changes = [describe(connection, op) for op in packet["operations"]]
     if not apply:
         return {"mode": "preflight", "release": packet["release"], "packet_sha256": packet_sha,
                 "changes": changes, "changed": 0}
     connection = sqlite3.connect(db, timeout=10, isolation_level=None)
-    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='QuarterSchema'").fetchone():
-        phase = connection.execute("SELECT phase FROM QuarterSchema WHERE id=1").fetchone()
-        if not phase or phase[0] != "prepared":
-            connection.close()
-            raise RuntimeError("QUARTER_PROTOCOL_REQUIRED: use the V2 board workflow")
     try:
+        require_hourly_schema(connection)
         connection.execute("PRAGMA busy_timeout=10000")
         connection.execute("PRAGMA foreign_keys=ON")
         # data_version changes on this connection when another connection
@@ -292,6 +296,7 @@ def run(app, packet_path, expected_packet_sha, apply):
         before_backup_version = connection.execute("PRAGMA data_version").fetchone()[0]
         backup, backup_sha = backup_database(db, app)
         connection.execute("BEGIN IMMEDIATE")
+        require_hourly_schema(connection)
         if connection.execute("PRAGMA data_version").fetchone()[0] != before_backup_version:
             raise Refusal("database changed after backup; backup is stale and must not be restored; transaction rolled back")
         check_database(connection)

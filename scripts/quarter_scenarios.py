@@ -21,7 +21,7 @@ def run_scenario(root, manifest_file, scenario):
     cases = root / 'evidence/scenarios'; cases.mkdir(exist_ok=True)
     run = cases / scenario; run.mkdir()  # Never reset or overwrite a case.
     index = len(list(cases.iterdir())) - 1
-    if index >= 12:
+    if index >= 32:
         raise ValueError('NEW_REHEARSAL_FIXTURE_REQUIRED')
     app = root / 'app'; r0 = copy(base['r0']['path'], run / 'recovery-target', base['r0']['manifestSha256'])
     packet = dict(base, r0={**base['r0'], 'path': str(r0)}, currentManifestSha256=file_hash(app / MANIFEST))
@@ -73,23 +73,31 @@ def run_scenario(root, manifest_file, scenario):
         for table in before['tables']:
             if table != 'StaffBreakLock' and before['tables'][table] != after['tables'][table]:
                 raise ValueError('REPLAY_CHANGED:' + table)
-    def checker(phase):
+    def acknowledge():
         nonlocal before_recovery
-        if phase == 'recovery':
-            return 'pass'
         client('write', writes)
         browser('seed', browser_seed)
         picker('before')
         client('read', run / 'post-write-read.json')
         before_recovery = capture(database)
         atomic_json(run / 'post-acknowledgement-guard.json', before_recovery)
+    def checker(phase):
+        if phase == 'recovery':
+            return 'pass'
+        acknowledge()
         if scenario.endswith('blocked') or scenario == 'recovery-failure-offline':
             # Tamper only this scenario's recovery copy after successful candidate writes.
             (r0 / MANIFEST).write_text('{}\n')
             return 'reject'
         if 'timeout' in scenario:
             return checker_wait(run, phase, seconds=0.1)
-        return 'reject' if 'reject' in scenario else 'pass'
+        return 'reject' if ('reject' in scenario or scenario.endswith('recovery-verify')) else 'pass'
+    fault_phase = scenario.removeprefix('r0-self-fault-') if scenario.startswith('r0-self-fault-') else None
+    def fault(phase):
+        if phase == fault_phase:
+            if phase in ('after-start', 'readback'):
+                service.readback(); acknowledge()
+            raise ValueError('REHEARSAL_INJECTED:' + phase)
     try:
         if not service.state.exists():
             service.start()
@@ -107,14 +115,16 @@ def run_scenario(root, manifest_file, scenario):
                 raise ValueError('HEALTHY_SERVICE_CHANGED_ON_REFUSAL')
             service.readback(); preserved(before, capture(database)); result = 'preflight-refused'
         else:
-            result = cutover(packet_file, app, database, run / 'cutover', 'install', service, checker)
+            if fault_phase in ('before-promote', 'after-promote'):
+                acknowledge()  # Fresh expectation includes writes accepted before stopping.
+            result = cutover(packet_file, app, database, run / 'cutover', 'install', service, checker, fault)
             if 'rollback' in scenario:
                 packet['currentManifestSha256'] = file_hash(app / MANIFEST); atomic_json(packet_file, packet)
                 result = cutover(packet_file, app, database, run / 'rollback', 'rollback', service, lambda phase: 'pass')
             if before_recovery is None:
                 raise ValueError('ACKNOWLEDGED_CHECKER_WAIT_WRITE_REQUIRED')
             preserved(before_recovery, capture(database))
-            expected = 'recovery-blocked' if ('blocked' in scenario or scenario == 'recovery-failure-offline') else ('recovered' if ('reject' in scenario or 'timeout' in scenario) else 'accepted')
+            expected = 'recovery-blocked' if ('blocked' in scenario or scenario == 'recovery-failure-offline' or fault_phase == 'recovery-verify') else ('recovered' if ('reject' in scenario or 'timeout' in scenario or fault_phase) else 'accepted')
             if result != expected:
                 raise ValueError('RECOVERY_OUTCOME_MISMATCH')
             if result != 'recovery-blocked':
@@ -126,9 +136,14 @@ def run_scenario(root, manifest_file, scenario):
                 browser('reconcile', run / 'browser-reconciled.json')
                 client('replay', run / 'replayed.json', writes)
                 replay_preserved(before_recovery, capture(database))
-            elif service.state.exists():
-                raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')
+                client('fresh', run / 'post-recovery-write.json')
+                client('replay', run / 'post-recovery-replay.json', run / 'post-recovery-write.json')
+                atomic_json(run / 'post-recovery-write-guard.json', capture(database))
+            else:
+                if service.state.exists():
+                    raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')
+                browser('inspect', run / 'browser-offline-preserved.json')
         record(root / 'evidence/rehearsal.jsonl', 'scenario-controller-proof', scenario=scenario, outcome='controller-passed', controllerOutcome=result,
-               pending=['expanded-picker-mismatch-cross-board-shuffle-races','full-importer-and-activation-proofs'], browserStores=bool(before_recovery and result != 'recovery-blocked'), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
+               pending=['expanded-picker-mismatch-cross-board-shuffle-races','full-importer-and-activation-proofs'], browserStores=bool(before_recovery), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
     finally:
         service.stop()

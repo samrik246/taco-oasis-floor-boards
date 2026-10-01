@@ -416,7 +416,7 @@ async function writeBreak(
       loadColumnDefaults(tx),
     ]);
     const coverInput = {
-      canonical:world.canonical,
+      canonical:world.canonical,requesterShiftId:decision.shiftId,
       date: input.date,
       board: decision.board as SliceBoard,
       employeeId: input.employeeId,

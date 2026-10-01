@@ -166,8 +166,9 @@ async function assessHeldWindow(
   startAt: Date,
   endAt: Date,
 ) {
+  const canonical = (await quarterState(tx))?.phase === "active";
   const shifts = await tx.shift.findMany({
-    where: { employeeId: row.employeeId, date: row.date },
+    where: { employeeId: row.employeeId, date: row.date, ...(canonical ? { id: row.shiftId } : {}) },
   });
   const others = await tx.staffBreak.findMany({
     where: { date: row.date, employeeId: { not: row.employeeId } },
@@ -303,6 +304,7 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
     const world = await loadPickWorld(tx, row.date, board);
     const named = namedCoverFirst(row, board, world, row.startAt, row.endAt);
     const ordinary = named ? null : firstAutoCover({
+      requesterShiftId:row.shiftId,
       date: row.date,
       board,
       employeeId: row.employeeId,
@@ -312,9 +314,8 @@ async function applyDue(tx: Prisma.TransactionClient, now: Date): Promise<BreakP
     });
     const choice = named ?? ordinary;
     const held = await assessHeldWindow(tx, row, row.startAt, row.endAt);
-    const ceilingFull = "code" in held && held.code === "CEILING";
     const updatedAt = nextBreakWriteStamp(row.updatedAt.getTime());
-    if (choice && !ceilingFull) {
+    if (choice && !("code" in held)) {
       const wrote = await tx.staffBreak.updateMany({
         where: {
           id: row.id,

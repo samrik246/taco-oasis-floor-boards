@@ -4,6 +4,12 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+# Ignore all cached application bytecode before importing the pinned source modules.
+import sys
+sys.dont_write_bytecode = True
+sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
+if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
+    raise ValueError('Packet bytecode prefix must remain absent')
 from quarter_artifacts import verify, MANIFEST
 from quarter_guard import file_hash, regular
 

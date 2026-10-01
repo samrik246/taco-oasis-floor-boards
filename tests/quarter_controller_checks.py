@@ -65,6 +65,16 @@ class ControllerChecks(unittest.TestCase):
         with patch.object(service_runtime,'group_alive',side_effect=probe):
             self.assertFalse(service.owned_group_alive(12345))
 
+    def test_unpublished_child_is_owned_and_reaped_after_state_write_failure(self):
+        service=service_runtime.Service(self.app,self.db,3100,self.run)
+        child=Mock(pid=12345);child.poll.side_effect=[None,0]
+        with patch.object(service_runtime.subprocess,'Popen',return_value=child), patch.object(service_runtime,'process_start',return_value='identity'), patch.object(service_runtime,'file_hash',return_value='digest'), patch.object(service_runtime,'atomic_json',side_effect=OSError('disk full')), patch.object(service_runtime,'port_idle',return_value=True), patch.object(service_runtime,'group_alive',return_value=False), patch.object(service_runtime.os,'getpgid',return_value=12345), patch.object(service_runtime.os,'killpg') as kill:
+            with self.assertRaisesRegex(OSError,'disk full'):service.start()
+            self.assertIs(service.child,child)
+            kill.assert_called_once_with(12345,service_runtime.signal.SIGTERM)
+            child.wait.assert_called_once_with(timeout=15)
+        self.assertFalse(service.state.exists())
+
     def test_group_probe_permission_is_not_absence(self):
         with patch.object(service_runtime.os,'killpg',side_effect=PermissionError(1,'Operation not permitted')):
             self.assertTrue(service_runtime.group_alive(12345))
