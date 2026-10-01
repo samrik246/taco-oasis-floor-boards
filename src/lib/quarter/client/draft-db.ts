@@ -1,7 +1,7 @@
 import type { PaintReceipt } from "../transaction";
 import { canonicalJson, contentHash, randomId, sha256 } from "./primitives";
 import {
-  assertGeneration, assertReceipt, commandFor, DraftError, emptyBase, generation, newEnvelope,
+  assertGeneration, assertHead, assertSubmission, assertReceipt, commandFor, DraftError, emptyBase, generation, newEnvelope,
   sameBase, sameScope, scopeKey, submissionFor,
   type DraftBase, type DraftGeneration, type DraftHead, type DraftScope, type DraftSnapshot,
   type DraftSubmission, type V1Archive,
@@ -11,6 +11,12 @@ export const DRAFT_DATABASE = "taco-oasis-paint-drafts";
 export const DRAFT_DATABASE_VERSION = 1;
 export const DRAFT_STORES = ["heads","generations","submissions","v1Archives","clientMeta"] as const;
 type Store = typeof DRAFT_STORES[number];
+type RetainedCommand={actionSha256:string;requestBytes:string;requestSha256:string;state:"pending"|"confirmed"|"rejected";response?:unknown};
+function assertCommand(value:unknown):asserts value is RetainedCommand {
+  const v=value as RetainedCommand|null;
+  if(!v||!["pending","confirmed","rejected"].includes(v.state)||typeof v.requestBytes!=="string"||sha256(v.requestBytes)!==v.requestSha256||typeof v.actionSha256!=="string"||!/^[a-f0-9]{64}$/.test(v.actionSha256))throw new DraftError("COMMAND_REQUIRES_REVIEW");
+  try{const body=JSON.parse(v.requestBytes);if(body.protocol!==2||typeof body.requestId!=="string"||typeof body.expected?.databaseEpoch!=="string"||canonicalJson(body)!==v.requestBytes)throw new Error();}catch{throw new DraftError("COMMAND_REQUIRES_REVIEW");}
+}
 type Meta = { key:string; value:unknown };
 
 /** IDB callbacks are synchronous. Completion, never request success, is the commit boundary. */
@@ -73,16 +79,17 @@ export class DraftDatabase {
       const result:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],warnings:[]};
       const head=tx.objectStore("heads").get(scopeKey(scope));head.onsuccess=()=>{result.head=head.result??null;};
       for(const [name,key] of [["generations","generations"],["submissions","submissions"],["v1Archives","archives"]] as const){
-        const store=tx.objectStore(name), indexed=store.indexNames.contains("scope");
+        const store=tx.objectStore(name), indexed=store.indexNames.contains("scope")&&canonicalJson(store.index("scope").keyPath)===canonicalJson(["managerId","board","date"]);
         if(!indexed)result.warnings.push(`DRAFT_INDEX_REQUIRES_REVIEW:${name}`);
         const request=indexed?store.index("scope").getAll(scopeKey(scope)):store.getAll();
-        request.onsuccess=()=>{result[key]=request.result.filter(r=>sameScope(r,scope));};
+        request.onsuccess=()=>{result[key]=request.result.filter(r=>r&&sameScope(r,scope));};
       }
       finish(result);
     });
-    for(const g of snapshot.generations){try{assertGeneration(g,scope);}catch{snapshot.warnings.push(`DRAFT_REQUIRES_REVIEW:${g.generationId}`);}}
+    if(snapshot.head){try{assertHead(snapshot.head,scope);}catch{snapshot.warnings.push("DRAFT_HEAD_REQUIRES_REVIEW");snapshot.head=null;}}
+    snapshot.generations=snapshot.generations.filter(g=>{try{assertGeneration(g,scope);return true;}catch{snapshot.warnings.push(`DRAFT_REQUIRES_REVIEW:${g?.generationId??"unknown"}`);return false;}});
     if(snapshot.head?.generationId&&!snapshot.generations.some(g=>g.generationId===snapshot.head!.generationId))snapshot.warnings.push("DRAFT_HEAD_MISSING_GENERATION");
-    for(const s of snapshot.submissions){if(sha256(s.requestBytes)!==s.requestSha256)snapshot.warnings.push(`DRAFT_SUBMISSION_REQUIRES_REVIEW:${s.requestId}`);}
+    snapshot.submissions=snapshot.submissions.filter(s=>{try{assertSubmission(s,scope);return true;}catch{snapshot.warnings.push(`DRAFT_SUBMISSION_REQUIRES_REVIEW:${s?.requestId??"unknown"}`);return false;}});
     for(const a of snapshot.archives){if(sha256(a.original)!==a.v1Sha256)snapshot.warnings.push("V1_ARCHIVE_REQUIRES_REVIEW");}
     return snapshot;
   }
@@ -96,13 +103,16 @@ export class DraftDatabase {
   }
   async retain(scope:DraftScope,base:DraftBase,proposal:DraftGeneration,archive?:V1Archive):Promise<{status:"retained"|"conflict"|"archived";snapshot:DraftSnapshot;generationId:string|null}> {
     assertGeneration(proposal,scope);
+    if((await this.read(scope)).warnings.length)throw new DraftError("DRAFT_REQUIRES_REVIEW");
     if(proposal.envelope.parentGenerationId!==base.generationId||proposal.envelope.parentRevision!==base.localRevision)throw new DraftError("DRAFT_PARENT_MISMATCH");
     if(archive&&(!sameScope(archive,scope)||sha256(archive.original)!==archive.v1Sha256))throw new DraftError("V1_ARCHIVE_REQUIRES_REVIEW");
     const result=await this.transaction<{status:"retained"|"conflict"|"archived";generationId:string|null}>(["heads","generations","submissions","v1Archives"],"readwrite",(tx,finish,fail)=>{
       const proceed=()=>{
         const heads=tx.objectStore("heads"), request=heads.get(scopeKey(scope));
         request.onsuccess=()=>{
-          const current:DraftHead|null=request.result??null, matches=sameBase(current,base);
+          const current:DraftHead|null=request.result??null;
+          try{if(current)assertHead(current,scope);}catch(e){fail(e as Error);return;}
+          const matches=sameBase(current,base);
           const existing=tx.objectStore("generations").get([...scopeKey(scope),proposal.generationId]);
           existing.onsuccess=()=>{
           if(existing.result){
@@ -147,9 +157,10 @@ export class DraftDatabase {
       const heads=tx.objectStore("heads"), request=heads.get(scopeKey(scope));
       request.onsuccess=()=>{
         const head:DraftHead|null=request.result??null;
+        try{if(head)assertHead(head,scope);}catch(e){fail(e as Error);return;}
         if(head?.pendingRequestId){
           const pending=tx.objectStore("submissions").get([scope.managerId,head.pendingRequestId]);
-          pending.onsuccess=()=>pending.result&&pending.result.state==="prepared"?finish(pending.result):fail(new DraftError("DRAFT_PENDING_REQUIRES_REVIEW"));return;
+          pending.onsuccess=()=>{try{assertSubmission(pending.result,scope);if(pending.result.state!=="prepared")throw new DraftError("DRAFT_PENDING_REQUIRES_REVIEW");finish(pending.result);}catch(e){fail(e as Error);}};return;
         }
         if(!sameBase(head,base)||head?.state!=="outstanding"){fail(new DraftError("DRAFT_HEAD_CHANGED"));return;}
         const check=tx.objectStore("generations").get([...scopeKey(scope),g.generationId]);
@@ -223,13 +234,15 @@ export class DraftDatabase {
     return this.retain(scope,base,generation(scope,e));
   }
   async dates(managerId:string,board:DraftScope["board"]):Promise<string[]> {
-    return this.transaction(["heads","generations"],"readonly",(tx,finish)=>{
-      const store=tx.objectStore("heads"), request=store.indexNames.contains("manager")?store.index("manager").getAll(managerId):store.getAll();
-      const dates=new Set<string>();
-      request.onsuccess=()=>{for(const h of request.result as DraftHead[])if(h.managerId===managerId&&h.board===board&&h.state==="outstanding")dates.add(h.date);};
+    const dates=await this.transaction<Set<string>>(["heads","generations","clientMeta"],"readonly",(tx,finish)=>{
+      const dates=new Set<string>();finish(dates);
+      const request=tx.objectStore("heads").getAll();
+      request.onsuccess=()=>{for(const h of request.result)if(h?.managerId===managerId&&h.board===board&&typeof h.date==="string"&&(h.state!=="closed"||h.pendingRequestId))dates.add(h.date);};
       const branches=tx.objectStore("generations").getAll();
-      branches.onsuccess=()=>{const all=branches.result as DraftGeneration[], resolved=new Set(all.flatMap(g=>g.resolves));for(const g of all)if(g.managerId===managerId&&g.board===board&&g.disposition==="conflict-branch"&&!resolved.has(g.generationId))dates.add(g.date);finish([...dates].sort());};
-    });
+      branches.onsuccess=()=>{const all=branches.result.filter(g=>g?.managerId===managerId&&g.board===board),resolved=new Set(all.flatMap(g=>Array.isArray(g.resolves)?g.resolves:[]));for(const g of all)if(typeof g.date==="string"&&g.disposition==="conflict-branch"&&!resolved.has(g.generationId))dates.add(g.date);};
+      const commands=tx.objectStore("clientMeta").getAll(),prefix=`command:${managerId}:${board}:`;
+      commands.onsuccess=()=>{for(const row of commands.result)if(typeof row.key==="string"&&row.key.startsWith(prefix)&&row.value?.state!=="confirmed"&&row.value?.state!=="rejected"){const date=row.key.slice(prefix.length).split(":")[0];if(/^\d{4}-\d{2}-\d{2}$/.test(date))dates.add(date);}};
+    });return [...dates].sort();
   }
   /** Other V2 controls retain exact requests and outcomes in the preserved metadata store. */
   async retainCommand(key:string,command:{actionSha256:string;requestBytes:string;requestSha256:string}):Promise<typeof command>{
@@ -237,6 +250,7 @@ export class DraftDatabase {
       const store=tx.objectStore("clientMeta"),request=store.get(key);
       request.onsuccess=()=>{
         const prior=request.result?.value;
+        try{assertCommand({...command,state:"pending"});if(request.result)assertCommand(prior);}catch(e){fail(e as Error);return;}
         if(prior?.state==="pending"){
           if(prior.actionSha256!==command.actionSha256){fail(new DraftError("ANOTHER_COMMAND_UNCONFIRMED"));return;}
           if(sha256(prior.requestBytes)!==prior.requestSha256){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
@@ -253,7 +267,9 @@ export class DraftDatabase {
     const prefix=`command:${scope.managerId}:${scope.board}:${scope.date}:`;
     return this.transaction(["clientMeta"],"readonly",(tx,finish,fail)=>{
       const r=tx.objectStore("clientMeta").getAll();r.onsuccess=()=>{
-        const rows=r.result.filter(row=>row.key.startsWith(prefix)&&!row.key.slice(prefix.length).includes(":")&&row.value?.state==="pending");
+        const scoped=r.result.filter(row=>typeof row.key==="string"&&row.key.startsWith(prefix)&&!row.key.slice(prefix.length).includes(":"));
+        try{for(const row of scoped)assertCommand(row.value);}catch(e){fail(e as Error);return;}
+        const rows=scoped.filter(row=>row.value.state==="pending");
         if(rows.some(row=>typeof row.value.requestBytes!=="string"||sha256(row.value.requestBytes)!==row.value.requestSha256)){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
         finish(rows);
       };
@@ -262,17 +278,20 @@ export class DraftDatabase {
   async finishCommand(key:string,bytes:string,state:"confirmed"|"rejected",response:unknown){
     await this.transaction<void>(["clientMeta"],"readwrite",(tx,finish,fail)=>{
       const store=tx.objectStore("clientMeta"),r=store.get(key);r.onsuccess=()=>{
+        try{assertCommand(r.result?.value);}catch(e){fail(e as Error);return;}
         if(r.result?.value?.requestBytes!==bytes){fail(new DraftError("COMMAND_CHANGED"));return;}
         store.put({key:`${key}:${sha256(bytes)}`,value:{...r.result.value,state,response}});
         store.put({key,value:{...r.result.value,state,response}});finish();
       };
     });
+    const result=await this.transaction<RetainedCommand|undefined>(["clientMeta"],"readonly",(tx,finish)=>{const r=tx.objectStore("clientMeta").get(`${key}:${sha256(bytes)}`);r.onsuccess=()=>finish(r.result?.value);});
+    if(!result||result.requestBytes!==bytes||result.state!==state||canonicalJson(result.response)!==canonicalJson(response))throw new DraftError("COMMAND_READBACK_FAILED");
   }
   async clientInstance():Promise<string> {
     const proposed=randomId();
-    return this.transaction(["clientMeta"],"readwrite",(tx,finish)=>{
+    return this.transaction(["clientMeta"],"readwrite",(tx,finish,fail)=>{
       const store=tx.objectStore("clientMeta"), request=store.get("instance");
-      request.onsuccess=()=>{if(request.result){finish((request.result as Meta).value as string);}else{store.add({key:"instance",value:proposed});finish(proposed);}};
+      request.onsuccess=()=>{if(request.result){const value=(request.result as Meta).value;if(typeof value!=="string"||!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value)){fail(new DraftError("CLIENT_ID_REQUIRES_REVIEW"));return;}finish(value);}else{store.add({key:"instance",value:proposed});finish(proposed);}};
     });
   }
   async probe():Promise<"commit-readback-ok"> {

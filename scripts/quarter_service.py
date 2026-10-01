@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import time
 import urllib.request
@@ -13,6 +14,18 @@ from quarter_guard import canonical, file_hash
 def process_start(pid):
     result = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], text=True, capture_output=True)
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def group_alive(pgid):
+    try:
+        os.killpg(pgid, 0); return True
+    except ProcessLookupError:
+        return False
+
+
+def port_idle(port):
+    with socket.socket() as probe:
+        return probe.connect_ex(('127.0.0.1', port)) != 0
 
 
 class Service:
@@ -29,26 +42,31 @@ class Service:
             raise ValueError('SERVICE_IDENTITY_MISMATCH')
         pid = state['pid']; current = process_start(pid)
         if current is None:
+            if group_alive(pid) or not port_idle(self.port):
+                raise ValueError('SERVICE_ORPHAN_REQUIRES_REVIEW')
             self.state.unlink(); return
         if current != state['started'] or os.getpgid(pid) != pid:
             raise ValueError('SERVICE_PROCESS_CHANGED')
         os.killpg(pid, signal.SIGTERM)
         deadline = time.monotonic() + 15
-        while process_start(pid) is not None and time.monotonic() < deadline:
+        while group_alive(pid) and time.monotonic() < deadline:
             if getattr(self,"child",None) and self.child.pid==pid: self.child.poll()
             time.sleep(0.1)
-        if process_start(pid) is not None:
+        if group_alive(pid):
             os.killpg(pid, signal.SIGKILL)
             deadline = time.monotonic() + 5
-            while process_start(pid) is not None and time.monotonic() < deadline:
+            while group_alive(pid) and time.monotonic() < deadline:
+                if getattr(self,"child",None) and self.child.pid==pid: self.child.poll()
                 time.sleep(0.1)
-        if process_start(pid) is not None:
+        if group_alive(pid) or not port_idle(self.port):
             raise ValueError('SERVICE_DID_NOT_EXIT')
         self.state.unlink()
 
     def start(self):
         if self.state.exists():
             raise ValueError('SERVICE_STATE_EXISTS')
+        if not port_idle(self.port):
+            raise ValueError("SERVICE_PORT_OCCUPIED")
         env = dict(os.environ, DATABASE_URL='file:' + str(self.database), NEXT_TELEMETRY_DISABLED='1')
         with (self.run / ('server-' + str(time.time_ns()) + '.log')).open('wb') as output:
             child = subprocess.Popen(['node', str(self.app / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1', '-p', str(self.port)], cwd=self.app, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
@@ -81,7 +99,7 @@ def checker_wait(run, phase, seconds=600):
     while time.monotonic() < deadline:
         if answer.exists():
             value = json.loads(answer.read_text())
-            if value.get('nonce') != challenge['nonce'] or value.get('phase') != phase or not value.get('reviewer') or value.get('reviewer') == value.get('builder') or file_hash(value['evidencePath']) != value.get('evidenceSha256'):
+            if value.get('nonce') != challenge['nonce'] or value.get('phase') != phase or not value.get('builder') or not value.get('reviewer') or value.get('reviewer') == value.get('builder') or file_hash(value['evidencePath']) != value.get('evidenceSha256'):
                 return 'reject'
             return 'pass' if value.get('verdict') == 'pass' else 'reject'
         time.sleep(0.2)

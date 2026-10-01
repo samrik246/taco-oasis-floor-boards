@@ -66,6 +66,12 @@ describe("explicit interval client truth",()=>{
   day.sources[0].endAt=iso(60);day.hours[0]={shiftId:"source",hourStart:iso(0),revision:null,legacySha256:"b".repeat(64),intervals:[{startAt:iso(0),endAt:iso(60),state:"assigned",stationId:"purple1",seatNumber:1,provenance:{kind:"legacy",assignmentId:"original",startAt:iso(0),endAt:iso(60)}}]};
   const source=day.sources[0],raw=JSON.stringify({version:1,updatedAt:iso(0),edits:[{shiftId:source.shiftId,hour:11,expected:{id:"original",stationId:"purple1"},stationId:"green1",expectedShift:{startAt:source.startAt,endAt:source.endAt,employeeId:source.employeeId,sourcePosition:source.sourcePosition}}]});
   expect(convertV1(scope,raw,day).archive.result).toBe("converted");
+  const converted=convertV1(scope,raw,day).proposal;
+  const retained={...snapshot,head:{...scope,localRevision:"1",generationId:converted.generationId,state:"outstanding" as const,pendingRequestId:null},generations:[converted]};
+  const original=JSON.stringify(retained);
+  expect(()=>proposeHours(scope,retained,day,[{shiftId:"source",hour:11,action:{action:"erase"}}])).toThrow("QUARTER_DRAFT_REVIEW_ONLY");
+  expect(JSON.stringify(retained)).toBe(original);
+
   const provenance=day.hours[0].intervals[0].provenance;if(provenance.kind!=="legacy")throw new Error("fixture");provenance.endAt=iso(75);
   const refused=convertV1(scope,raw,day);expect(refused.archive.original).toBe(raw);expect(refused.archive.staleReason).toContain("V1_ASSIGNMENT_CHANGED");
  });

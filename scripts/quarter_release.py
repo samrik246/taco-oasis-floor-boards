@@ -67,11 +67,13 @@ def target(packet, name, database, accepted=True):
     if manifest.get('scope') != 'runtime' or manifest['controllerSha256'] != file_hash(__file__):
         raise ValueError('TARGET_CONTROLLER_MISMATCH')
     expected_role = 'QP_COMPAT_R0' if name == 'r0' else 'QP_UI_Q1'
-    if not packet.get('syntheticR0SelfRehearsal') and manifest['role'] != expected_role:
+    if packet.get('syntheticR0SelfRehearsal'):
+        expected_role = 'QP_COMPAT_R0'
+    if manifest['role'] != expected_role:
         raise ValueError('TARGET_ROLE_MISMATCH')
     if accepted:
         proof = pin.get('acceptance', {})
-        if proof.get('decision') != 'pass' or proof.get('artifactSha256') != pin['manifestSha256'] or proof.get('sourceSha') != manifest['sourceSha'] or not proof.get('reviewer') or proof['reviewer'] == proof.get('builder') or not proof.get('evidencePath') or file_hash(proof['evidencePath']) != proof.get('evidenceSha256'):
+        if proof.get('decision') != 'pass' or proof.get('artifactSha256') != pin['manifestSha256'] or proof.get('sourceSha') != manifest['sourceSha'] or not proof.get('builder') or not proof.get('reviewer') or proof['reviewer'] == proof.get('builder') or not proof.get('evidencePath') or file_hash(proof['evidencePath']) != proof.get('evidenceSha256'):
             raise ValueError('INDEPENDENT_ARTIFACT_ACCEPTANCE_REQUIRED')
     return manifest
 
@@ -113,6 +115,8 @@ def readbacks(packet, app, guard, now_ms=None):
     allowed = {packet[k]['manifestSha256']: artifacts.verify(packet[k]['path'], packet[k]['manifestSha256']) for k in ('r0', 'candidate')}
     from datetime import datetime
     ms = lambda text: int(datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp() * 1000)
+    if inv.get('version') != 1 or type(inv.get('synthetic')) is not bool or not 0 <= now - ms(inv['enumeratedAt']) <= 900000 or any(d.get('disposition') not in ('retained', 'retired') for d in inv['devices']):
+        raise ValueError('CLIENT_READBACK_MISSING_OR_STALE')
     for device in retained:
         matches = [r for r in receipts if r.get('label') == device['label']]
         if len(matches) != 1:
@@ -122,7 +126,7 @@ def readbacks(packet, app, guard, now_ms=None):
         payload = {k: v for k, v in r.items() if k != 'recordSha256'}
         if r != stored or hash_value(payload) != r['recordSha256'] or r.get('matched') is not True or not manifest or r['inventorySha256'] != digest or r['operatorId'] != inv['operatorId'] or r['synthetic'] != inv['synthetic'] or m['observedDatabaseEpoch'] != guard['state'][2] or m['schemaFingerprint'] != guard['schemaSha256'] or m['clientBuildSha'] != manifest['sourceSha'] or r['staticSha256'] != manifest['staticSha256']:
             raise ValueError('CLIENT_READBACK_MISSING_OR_STALE')
-        if any(m[k] != device[k] for k in ('clientInstanceId', 'origin', 'role', 'board')) or any(visible[k] != device[k] for k in ('label', 'clientInstanceId', 'board', 'view')) or visible.get('oldTabsClosed') is not True or m.get('idbProbe') != 'commit-readback-ok' or m.get('legacyBoardCacheAbsent') is not True or [m.get(k) for k in ('protocol', 'cacheSchema', 'draftDbVersion')] != [2, 2, 1]:
+        if type(m.get('isSecureContext')) is not bool or m.get('challengeId') != r['challengeId'] or any(type(m.get(k)) is not int for k in ('protocol', 'cacheSchema', 'draftDbVersion')) or any(m[k] != device[k] for k in ('clientInstanceId', 'origin', 'role', 'board')) or any(visible[k] != device[k] for k in ('label', 'clientInstanceId', 'board', 'view')) or visible.get('oldTabsClosed') is not True or m.get('idbProbe') != 'commit-readback-ok' or m.get('legacyBoardCacheAbsent') is not True or [m.get(k) for k in ('protocol', 'cacheSchema', 'draftDbVersion')] != [2, 2, 1]:
             raise ValueError('CLIENT_READBACK_MISSING_OR_STALE')
         issued, received, observed = ms(r['issuedAt']), ms(r['receivedAt']), ms(visible['observedAt'])
         if not (issued <= observed <= received <= now and 0 <= received - issued <= 120000 and now - received <= 900000):

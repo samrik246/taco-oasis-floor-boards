@@ -6,6 +6,7 @@ test("ordinary HTTP loaded floor and wall bundles produce distinct measured synt
   try{
     const devices=[];
     for(let i=0;i<pages.length;i++){
+      await pages[i].addInitScript(()=>localStorage.setItem("taco-oasis-locale-v1","en"));
       await pages[i].goto(`${origin}/?board=caja&readback=1${i?"&wall=1":""}`);
       const id=pages[i].getByTestId("client-instance-id");await expect(id).toHaveText(/^[a-f0-9-]{36}$/);
       devices.push({label:`synthetic-${i}`,role:i?"wall":"floor",origin,clientInstanceId:await id.textContent(),board:"caja",view:i?"wall":"schedule",disposition:"retained"});

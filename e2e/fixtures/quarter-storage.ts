@@ -1,6 +1,6 @@
 import {DraftDatabase,activeGeneration,emptyBase} from "@/lib/quarter/client/draft-db";
 import {generation,newEnvelope,type DraftGeneration,type DraftScope,type DraftSubmission} from "@/lib/quarter/client/draft-types";
-import {randomId} from "@/lib/quarter/client/primitives";
+import {randomId,contentHash} from "@/lib/quarter/client/primitives";
 import type {PaintReceipt} from "@/lib/quarter/transaction";
 import {observeV1,v1Key} from "@/lib/quarter/client/v1-conversion";
 import type {PublicDayV2} from "@/lib/quarter/client/day";
@@ -28,6 +28,13 @@ const api={
  },
  async discard(){const s=await db!.read(scope);return db!.discard(scope,s.head!);},
  async v1(raw:string,day:PublicDayV2){localStorage.setItem(v1Key(scope),raw);return observeV1(db!,scope,day);},
+ async corrupt(field:string){
+  const s=await db!.read(scope),g=structuredClone(s.generations[0]);
+  if(field==="intent")g.envelope.intents[0].intent.quarter="25:00";
+  if(field==="unknown")Object.assign(g.envelope,{futureField:true});
+  g.sha256=contentHash(g.envelope);
+  await new Promise<void>((resolve,reject)=>{const r=indexedDB.open("taco-oasis-paint-drafts");r.onsuccess=()=>{const tx=r.result.transaction(["heads","generations"],"readwrite");if(field==="head")tx.objectStore("heads").put({...s.head,localRevision:"unknown"});else tx.objectStore("generations").put(g);tx.oncomplete=()=>{r.result.close();resolve();};tx.onabort=()=>reject(tx.error);};r.onerror=()=>reject(r.error);});
+ },
  instance(){return db!.clientInstance();},probe(){return db!.probe();},close(){db!.close();db=null;},
  get durability(){return db?.durability;},
 };

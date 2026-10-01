@@ -31,6 +31,7 @@ export function proposeHours(scope:DraftScope,snapshot:DraftSnapshot,day:PublicD
   for(const {shiftId,hour,action} of changes){
     const refusal=hourEditRefusal(day,shiftId,hour);if(refusal)throw new DraftError(refusal);
     const prefix=`${hour.toString().padStart(2,"0")}:`,old=intents.find(i=>i.intent.shiftId===shiftId&&i.intent.quarter.startsWith(prefix));
+    if(intents.some(i=>i.intent.shiftId===shiftId&&i.intent.quarter.startsWith(prefix)&&i.intent.granularity!=="hour"))throw new DraftError("QUARTER_DRAFT_REVIEW_ONLY");
     const source=old?.source??day.sources.find(s=>s.shiftId===shiftId)!;
     const readHour=day.hours.find(h=>h.shiftId===shiftId&&h.hourStart===chicagoHourStart(day.date,hour).toISOString());
     if(!readHour)throw new DraftError("SOURCE_CHANGED");

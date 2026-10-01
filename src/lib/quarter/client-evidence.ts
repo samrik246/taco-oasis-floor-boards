@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir,readFile,writeFile,rename} from "node:fs/promises";
+import {mkdir,readFile,writeFile,rename,lstat} from "node:fs/promises";
 import path from "node:path";
 import {z} from "zod";
 import {quarterAppDir} from "./lease";
@@ -17,13 +17,24 @@ const issueSchema=z.strictObject({action:z.literal("issue"),inventory:inventoryS
 const answerSchema=z.strictObject({action:z.literal("answer"),measurement:measurementSchema,visible:z.strictObject({label:id,clientInstanceId:z.uuid(),board:z.enum(["caja","cocina"]),view:id,oldTabsClosed:z.literal(true),observedAt:instant})});
 export const clientEvidenceBody=z.discriminatedUnion("action",[issueSchema,answerSchema]);
 function refuse():never{throw new QuarterRefused("CLIENT_READBACK_MISSING_OR_STALE",409);}
+async function evidenceDirectory(){
+  let dir=quarterAppDir();
+  try{await mkdir(dir,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=="EEXIST")throw e;}
+  if(!(await lstat(dir)).isDirectory()||(await lstat(dir)).isSymbolicLink())refuse();
+  for(const part of ["var","quarter-clients"]){
+    dir=path.join(dir,part);
+    try{await mkdir(dir,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=="EEXIST")throw e;}
+    const stat=await lstat(dir);if(!stat.isDirectory()||stat.isSymbolicLink())refuse();
+  }
+  return dir;
+}
 /** Files are activation evidence; no new authoritative application table is introduced. */
 export async function clientEvidence(raw:unknown,actorId:string,requestOrigin:string,db:QuarterDb,now=new Date()){
   const input=clientEvidenceBody.parse(raw),manifest=await assertArtifactSchema(db),state=await quarterState(db);if(!state)refuse();
-  const dir=path.join(quarterAppDir(),"var/quarter-clients");await mkdir(dir,{recursive:true});
+  const dir=await evidenceDirectory();
   if(input.action==="issue"){
     const inventory=input.inventory,device=inventory.devices.find(d=>d.label===input.label);
-    if(!device||device.disposition!=="retained"||device.origin!==requestOrigin||inventory.operatorId!==actorId||+new Date(inventory.enumeratedAt)>+now||inventory.synthetic!==Boolean(process.env.FLOOR_BOARDS_TEST_ROOT))refuse();
+    if(!device||device.disposition!=="retained"||device.origin!==requestOrigin||inventory.operatorId!==actorId||+new Date(inventory.enumeratedAt)>+now||+now-+new Date(inventory.enumeratedAt)>900000||inventory.synthetic!==Boolean(process.env.FLOOR_BOARDS_TEST_ROOT))refuse();
     const inventorySha256=digest(inventory),challengeId=randomUUID();
     const challenge={version:1,challengeId,issuedAt:now.toISOString(),operatorId:actorId,device,inventorySha256,synthetic:inventory.synthetic,
       artifactSha256:loadedArtifactSha256,clientBuildSha:manifest.sourceSha,staticSha256:manifest.staticSha256,databaseEpoch:state.databaseEpoch,schemaFingerprint:manifest.schemaSha256};
@@ -33,6 +44,7 @@ export async function clientEvidence(raw:unknown,actorId:string,requestOrigin:st
   const m=input.measurement,source=path.join(dir,`${m.challengeId}.challenge.json`),used=path.join(dir,`${m.challengeId}.used.json`);
   // Atomic claim is consumed even when a callback fails validation. It cannot be replayed.
   try{await rename(source,used);}catch{refuse();}
+  if(!(await lstat(used)).isFile()||(await lstat(used)).isSymbolicLink())refuse();
   const challenge=JSON.parse(await readFile(used,"utf8")),device=challenge.device;
   if(challenge.operatorId!==actorId||challenge.artifactSha256!==loadedArtifactSha256||challenge.databaseEpoch!==state.databaseEpoch||challenge.schemaFingerprint!==manifest.schemaSha256||+now<+new Date(challenge.issuedAt)||+now-+new Date(challenge.issuedAt)>120000||requestOrigin!==device.origin||
     m.clientInstanceId!==device.clientInstanceId||m.origin!==device.origin||m.role!==device.role||m.board!==device.board||m.clientBuildSha!==manifest.sourceSha||m.observedDatabaseEpoch!==state.databaseEpoch||m.schemaFingerprint!==manifest.schemaSha256||

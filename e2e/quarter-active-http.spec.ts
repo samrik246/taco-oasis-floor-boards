@@ -49,7 +49,7 @@ test("ordinary HTTP real save loses response, then reload reconciles original re
   let responseSaved=false;
   await page.route("**/api/v2/assignments/paint",async route=>{
     const body=route.request().postDataJSON();requests.push(body.requestId);
-    const result=await route.fetch();expect(result.status()).toBe(200);responseSaved=true;await route.abort("failed");
+    const result=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});expect(result.status()).toBe(200);responseSaved=true;await route.abort("failed");
   });
   await page.getByTestId("quarter-save").click();await expect.poll(()=>responseSaved).toBe(true);
   await expect(page.getByTestId("quarter-draft-status")).toContainText(/sin confirmar|unconfirmed/);
@@ -65,4 +65,73 @@ test("ordinary HTTP real save loses response, then reload reconciles original re
     };
   }));
   expect(retained).toMatchObject({state:"confirmed",requestId:requests[0]});expect(retained.generations).toBeGreaterThan(1);
+});
+
+
+test("ordinary HTTP same-tab retry honors a known receipt without resubmitting",async({page})=>{
+  await openEditor(page);
+  await page.getByTestId("quarter-palette-family:green").click();await page.getByTestId(`quarter-cell-${shift}-12`).click();
+  let saves=0;
+  await page.route("**/api/v2/assignments/paint",async route=>{
+    requests.push(route.request().postDataJSON().requestId);saves++;
+    const response=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});
+    expect(response.status()).toBe(200);await route.abort("failed");
+  });
+  await page.getByTestId("quarter-save").click();
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/sin confirmar|unconfirmed/);
+  await page.getByTestId("quarter-save").click();
+  await expect(page.getByTestId("quarter-draft-status")).toHaveText(/Guardado\.|Saved\./);
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(0);expect(saves).toBe(1);
+});
+
+test("ordinary HTTP failed retention keeps the first in-memory proposal until explicit retry",async({page})=>{
+  await openEditor(page);
+  await page.evaluate(()=>{
+    const original=IDBObjectStore.prototype.add;
+    IDBObjectStore.prototype.add=function(...args:Parameters<IDBObjectStore["add"]>){if(this.name==="generations")throw new DOMException("Synthetic quota fault","QuotaExceededError");return original.apply(this,args);};
+    Object.assign(window,{restoreDraftAdds:()=>{IDBObjectStore.prototype.add=original;}});
+  });
+  await page.getByTestId("quarter-palette-family:purple").click();await page.getByTestId(`quarter-cell-${shift}-11`).click();
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/quota/i);
+  const memory=page.getByRole("alert").filter({has:page.locator("details")});
+  const before=await memory.locator("pre").textContent();
+  await page.getByTestId("quarter-palette-family:green").click();
+  await expect(page.getByTestId(`quarter-cell-${shift}-12`)).toBeDisabled();
+  expect(await memory.locator("pre").textContent()).toBe(before);await expect(page.getByTestId("quarter-save")).toBeDisabled();
+  await page.evaluate(()=>(window as unknown as {restoreDraftAdds:()=>void}).restoreDraftAdds());
+  await memory.getByRole("button",{name:/Reintentar retención|Retry retention/}).click();
+  await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  await expect(memory).toHaveCount(0);
+});
+
+test("ordinary HTTP receipt cleanup failure keeps a newer tab intent visible and retained",async({page,context})=>{
+  await openEditor(page);const newer=await context.newPage();await openEditor(newer);
+  await page.getByTestId("quarter-palette-family:green").click();await page.getByTestId(`quarter-cell-${shift}-11`).click();
+  let release:()=>void=()=>{};const responseGate=new Promise<void>(resolve=>{release=resolve;});let waiting=false;
+  await page.route("**/api/v2/assignments/paint",async route=>{
+    requests.push(route.request().postDataJSON().requestId);waiting=true;await responseGate;
+    const response=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});await route.fulfill({response});
+  });
+  try{
+    await page.getByTestId("quarter-save").click();await expect.poll(()=>waiting).toBe(true);
+    await newer.getByRole("button",{name:/Revisar almacenamiento|Review retained work/}).click();
+    await newer.getByTestId("quarter-palette-family:purple").click();await newer.getByTestId(`quarter-cell-${shift}-12`).click();
+    await expect(newer.getByTestId("quarter-private-preview")).toHaveCount(2);
+    await page.evaluate(()=>{
+      const original=IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put=function(...args:Parameters<IDBObjectStore["put"]>){if(this.name==="submissions")this.transaction.abort();return original.apply(this,args);};
+      Object.assign(window,{restoreDraftPuts:()=>{IDBObjectStore.prototype.put=original;}});
+    });
+    release();await expect(page.getByTestId("quarter-draft-status")).toContainText(/limpieza local pendiente|local cleanup pending/);
+    await page.getByRole("button",{name:/Revisar almacenamiento|Review retained work/}).click();
+    await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+    await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+    await page.evaluate(()=>(window as unknown as {restoreDraftPuts:()=>void}).restoreDraftPuts());
+    await page.getByTestId("quarter-save").click();
+    await expect(page.getByTestId("quarter-draft-status")).toHaveText(/Guardado\.|Saved\./);
+    await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+    await expect(page.getByTestId("quarter-save")).toBeDisabled();
+    await openEditor(newer);await expect(newer.getByTestId("quarter-private-preview")).toHaveCount(1);
+    await expect(newer.getByRole("alert")).toContainText("SAVED_COMMAND_CHANGED_EXPECTATIONS");
+  }finally{release();await newer.close();}
 });

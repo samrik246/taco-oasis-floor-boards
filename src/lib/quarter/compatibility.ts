@@ -9,7 +9,7 @@ export async function assertArtifactCompatibility(db:QuarterDb):Promise<void> {
   if(!state)return;
   await verifyQuarterSchema(db);
   assertLoadedArtifactIdentity();
-  if(loadedArtifactSha256){await assertArtifactSchema(db);if(process.env.FLOOR_BOARDS_TEST_ROOT)await assertSyntheticDatabase(db);return;}
+  if(loadedArtifactSha256){const manifest=await assertArtifactSchema(db);if(manifest.scope==="source-check"||process.env.FLOOR_BOARDS_TEST_ROOT)await assertSyntheticDatabase(db);return;}
   if(state.phase!=="active")return;
   if(!process.env.FLOOR_BOARDS_TEST_ROOT)throw new QuarterRefused("FOUNDATION_NOT_RECOVERY_ARTIFACT",503);
   await assertSyntheticDatabase(db);

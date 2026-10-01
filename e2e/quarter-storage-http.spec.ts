@@ -112,3 +112,12 @@ test("HTTP versionchange closes the bridge while blocked upgrade preserves all d
   const r=indexedDB.open("taco-oasis-paint-drafts");r.onsuccess=()=>{const tx=r.result.transaction("generations"),q=tx.objectStore("generations").getAll();q.onsuccess=()=>resolve(q.result);tx.oncomplete=()=>r.result.close();};r.onerror=()=>reject(r.error);
  }));expect(preserved).toEqual(before.generations);
 });
+
+for(const field of ["intent","unknown","head"])test(`HTTP malformed ${field} remains preserved and refuses edits`,async({page})=>{
+ await load(page);await page.evaluate(()=>window.quarterProof.prepareProposal("purple1"));await page.evaluate(()=>window.quarterProof.retain());
+ await page.evaluate(field=>window.quarterProof.corrupt(field),field);
+ expect((await page.evaluate(()=>window.quarterProof.read())).warnings.length).toBeGreaterThan(0);
+ await page.evaluate(()=>window.quarterProof.prepareProposal("green1"));
+ expect(await page.evaluate(()=>window.quarterProof.retain().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_REQUIRES_REVIEW");
+ expect(await page.evaluate(()=>window.quarterProof.submit().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_REQUIRES_REVIEW");
+});
