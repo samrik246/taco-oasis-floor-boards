@@ -17,6 +17,7 @@ const at = (s: string) => chicagoDateTime(date, s);
 const iso = (s: string) => at(s).toISOString();
 async function shot(page: Page, name: string) {
   mkdirSync(screens, { recursive: true });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: path.join(screens, `${name}.png`), fullPage: true });
 }
 for (const locale of ["es", "en"] as const) {
@@ -86,6 +87,7 @@ for (const locale of ["es", "en"] as const) {
     const boardPages = await Promise.all([context.newPage(), context.newPage()]);
     for (const [i, board] of ["caja", "cocina"].entries()) {
       await boardPages[i].addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+      await boardPages[i].clock.setFixedTime(at("9:30 am"));
       await boardPages[i].setViewportSize({ width: 1280, height: 800 });
       await boardPages[i].goto(`/?board=${board}&kiosk=1&lang=${locale}`);
       await expect(boardPages[i].getByTestId("break-strip")).toContainText("Mara");
@@ -102,6 +104,13 @@ for (const locale of ["es", "en"] as const) {
     await expect(alternative.getByTestId("cover-positions")).toContainText(/Guía|Guide/);
     await expect(page.getByTestId("descanso-clear")).toBeEnabled(); await expect(page.getByTestId("descanso-recheck")).toBeEnabled();
     await shot(page, `${locale}_02_NO_COVER_ALTERNATIVES`);
+    const lastAlternative = page.getByTestId("descanso-alternative").last();
+    await page.getByTestId("descanso-dialog").locator(":scope > div").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(lastAlternative).toBeInViewport({ ratio: 1 });
+    const lastBox = await lastAlternative.boundingBox();
+    const actionsBox = await page.getByTestId("descanso-clear").locator("..").boundingBox();
+    expect(lastBox!.y + lastBox!.height).toBeLessThanOrEqual(actionsBox!.y);
+    await shot(page, `${locale}_07_ALTERNATIVES_END`);
     const response = page.waitForResponse(r => r.url().endsWith("/api/breaks/manage") && r.request().method() === "POST");
     await alternative.click(); const result = await response;
     expect(result.status()).toBe(200); expect(await result.json()).toMatchObject({ waiting: false });
