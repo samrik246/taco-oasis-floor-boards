@@ -13,6 +13,11 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     await page.emulateMedia({ colorScheme: scheme });
     await page.clock.install({ time: chicagoDateTime(date, "9:30 am") });
     await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+    await page.route("**/api/managers", async route => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), idleMs: 120_000 } });
+    });
     let writes = 0;
     page.on("request", req => { if (req.url().includes("/api/assignments") && req.method() !== "GET") writes++; });
     let ids: string[] = [];
@@ -29,6 +34,10 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
       await route.fulfill({ response, json: { ...original, stations, shifts, auxiliaryShifts: [], overlays: [], breaks: [], returnPrompts: [] } });
     });
     await page.goto(`/?board=${board}`);
+    await page.getByTestId("compact-manager").click();
+    await page.getByTestId("manager-code-input").fill("8642");
+    await page.getByTestId("manager-unlock-submit").click();
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
     await page.getByTestId("toolbar-more").click();
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
