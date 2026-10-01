@@ -9,7 +9,8 @@ const at=(time:string)=>chicagoDateTime(date,time).toISOString();
 for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] as const){
  test(`${board} ${locale}: backup, Pintar counts, page palette and press feedback`,async({page})=>{
   await page.setViewportSize({width:1280,height:800});
-  await page.clock.install({time:new Date(at("4:00 pm"))});
+  // Match the disposable server clock; evening shift data remains a future example.
+  await page.clock.install({time:new Date(at("9:30 am"))});
   await page.addInitScript(value=>localStorage.setItem("taco-oasis-locale-v1",value),locale);
   await page.route("**/api/managers",async route=>{
    const response=await route.fetch();const body=await response.json();await route.fulfill({response,json:{...body,idleMs:120_000}});
