@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import shlex
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -221,18 +222,23 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(
             edit_board.remote_argv("mini", "/opt/taco-oasis", "preflight"),
             ["ssh", "mini",
-             "cd /opt/taco-oasis && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight"],
+             "cd /opt/taco-oasis && node --env-file=/opt/taco-oasis/.env node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight"],
         )
         self.assertEqual(
             edit_board.remote_argv("mini", "/opt/taco-oasis", "apply", sha),
             ["ssh", "mini",
-             "cd /opt/taco-oasis && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply " + sha],
+             "cd /opt/taco-oasis && node --env-file=/opt/taco-oasis/.env node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply " + sha],
         )
         spaced = edit_board.remote_argv("mini", "/opt/taco oasis", "preflight")
         self.assertEqual(
             spaced[2],
-            "cd '/opt/taco oasis' && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight",
+            "cd '/opt/taco oasis' && node '--env-file=/opt/taco oasis/.env' node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight",
         )
+        for mode in ("preflight", "apply"):
+            app = "/opt/a 'quoted' $(touch never) ; & path"
+            command = edit_board.remote_argv("mini", app, mode, sha if mode == "apply" else None)[2]
+            words = shlex.split(command)
+            self.assertEqual(words[:6], ["cd", app, "&&", "node", "--env-file=" + app + "/.env", "node_modules/tsx/dist/cli.mjs"])
         with self.assertRaises(edit_board.Refusal):
             edit_board.remote_argv("-oProxyJump=evil", "/opt/taco-oasis", "preflight")
 

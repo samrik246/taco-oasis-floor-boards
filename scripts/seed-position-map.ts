@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 import {
   POSITION_STATION_MAP_SEED,
   seedPositionStationMap,

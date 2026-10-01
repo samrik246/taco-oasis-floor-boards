@@ -1,6 +1,6 @@
 import { refuseSchemaPush } from "../src/lib/quarter/compatibility";
 import { createHash } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 
 const prisma = new PrismaClient();
 

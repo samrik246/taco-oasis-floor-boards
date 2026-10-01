@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 import {
   ALL_STATIONS,
   OBSOLETE_COCINA_STATION_IDS,

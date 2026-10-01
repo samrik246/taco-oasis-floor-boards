@@ -628,6 +628,7 @@ describe("B2 LaunchAgent", () => {
     expect(plist).not.toContain("<key>Weekday</key>");
     expect(plist).toContain("<key>RunAtLoad</key><false/>");
     expect(plist).toContain("<key>LimitLoadToSessionType</key><string>Aqua</string>");
+    expect(plist).toContain("<string>/usr/local/bin/node</string>\n    <string>--env-file=/opt/app/.env</string>\n<string>/opt/app/node_modules/tsx/dist/cli.mjs</string>");
     expect(plist).toContain("<string>/opt/app/scripts/wiw-export.ts</string>");
     expect(plist).toContain("<key>WorkingDirectory</key><string>/opt/app</string>");
     expect(plist).toContain("<key>FLOOR_BOARDS_IMPORT_DIR</key><string>/srv/exports</string>");
@@ -646,6 +647,7 @@ describe("B2 LaunchAgent", () => {
       profileDir: "/p",
     });
     expect(plist).toContain("/opt/a&amp;b/scripts/wiw-export.ts");
+    expect(plist).toContain("--env-file=/opt/a&amp;b/.env");
     expect(plist).toContain("/x&lt;y&gt;");
   });
 });

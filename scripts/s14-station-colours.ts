@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 import { applyS14StationColours, formatS14StationColourCounts } from "../src/lib/s14-station-colours";
 
 async function main() {

@@ -2,7 +2,7 @@ import type { PaintReceipt } from "../transaction";
 import { operationSchema, removalCommandSchema, tareaCommandSchema } from "../action-shapes";
 import { canonicalJson, contentHash, randomId, sha256 } from "./primitives";
 import {
-  assertGeneration, assertHead, assertSubmission, assertReceipt, commandFor, DraftError, emptyBase, generation, newEnvelope,
+  assertArchive, assertGeneration, assertHead, assertSubmission, assertReceipt, commandFor, DraftError, emptyBase, generation, newEnvelope,
   sameBase, sameScope, scopeKey, submissionFor,
   type DraftBase, type DraftGeneration, type DraftHead, type DraftScope, type DraftSnapshot,
   type DraftSubmission, type V1Archive,
@@ -121,7 +121,7 @@ export class DraftDatabase {
   }
   async read(scope:DraftScope):Promise<DraftSnapshot> {
     const snapshot=await this.transaction<DraftSnapshot>(["heads","generations","submissions","v1Archives"],"readonly",(tx,finish)=>{
-      const result:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],warnings:[...this.schemaWarnings]};
+      const result:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],originals:[],warnings:[...this.schemaWarnings]};
       const head=tx.objectStore("heads").get(scopeKey(scope));head.onsuccess=()=>{result.head=head.result??null;};
       for(const [name,key] of [["generations","generations"],["submissions","submissions"],["v1Archives","archives"]] as const){
         const store=tx.objectStore(name);
@@ -130,12 +130,15 @@ export class DraftDatabase {
       }
       finish(result);
     });
-    if(snapshot.head){try{assertHead(snapshot.head,scope);}catch{snapshot.warnings.push("DRAFT_HEAD_REQUIRES_REVIEW");snapshot.head=null;}}
-    snapshot.generations=snapshot.generations.filter(g=>{try{assertGeneration(g,scope);return true;}catch{snapshot.warnings.push(`DRAFT_REQUIRES_REVIEW:${g?.generationId??"unknown"}`);return false;}});
+    const preserve=(store:DraftSnapshot["originals"][number]["store"],reason:string,value:unknown)=>{
+      snapshot.warnings.push(reason);snapshot.originals.push({store,reason,value});
+    };
+    if(snapshot.head){try{assertHead(snapshot.head,scope);}catch{preserve("heads","DRAFT_HEAD_REQUIRES_REVIEW",snapshot.head);snapshot.head=null;}}
+    snapshot.generations=snapshot.generations.filter(g=>{try{assertGeneration(g,scope);return true;}catch{preserve("generations","DRAFT_REQUIRES_REVIEW",g);return false;}});
     if(snapshot.head?.generationId&&!snapshot.generations.some(g=>g.generationId===snapshot.head!.generationId))snapshot.warnings.push("DRAFT_HEAD_MISSING_GENERATION");
-    snapshot.submissions=snapshot.submissions.filter(s=>{try{assertSubmission(s,scope);return true;}catch{snapshot.warnings.push(`DRAFT_SUBMISSION_REQUIRES_REVIEW:${s?.requestId??"unknown"}`);return false;}});
-    for(const a of snapshot.archives){if(sha256(a.original)!==a.v1Sha256)snapshot.warnings.push("V1_ARCHIVE_REQUIRES_REVIEW");}
-    if(!snapshot.head&&(snapshot.generations.length||snapshot.submissions.length||snapshot.archives.length))snapshot.warnings.push("DRAFT_HEAD_MISSING_REQUIRES_REVIEW");
+    snapshot.submissions=snapshot.submissions.filter(s=>{try{assertSubmission(s,scope);return true;}catch{preserve("submissions","DRAFT_SUBMISSION_REQUIRES_REVIEW",s);return false;}});
+    snapshot.archives=snapshot.archives.filter(a=>{try{assertArchive(a,scope);return true;}catch{preserve("v1Archives","V1_ARCHIVE_REQUIRES_REVIEW",a);return false;}});
+    if(!snapshot.head&&(snapshot.generations.length||snapshot.submissions.length||snapshot.archives.length||snapshot.originals.length))snapshot.warnings.push("DRAFT_HEAD_MISSING_REQUIRES_REVIEW");
     return snapshot;
   }
   private addGeneration(tx:IDBTransaction,g:DraftGeneration,done:()=>void,fail:(e:Error)=>void) {
@@ -222,7 +225,7 @@ export class DraftDatabase {
     return result;
   }
   async applyReceipt(scope:DraftScope,submission:DraftSubmission,receipt:PaintReceipt):Promise<{saved:true;cleanupPending:boolean;snapshot:DraftSnapshot|null}> {
-    this.assertWritable();
+    assertSubmission(submission,scope);
     assertReceipt(submission,receipt);
     for(let attempt=0;attempt<8;attempt++){
       try {
@@ -300,7 +303,11 @@ export class DraftDatabase {
       const scope={managerId,board,date},head=rows.heads[0];
       try{assertHead(head,scope);}catch{commands.add(date);continue;}
       const valid=rows.generations.filter(g=>{try{assertGeneration(g,scope);return true;}catch{return false;}});
-      const resolved=new Set(valid.flatMap(g=>g.resolves));
+      let invalid=valid.length!==rows.generations.length;
+      for(const s of rows.submissions)try{assertSubmission(s,scope);}catch{invalid=true;}
+      for(const a of rows.v1Archives)try{assertArchive(a,scope);}catch{invalid=true;}
+      if(invalid){commands.add(date);continue;}
+      const resolved=new Set(valid.filter(g=>g.disposition!=="conflict-branch").flatMap(g=>g.resolves));
       if(head.state!=="closed"||head.pendingRequestId||(head.generationId&&!valid.some(g=>g.generationId===head.generationId))||valid.some(g=>g.disposition==="conflict-branch"&&!resolved.has(g.generationId)))commands.add(date);
       // A valid closed head owns its historical generations/archives; do not resurrect them.
     }
@@ -382,7 +389,7 @@ export function activeGeneration(snapshot:DraftSnapshot):DraftGeneration|null {
   return snapshot.generations.find(g=>g.generationId===snapshot.head?.generationId)??null;
 }
 export function conflictBranches(snapshot:DraftSnapshot):DraftGeneration[] {
-  const resolved=new Set(snapshot.generations.flatMap(g=>g.resolves));
+  const resolved=new Set(snapshot.generations.filter(g=>g.disposition!=="conflict-branch").flatMap(g=>g.resolves));
   return snapshot.generations.filter(g=>g.disposition==="conflict-branch"&&!resolved.has(g.generationId));
 }
 export { emptyBase };

@@ -34,6 +34,7 @@ export type V1Archive = DraftScope & {
 };
 export type DraftSnapshot = {
   head: DraftHead | null; generations: DraftGeneration[]; submissions: DraftSubmission[]; archives: V1Archive[]; warnings: string[];
+  originals: { store: "heads" | "generations" | "submissions" | "v1Archives"; reason: string; value: unknown }[];
 };
 export const emptyBase: DraftBase = { localRevision: "0", generationId: null };
 export const scopeKey = (s: DraftScope) => [s.managerId, s.board, s.date];
@@ -42,6 +43,10 @@ export const sameBase = (a: DraftBase | null, b: DraftBase) => (a?.localRevision
 export class DraftError extends Error { constructor(public code: string) { super(code); } }
 const id=z.string().min(1).max(160),hash=z.string().regex(/^[a-f0-9]{64}$/),revision=z.string().regex(/^(0|[1-9][0-9]*)$/),instant=z.iso.datetime();
 const scopeShape={managerId:id,board:z.enum(["caja","cocina"]),date:z.iso.date()};
+const archiveSchema=z.strictObject({...scopeShape,v1Sha256:hash,original:z.string(),observedAt:instant,generationId:id.nullable(),result:z.enum(["converted","review"]),staleReason:z.string().nullable()});
+export function assertArchive(a:V1Archive,scope:DraftScope){
+  if(!archiveSchema.safeParse(a).success||!sameScope(a,scope)||sha256(a.original)!==a.v1Sha256)throw new DraftError("V1_ARCHIVE_REQUIRES_REVIEW");
+}
 export const headSchema=z.strictObject({...scopeShape,localRevision:revision,generationId:id.nullable(),state:z.enum(["outstanding","closed"]),pendingRequestId:id.nullable()});
 const envelopeSchema=z.strictObject({version:z.literal(2),databaseEpoch:id,generationId:id,parentGenerationId:id.nullable(),parentRevision:revision,episodeId:id,
   firstDirtyAt:instant.nullable(),firstObservedAt:instant,timeProvenance:z.enum(["edited","recovered-v1"]),updatedAt:instant,baseWorldRevision:revision,

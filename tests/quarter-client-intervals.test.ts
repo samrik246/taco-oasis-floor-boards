@@ -61,7 +61,7 @@ describe("explicit interval client truth",()=>{
   expect(crowded.every(v=>v.assignmentId===null&&v.interval?.startAt===iso(15)&&v.interval.endAt===iso(20))).toBe(true);
  });
  it("refuses mixed-hour bulk controls and detects original legacy assignment bounds",()=>{
-  const day=fixture(),scope={managerId:"m",board:"caja" as const,date},snapshot={head:null,generations:[],submissions:[],archives:[],warnings:[]};
+  const day=fixture(),scope={managerId:"m",board:"caja" as const,date},snapshot={head:null,generations:[],submissions:[],archives:[],originals:[],warnings:[]};
   expect(()=>proposeHours(scope,snapshot,day,[{shiftId:"source",hour:11,action:{action:"erase"}}])).toThrow("HOUR_NEEDS_QUARTER");
   day.sources[0].endAt=iso(60);day.hours[0]={shiftId:"source",hourStart:iso(0),revision:null,legacySha256:"b".repeat(64),intervals:[{startAt:iso(0),endAt:iso(60),state:"assigned",stationId:"purple1",seatNumber:1,provenance:{kind:"legacy",assignmentId:"original",startAt:iso(0),endAt:iso(60)}}]};
   const source=day.sources[0],raw=JSON.stringify({version:1,updatedAt:iso(0),edits:[{shiftId:source.shiftId,hour:11,expected:{id:"original",stationId:"purple1"},stationId:"green1",expectedShift:{startAt:source.startAt,endAt:source.endAt,employeeId:source.employeeId,sourcePosition:source.sourcePosition}}]});

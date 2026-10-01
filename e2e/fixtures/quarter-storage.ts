@@ -1,4 +1,4 @@
-import {DraftDatabase,activeGeneration,emptyBase} from "@/lib/quarter/client/draft-db";
+import {DraftDatabase,activeGeneration,conflictBranches,emptyBase} from "@/lib/quarter/client/draft-db";
 import {generation,newEnvelope,scopeKey,type DraftGeneration,type DraftScope,type DraftSubmission} from "@/lib/quarter/client/draft-types";
 import {randomId,contentHash,canonicalJson,sha256} from "@/lib/quarter/client/primitives";
 import type {PaintReceipt} from "@/lib/quarter/transaction";
@@ -24,6 +24,12 @@ const api={
   return proposal;
  },
  async retain(){return db!.retain(scope,{generationId:proposal!.envelope.parentGenerationId,localRevision:proposal!.envelope.parentRevision},proposal!);},
+ async prepareSelection(branchId:string){
+  const snapshot=await db!.read(scope),current=activeGeneration(snapshot)!;
+  proposal=generation(scope,newEnvelope({...current.envelope,parentGenerationId:snapshot.head!.generationId,parentRevision:snapshot.head!.localRevision,pendingRequestId:null}),[branchId]);
+  return proposal;
+ },
+ async branches(){return conflictBranches(await db!.read(scope)).map(g=>g.generationId).sort();},
  read(){return db!.read(scope);},dates(){return db!.dates(scope.managerId,scope.board);},
  get readOnly(){return db!.readOnly;},
  resume(){return resumeAction(scope,commandKey,"synthetic-review-token");},
@@ -31,7 +37,7 @@ const api={
  reject(submission:DraftSubmission){return db!.reject(scope,submission,"SYNTHETIC");},
  measure(){return measureClient({challengeId:"synthetic",databaseEpoch:"synthetic-epoch",schemaFingerprint:"synthetic"},"editor","caja");},
  async submit(){const s=await db!.read(scope);return db!.prepare(scope,s.head!,"b".repeat(64));},
- async receipt(submission:DraftSubmission){const receipt:PaintReceipt={ok:true,requestId:submission.requestId,requestSha256:submission.requestSha256,databaseEpoch:submission.databaseEpoch,
+ async receipt(submission:DraftSubmission,wrongBinding=false){const receipt:PaintReceipt={ok:true,requestId:submission.requestId,requestSha256:wrongBinding?"0".repeat(64):submission.requestSha256,databaseEpoch:submission.databaseEpoch,
   draftSubmission:{episodeId:submission.episodeId,generationId:submission.generationId,generationSha256:submission.generationSha256},dates:[scope.date],committedRevision:"12",hours:[],refreshRequired:true};
   return db!.applyReceipt(scope,submission,receipt);
  },

@@ -333,12 +333,12 @@ def remote_argv(host, app, mode, sha=None):
     if mode == "preflight":
         if sha is not None:
             raise Refusal("preflight does not take a sha")
-        remote = "cd %s && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight" % shlex.quote(app)
+        remote = "cd %s && node %s node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --preflight" % (shlex.quote(app), shlex.quote("--env-file=" + app + "/.env"))
     elif mode == "apply":
         if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
             raise Refusal("apply needs the resolved packet sha")
-        remote = "cd %s && node node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply %s" % (
-            shlex.quote(app), shlex.quote(sha))
+        remote = "cd %s && node %s node_modules/tsx/dist/cli.mjs scripts/agent-paint.ts --apply %s" % (
+            shlex.quote(app), shlex.quote("--env-file=" + app + "/.env"), shlex.quote(sha))
     else:
         raise Refusal("remote mode must be preflight or apply")
     return ["ssh", host, remote]

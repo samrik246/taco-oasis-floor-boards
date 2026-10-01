@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 import { managerSessionIsConfigured } from "../src/lib/managers/session";
 
 const prisma = new PrismaClient();

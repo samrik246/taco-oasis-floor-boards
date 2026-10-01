@@ -3,7 +3,7 @@ import {generation,newEnvelope,scopeKey,type DraftHead} from "@/lib/quarter/clie
 import {canonicalJson,sha256,randomId} from "@/lib/quarter/client/primitives";
 import {v1Key} from "@/lib/quarter/client/v1-conversion";
 const api={
- async seed(orphan:boolean){
+ async seed(mode:"index"|"orphan"|"generation-digest"|"submission-digest"){
   const heads=await new Promise<DraftHead[]>((resolve,reject)=>{const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{const tx=r.result.transaction("heads"),q=tx.objectStore("heads").getAll();tx.oncomplete=()=>{r.result.close();resolve(q.result);};};});
   const scope=heads.find(h=>h.state==="outstanding")!;if(!scope)throw new Error("stage a real editor draft first");
   const db=await DraftDatabase.open();
@@ -17,12 +17,14 @@ const api={
    const original=' {"version":1,"original":"preserve this exact unconverted draft"} ';
    localStorage.setItem(v1Key(scope),original);
    await new Promise<void>((resolve,reject)=>{const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{
-    const tx=r.result.transaction(["heads","v1Archives"],"readwrite");
+    const tx=r.result.transaction(["heads","v1Archives","generations","submissions"],"readwrite");
     tx.objectStore("v1Archives").add({managerId:scope.managerId,board:scope.board,date:scope.date,v1Sha256:sha256(original),original,observedAt:new Date().toISOString(),generationId:null,result:"review",staleReason:"SYNTHETIC"});
-    if(orphan)tx.objectStore("heads").delete(scopeKey(scope));
+    if(mode==="orphan")tx.objectStore("heads").delete(scopeKey(scope));
+    if(mode==="generation-digest")tx.objectStore("generations").put({...g,sha256:"0".repeat(64)});
+    if(mode==="submission-digest")tx.objectStore("submissions").put({...submission,requestSha256:"0".repeat(64)});
     tx.oncomplete=()=>{r.result.close();resolve();};tx.onabort=()=>{r.result.close();reject(tx.error);};
    };});
-   return {generationId:g.generationId,requestBytes:submission.requestBytes,commandBytes,original,legacyKey:v1Key(scope)};
+   return {envelope:g.envelope,generationId:g.generationId,requestBytes:submission.requestBytes,commandBytes,original,legacyKey:v1Key(scope)};
   }finally{db.close();}
  }
 };

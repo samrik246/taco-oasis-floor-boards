@@ -51,6 +51,7 @@ export function launchAgentPlist(input: LaunchAgentInput): string {
     `<key>Label</key>${str(WIW_EXPORT_LABEL)}`,
     "<key>ProgramArguments</key><array>",
     str(input.nodePath),
+    `    ${str(`--env-file=${input.appDir}/.env`)}`,
     str(`${input.appDir}/node_modules/tsx/dist/cli.mjs`),
     str(`${input.appDir}/scripts/wiw-export.ts`),
     "</array>",

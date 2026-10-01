@@ -285,7 +285,7 @@ test("active import UI presents interval minutes, original replay and fixed skip
  expect(bodies).toHaveLength(2);expect(bodies[1]).toContain("synthetic-fingerprint");expect(bodies[1]).toContain("synthetic-plan");expect(legacy).toBe(0);
 });
 
-for(const unavailable of [false,true])for(const orphan of [false,true])test(`ordinary HTTP retained review is visible with unavailable=${unavailable} orphan=${orphan}`,async({page})=>{
+for(const unavailable of [false,true])for(const mode of ["index","orphan","generation-digest","submission-digest"] as const)test(`ordinary HTTP retained review is visible with unavailable=${unavailable} mode=${mode}`,async({page})=>{
  const requireBundle=createRequire(process.cwd()+"/package.json");
  const {buildSync}=createRequire(requireBundle.resolve("tsx/package.json"))("esbuild") as {buildSync(options:Record<string,unknown>):{outputFiles:{text:string}[]}};
  const bundle=buildSync({entryPoints:["e2e/fixtures/quarter-review.ts"],bundle:true,write:false,platform:"browser",define:{"process.env.NODE_ENV":'"production"'}}).outputFiles[0].text;
@@ -294,8 +294,8 @@ for(const unavailable of [false,true])for(const orphan of [false,true])test(`ord
  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
  // Unload the editor before seeding pending work, so this fixture cannot trigger its normal reconciliation.
  await page.goto(`${origin}/__quarter-review-fixture`);await page.addScriptTag({content:bundle});
- const seeded=await page.evaluate(orphan=>window.quarterReviewProof.seed(orphan),orphan);
- if(!orphan)await faultDraftIndexes(page,"missing");
+ const seeded=await page.evaluate(mode=>window.quarterReviewProof.seed(mode),mode);
+ if(mode==="index")await faultDraftIndexes(page,"missing");
  const before=await rawDraftDatabase(page);let mutations=0,receiptReads=0;
  page.on("request",request=>{if(request.url().includes("/api/v2/")&&["POST","PUT","DELETE","PATCH"].includes(request.method()))mutations++;if(request.url().includes("/assignments/paint/receipts/"))receiptReads++;});
  if(unavailable){
@@ -305,10 +305,16 @@ for(const unavailable of [false,true])for(const orphan of [false,true])test(`ord
  for(let opening=0;opening<2;opening++){
   await openEditor(page);
   const review=page.getByTestId("quarter-retained-review");await expect(review).toBeVisible();
-  await expect(review).toContainText(orphan?"DRAFT_HEAD_MISSING_REQUIRES_REVIEW":"DRAFT_INDEX_REQUIRES_REVIEW");
+  await expect(review).toContainText(mode==="orphan"?"DRAFT_HEAD_MISSING_REQUIRES_REVIEW":mode==="index"?"DRAFT_INDEX_REQUIRES_REVIEW":mode==="generation-digest"?"DRAFT_REQUIRES_REVIEW":"DRAFT_SUBMISSION_REQUIRES_REVIEW");
   await review.locator("summary").evaluateAll(summaries=>{for(const summary of summaries)(summary.parentElement as HTMLDetailsElement).open=true;});
   await expect(review).toContainText(seeded.generationId);await expect(review).toContainText(seeded.requestBytes);
   await expect(review).toContainText(seeded.original.trim());
+  if(mode.endsWith("digest")){
+   const invalid=review.getByTestId("quarter-invalid-original");await expect(invalid).toHaveCount(1);
+   await expect(invalid).toContainText("0".repeat(64));
+   if(mode==="generation-digest")expect(JSON.parse((await invalid.locator("pre").first().textContent())!).envelope).toEqual(seeded.envelope);
+   else expect(await invalid.getByTestId("quarter-original-bytes").textContent()).toBe(seeded.requestBytes);
+  }
   if(unavailable)await expect(page.getByTestId("quarter-hour-editor")).toContainText(/compatible.*(no está disponible|unavailable)/);
   else {
    await expect(page.getByTestId("quarter-save")).toBeDisabled();
@@ -323,4 +329,35 @@ for(const unavailable of [false,true])for(const orphan of [false,true])test(`ord
   expect(await page.evaluate(key=>localStorage.getItem(key),seeded.legacyKey)).toBe(seeded.original);
  }
  expect(mutations).toBe(0);expect(receiptReads).toBe(0);
+});
+
+test("ordinary HTTP acknowledged response after versionchange preserves success and newer work",async({page,context})=>{
+ await openEditor(page);const newer=await context.newPage();await openEditor(newer);
+ await page.getByTestId("quarter-palette-family:green").click();await page.getByTestId(`quarter-cell-${shift}-11`).click();
+ let release:()=>void=()=>{},dispatch:()=>void=()=>{};
+ const gate=new Promise<void>(resolve=>{release=resolve;}),dispatchGate=new Promise<void>(resolve=>{dispatch=resolve;});let committed=false,waiting=false;
+ await page.route("**/api/v2/assignments/paint",async route=>{
+  requests.push(route.request().postDataJSON().requestId);waiting=true;await dispatchGate;
+  const response=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});expect(response.status()).toBe(200);committed=true;
+  await gate;await route.fulfill({response});
+ });
+ try{
+  await page.getByTestId("quarter-save").click();await expect.poll(()=>waiting).toBe(true);
+  await newer.getByRole("button",{name:/Revisar almacenamiento|Review retained work/}).click();
+  await newer.getByTestId("quarter-palette-family:purple").click();await newer.getByTestId(`quarter-cell-${shift}-12`).click();
+  await expect(newer.getByTestId("quarter-private-preview")).toHaveCount(2);
+  await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(2);
+  const before=await rawDraftDatabase(page);
+  // Abort the upgrade after versionchange closes both real editor connections; version 1 and all bytes survive.
+  await newer.evaluate(()=>new Promise<void>((resolve,reject)=>{const r=indexedDB.open("taco-oasis-paint-drafts",2);r.onupgradeneeded=()=>r.transaction!.abort();r.onerror=()=>r.error?.name==="AbortError"?resolve():reject(r.error);r.onsuccess=()=>{r.result.close();reject(new Error("upgrade unexpectedly committed"));};}));
+  dispatch();await expect.poll(()=>committed).toBe(true);release();
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/limpieza local pendiente|local cleanup pending/);
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+  await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  expect(await rawDraftDatabase(page)).toEqual(before);await expect(page.getByTestId("quarter-save")).toBeDisabled();
+  await openEditor(page);await expect(page.getByTestId("quarter-draft-status")).toContainText(/Guardado|Saved/);
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  const after=await rawDraftDatabase(page);expect(after).not.toEqual(before);
+ }finally{dispatch();release();await newer.close();}
 });

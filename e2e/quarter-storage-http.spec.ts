@@ -4,7 +4,7 @@ import type {} from "./fixtures/quarter-storage";
 import {faultDraftIndexes} from "./fixtures/draft-storage-fault";
 const requireBundle=createRequire(process.cwd()+"/package.json");
 const {buildSync}=createRequire(requireBundle.resolve("tsx/package.json"))("esbuild") as {buildSync(options:Record<string,unknown>):{outputFiles:{text:string}[]}};
-const bundle=buildSync({entryPoints:["e2e/fixtures/quarter-storage.ts"],bundle:true,write:false,platform:"browser",define:{"process.env.NODE_ENV":'"production"'}}).outputFiles[0].text;
+const bundle=buildSync({entryPoints:["e2e/fixtures/quarter-storage.ts"],bundle:true,write:false,platform:"browser",define:{"process.env.NODE_ENV":'"production"',"process.env.NEXT_PUBLIC_QUARTER_SOURCE_SHA":JSON.stringify("f".repeat(40))}}).outputFiles[0].text;
 const origin="http://floor-boards.test:3100";
 async function load(page:Page){
  await page.goto(`${origin}/__quarter-storage-fixture`); // Real HTTP response from the fresh test server, with a non-loopback host.
@@ -193,12 +193,14 @@ for(const mode of ["missing","wrong","unique","multiEntry","extra"] as const)tes
  expect((await page.evaluate(()=>window.quarterProof.pendingCommands()))[0].value.requestBytes).toBe(command.requestBytes);
  const refused=await page.evaluate(async({submission,bytes,raw})=>{
   const api=window.quarterProof,errors:string[]=[];
-  const attempts=[()=>api.retain(),()=>api.submit(),()=>api.receipt(submission),()=>api.reject(submission),()=>api.discard(),()=>api.retainCommand(),()=>api.finishCommand(bytes,"confirmed",{ok:true}),()=>api.instance(),()=>api.probe(),()=>api.resume(),()=>api.send(submission),()=>api.measure()];
+  const attempts=[()=>api.retain(),()=>api.submit(),()=>api.reject(submission),()=>api.discard(),()=>api.retainCommand(),()=>api.finishCommand(bytes,"confirmed",{ok:true}),()=>api.instance(),()=>api.probe(),()=>api.resume(),()=>api.send(submission),()=>api.measure()];
   for(const attempt of attempts)try{await attempt();errors.push("unexpected");}catch(e){errors.push((e as Error).message);}
   const observed=await api.v1(raw,{} as Parameters<typeof api.v1>[1]);
   return {errors,observed,legacy:localStorage.getItem("taco-oasis-paint-draft-v1:synthetic-manager:caja:2038-10-12")};
  },{submission,bytes:command.requestBytes,raw});
- expect(refused.errors).toHaveLength(12);for(const error of refused.errors)expect(error).toMatch(/DRAFT_(READ_ONLY_REVIEW|REQUIRES_REVIEW)/);
+ expect(refused.errors).toHaveLength(11);for(const error of refused.errors)expect(error).toMatch(/DRAFT_(READ_ONLY_REVIEW|REQUIRES_REVIEW)/);
+ expect(await page.evaluate(s=>window.quarterProof.receipt(s),submission)).toMatchObject({saved:true,cleanupPending:true,snapshot:null});
+ expect(await page.evaluate(s=>window.quarterProof.receipt(s,true).then(()=>"unexpected",e=>e.message),submission)).toBe("RECEIPT_BINDING_MISMATCH");
  expect(refused.observed.snapshot).toEqual(review);expect(refused.legacy).toBe(raw);
  const proof=await page.evaluate(()=>{const w=window as unknown as {reviewProof:{writes:number;cursors:string[]};restoreReviewProof:()=>void};w.restoreReviewProof();return w.reviewProof;});
  expect(proof.writes).toBe(0);expect(new Set(proof.cursors)).toEqual(new Set(["heads","generations","submissions","v1Archives","clientMeta"]));
@@ -233,4 +235,30 @@ test("HTTP terminal command outcome is immutable across a delayed conflicting co
  const before=await rawDatabase(page);
  expect(await page.evaluate(bytes=>window.quarterProof.finishCommand(bytes,"rejected",{code:"LATE_REJECTION"}).then(()=>"unexpected",e=>e.message),command.requestBytes)).toBe("COMMAND_OUTCOME_CHANGED");
  expect(await rawDatabase(page)).toEqual(before);
+});
+
+test("HTTP losing branch selection cannot resolve original work across reload or later closure",async({context})=>{
+ const a=await context.newPage(),b=await context.newPage();await load(a);await load(b);
+ await a.evaluate(()=>window.quarterProof.prepareProposal("purple1"));await a.evaluate(()=>window.quarterProof.retain());
+ const original=await a.evaluate(()=>window.quarterProof.prepareProposal("green1"));
+ await b.evaluate(()=>window.quarterProof.discard());
+ expect((await a.evaluate(()=>window.quarterProof.retain())).status).toBe("conflict");
+ const losing=await a.evaluate(id=>window.quarterProof.prepareSelection(id),original.generationId);
+ await b.evaluate(()=>window.quarterProof.discard());
+ expect((await a.evaluate(()=>window.quarterProof.retain())).status).toBe("conflict");
+ const ids=[original.generationId,losing.generationId].sort();
+ expect(await a.evaluate(()=>window.quarterProof.branches())).toEqual(ids);
+ await a.evaluate(()=>window.quarterProof.close());await load(a);
+ expect(await a.evaluate(()=>window.quarterProof.branches())).toEqual(ids);
+ await a.evaluate(id=>window.quarterProof.prepareSelection(id),losing.generationId);await a.evaluate(()=>window.quarterProof.retain());
+ expect((await a.evaluate(()=>window.quarterProof.read())).head?.state).toBe("closed");
+ expect(await a.evaluate(()=>window.quarterProof.branches())).toEqual([original.generationId]);
+ expect(await a.evaluate(()=>window.quarterProof.dates())).toEqual(["2038-10-12"]);
+ await a.evaluate(()=>window.quarterProof.close());await load(a);
+ expect(await a.evaluate(()=>window.quarterProof.branches())).toEqual([original.generationId]);
+ await a.evaluate(id=>window.quarterProof.prepareSelection(id),original.generationId);await a.evaluate(()=>window.quarterProof.retain());
+ expect(await a.evaluate(()=>window.quarterProof.branches())).toEqual([]);expect(await a.evaluate(()=>window.quarterProof.dates())).toEqual([]);
+ const preserved=await a.evaluate(()=>window.quarterProof.read());
+ expect(preserved.generations.find(g=>g.generationId===losing.generationId)).toEqual({...losing,disposition:"conflict-branch"});
+ expect(preserved.generations.find(g=>g.generationId===original.generationId)).toEqual({...original,disposition:"conflict-branch"});
 });

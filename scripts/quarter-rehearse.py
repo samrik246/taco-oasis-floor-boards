@@ -82,11 +82,15 @@ def verify_r0(root, database, value, packet):
     if sorted(row['scenario'] for row in cases) != sorted(required): raise ValueError('R0_CONTROLLER_PROOFS_INCOMPLETE')
     if not any(row.get('action') == 'migration-repeat' for row in records): raise ValueError('MIGRATION_REPEAT_PROOF_REQUIRED')
     paths = ['bootstrap/bootstrap-events.jsonl', 'measurements/completed.json', 'importers-prepared/completed.json', 'importers-active/completed.json',
-             'agent-before/completed.json', 'agent-after/completed.json', 'picker-matrix-before.json', 'picker-matrix-after.json']
+             'agent-before/completed.json', 'agent-after/completed.json', 'picker-matrix-before.json', 'picker-matrix-after.json', 'environment/completed.json']
     evidence = {name: file_hash(root / 'evidence' / name) for name in paths}
     def read(name): return json.loads((root / 'evidence' / name).read_text())
     bootstrap_records = [json.loads(line) for line in (root / 'evidence' / paths[0]).read_text().splitlines()]
     if bootstrap_records[-1].get('action') != 'accepted': raise ValueError('HOURLY_BOOTSTRAP_PROOF_REQUIRED')
+    environment = read('environment/completed.json')
+    expected_observations = [{'mode': mode, 'parentDatabaseAbsent': True, 'envFileFlag': False, 'path': str(database), 'device': database.stat().st_dev, 'inode': database.stat().st_ino} for mode in ('shared', 'direct')]
+    if environment.get('runtimeManifestSha256') != value['r0']['manifestSha256'] or environment.get('observations') != expected_observations or environment.get('database') != capture(database)['database'] or environment.get('configurationRemoved') is not True:
+        raise ValueError('ENVIRONMENT_PROOFS_INCOMPLETE')
     measured = read('measurements/completed.json')
     if measured.get('realLoadedProfiles') != 2 or measured.get('activation') != 'actual-Q1-required': raise ValueError('CLIENT_PROOFS_INCOMPLETE')
     for phase in ('prepared', 'active'):
@@ -109,7 +113,7 @@ def verify_r0(root, database, value, packet):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
-    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify', 'verify-r0', 'picker-matrix', 'importer-proofs', 'agent-proofs', 'client-proofs'):
+    for action in ('init', 'check-migration-repeat', 'activate', 'run', 'verify', 'verify-r0', 'picker-matrix', 'importer-proofs', 'agent-proofs', 'client-proofs', 'environment-proofs'):
         p = sub.add_parser(action); p.add_argument('--root', required=True)
         if action == 'init':
             p.add_argument('--date', required=True)
@@ -133,6 +137,9 @@ def main():
     packet = load_packet(args.manifest)
     if args.action == 'verify-r0':
         print(canonical(verify_r0(root, database, value, packet))); return
+    if args.action == 'environment-proofs':
+        from quarter_rehearsal_environment import run
+        run(root,value,database);return
     if args.action == 'client-proofs':
         from quarter_rehearsal_measurements import run
         run(root,value,database,args.manifest);return

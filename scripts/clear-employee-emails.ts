@@ -4,7 +4,7 @@
  * backup: `pnpm exec tsx scripts/clear-employee-emails.ts`. Prints the count
  * only. The column stays in the schema.
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/lib/prisma-client";
 import { clearEmployeeEmails } from "../src/lib/employees/clear-emails";
 
 const prisma = new PrismaClient();

@@ -15,7 +15,20 @@ import { OverlayMenu } from "./OverlayMenu";
 import { SavedCoverPanel,SavedCoverRows,SavedShiftHour } from "./SavedCoverDisplay";
 import { displayName,stationColorClass } from "./board-helpers";
 import type { ColorEditorProps } from "./ManagerColorEditor";
-const empty:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],warnings:[]};
+const empty:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],originals:[],warnings:[]};
+function reviewText(value:unknown):string {
+  const seen=new WeakSet<object>();
+  try{return JSON.stringify(value,(_key,v)=>{
+    if(typeof v==="bigint")return `${v} (BigInt)`;
+    if(v&&typeof v==="object"){if(seen.has(v))return "[circular reference; original retained]";seen.add(v);}
+    return v;
+  },2)??String(value);}catch{return "Original retained; this value cannot be displayed.";}
+}
+function originalText(value:unknown):string|null {
+  if(!value||typeof value!=="object")return null;
+  const row=value as Record<string,unknown>;
+  return typeof row.requestBytes==="string"?row.requestBytes:typeof row.original==="string"?row.original:null;
+}
 const explanation=(code:string,es:boolean)=>({HOUR_NEEDS_QUARTER:es?"Hora mixta: se necesita edición por cuartos. Se conserva sin cambios.":"Mixed hour: quarter editing is required. Saved intervals are preserved.",
  HOUR_HAS_OBLIGATION:es?"Esta hora tiene un BREAK o movimiento guardado. Revísalo antes de pintar.":"This hour has a saved BREAK or movement. Review it before painting.",
  QUARTER_DRAFT_REVIEW_ONLY:es?"Este borrador contiene cuartos; se conserva completo para revisión o reintento exacto.":"This draft contains quarters; it is retained in full for review or exact retry.",
@@ -109,7 +122,8 @@ export function QuarterHourEditor(props:ColorEditorProps){
   const reviewOnly=Boolean(snapshot.warnings.length||!publicDay);
   const preservedReview=reviewOnly?<div data-testid="quarter-retained-review" className="space-y-2 rounded border-2 border-amber-700 p-3">
     <p role="alert">{es?"Solo revisión. Los originales están conservados; no se harán cambios ni reintentos.":"Review only. Originals are preserved; changes and retries are disabled."}</p>
-    {snapshot.warnings.map(w=><p key={w}>{w}</p>)}
+    {[...new Set(snapshot.warnings)].map(w=><p key={w}>{w}</p>)}
+    {snapshot.originals.map((original,index)=><details key={`${original.store}:${index}`} data-testid="quarter-invalid-original"><summary>{es?"Original sin validar; solo revisión":"Unvalidated original; review only"}: {original.store} · {original.reason}</summary><pre className="overflow-auto text-xs">{reviewText(original.value)}</pre>{originalText(original.value)!==null&&<pre data-testid="quarter-original-bytes" className="overflow-auto text-xs">{originalText(original.value)}</pre>}</details>)}
     {snapshot.generations.map(g=><details key={g.generationId}><summary>{es?"Ver borrador retenido":"View retained draft"}: {g.generationId}</summary><pre className="overflow-auto text-xs">{canonicalJson(g.envelope)}</pre></details>)}
     {snapshot.submissions.map(s=><details key={s.requestId}><summary>{es?"Ver solicitud original":"View original request"}: {s.requestId}</summary><pre className="overflow-auto text-xs">{s.requestBytes}</pre></details>)}
     {snapshot.archives.map(a=><details key={a.v1Sha256}><summary>{es?"Ver archivo anterior":"View earlier archive"}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
