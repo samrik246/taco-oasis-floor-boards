@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import signal
 import sqlite3
@@ -27,6 +28,9 @@ from b4_artifacts import (NEST, RUNTIME, clean_env, copy_runtime, digest,
 APP = NEST / 'COLOR_BOARDS_APP'
 DATABASE = APP / 'var/data/floor-boards.db'
 LABEL = 'com.taco-oasis.wiw-export'
+# T MAC MINI's existing schedule, observed read-only for S4-P2. Includes both
+# original 07:00/16:00 requirements; never reconfigure the timer at cutover.
+IMPORT_HOURS = list(range(6, 22))
 
 
 def stamp():
@@ -97,18 +101,55 @@ def verify_live_runtime(app, packet, label, dependencies=True, prior_installed=F
     return len(expected)
 
 
+def loaded_calendar(lines):
+    """Retain only numeric calendar descriptors; discard all other launchd output."""
+    slots, current, depth, invalid = [], None, 0, False
+    for line in lines:
+        line = line.strip()
+        if depth == 0:
+            if line == 'event triggers = {': depth = 1
+            continue
+        if current is not None:
+            if line == '}':
+                slots.append(current); current = None
+            else:
+                field = re.fullmatch(r'"(Hour|Minute)"\s*=>\s*(\d+)', line)
+                if not field or field[1] in current: invalid = True
+                else: current[field[1]] = int(field[2])
+        elif line.startswith('stream = ') and line != 'stream = com.apple.launchd.calendarinterval':
+            invalid = True
+        elif line == 'descriptor = {':
+            current = {}
+        depth += line.count('{') - line.count('}')
+    if invalid or depth or current is not None:
+        raise ValueError('Unexpected loaded import calendar descriptor')
+    return slots
+
+
 def timer_state():
     domain = 'gui/' + str(os.getuid())
-    # launchctl print can contain environment values: discard its complete output.
-    loaded = subprocess.run(['launchctl', 'print', domain + '/' + LABEL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    # Stream only calendar descriptors. Never retain/print the environment section.
+    with subprocess.Popen(['launchctl', 'print', domain + '/' + LABEL], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as proc:
+        observed = loaded_calendar(proc.stdout)
+        loaded = proc.wait() == 0
     disabled = subprocess.check_output(['launchctl', 'print-disabled', domain], text=True)
     if re.search(r'"' + re.escape(LABEL) + r'"\s*=>\s*true', disabled):
         raise ValueError('Import timer is disabled')
     plist = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
-    slots = subprocess.check_output(['/usr/libexec/PlistBuddy', '-c', 'Print :StartCalendarInterval', str(plist)], text=True)
-    if not loaded or sorted(int(x) for x in re.findall(r'Hour = (\d+)', slots)) != [7, 16] or re.findall(r'Minute = (\d+)', slots) != ['0', '0']:
-        raise ValueError('Expected enabled 07:00/16:00 import timer missing')
-    return {'loaded': True, 'hours': [7, 16], 'minutes': [0, 0], 'plistMetadata': metadata(plist)}
+    # Read only this public schedule field, never the full plist or launchd env.
+    raw = subprocess.check_output(['/usr/libexec/PlistBuddy', '-x', '-c', 'Print :StartCalendarInterval', str(plist)])
+    slots = plistlib.loads(raw)
+    def expected(calendar):
+        return (isinstance(calendar, list) and len(calendar) == len(IMPORT_HOURS)
+                and all(isinstance(slot, dict) and set(slot) == {'Hour', 'Minute'}
+                        and type(slot['Hour']) is int and type(slot['Minute']) is int
+                        and slot['Minute'] == 0 for slot in calendar)
+                and sorted(slot['Hour'] for slot in calendar) == IMPORT_HOURS)
+    run_at_load = subprocess.check_output(['/usr/libexec/PlistBuddy', '-c', 'Print :RunAtLoad', str(plist)], text=True).strip()
+    if not loaded or not expected(slots) or not expected(observed) or run_at_load != 'false':
+        raise ValueError('Expected enabled hourly 06:00–21:00 import timer missing')
+    return {'loaded': True, 'hours': IMPORT_HOURS.copy(), 'minutes': [0] * len(IMPORT_HOURS),
+            'loadedCalendar': sorted(observed, key=lambda slot: slot['Hour']), 'runAtLoad': False, 'plistMetadata': metadata(plist)}
 
 
 def service(packet, action, run):
@@ -200,6 +241,7 @@ def cutover(packet, operation):
         raise ValueError('Database path must match the reviewed fixed installation path')
     env_before = metadata(APP / '.env')
     timer_before = timer_state()
+    record(run, 'configuration-before', environmentMetadata=env_before, timer=timer_before)
     # All preparation is application-only and occurs before stopping the live app.
     for label in ('old', 'new'):
         copy_runtime(packet / label, run / ('incoming-' + label))
@@ -225,8 +267,10 @@ def cutover(packet, operation):
         promote(run / ('incoming-' + label), APP, run / 'retired-application')
         require_preserved(before, guard(DATABASE))
         verify_live_runtime(APP, packet, label)
-        if metadata(APP / '.env') != env_before or timer_state() != timer_before:
+        timer_after = timer_state()
+        if metadata(APP / '.env') != env_before or timer_after != timer_before:
             raise ValueError('Configuration or import timer changed')
+        record(run, 'configuration-after-promotion', timer=timer_after, unchanged=True)
         service(packet, 'start', run)
         service(packet, 'status', run)
         public = public_readback(timeline=label == 'new')
@@ -234,6 +278,8 @@ def cutover(packet, operation):
         require_preserved(before, after_start)
         record(run, 'operator-readback', release=manifest['releases'][label]['sha'], public=public, data=after_start)
         wait_for_checker(run, 'installed' if label == 'new' else 'rolled-back', manifest['releases'][label]['sha'])
+        if metadata(APP / '.env') != env_before or timer_state() != timer_before:
+            raise ValueError('Configuration or import timer changed during read-back')
         record(run, 'accepted', state='installed; technical read-back passed; physical tablets and owner pairings pending' if label == 'new' else 'prior application restored; same migrated database; independent rollback read-back passed')
     except BaseException as error:
         record(run, 'cutover-failed', errorType=type(error).__name__, message=str(error))
@@ -249,14 +295,18 @@ def cutover(packet, operation):
             promote(old_stage, APP, run / 'retired-failed-application')
             require_preserved(retained, guard(DATABASE))
             verify_live_runtime(APP, packet, 'old')
-            if metadata(APP / '.env') != env_before or timer_state() != timer_before:
+            timer_recovered = timer_state()
+            if metadata(APP / '.env') != env_before or timer_recovered != timer_before:
                 raise ValueError('Configuration or import timer changed during recovery')
+            record(run, 'configuration-after-recovery', timer=timer_recovered, unchanged=True)
             service(packet, 'start', run)
             public = public_readback(timeline=False)
             after_start = guard(DATABASE)
             require_preserved(retained, after_start)
             record(run, 'rollback-operator-readback', public=public, data=after_start)
             wait_for_checker(run, 'recovery', old_sha)
+            if metadata(APP / '.env') != env_before or timer_state() != timer_before:
+                raise ValueError('Configuration or import timer changed during recovery read-back')
             record(run, 'rolled-back', originalError=type(error).__name__)
         except BaseException as recovery_error:
             record(run, 'recovery-blocked', errorType=type(recovery_error).__name__, message=str(recovery_error))

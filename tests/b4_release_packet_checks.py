@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import py_compile
+import plistlib
 import os
 from pathlib import Path
 import shutil
@@ -14,7 +15,7 @@ import tarfile
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import b4_artifacts as a
 import b4_release as r
@@ -67,6 +68,48 @@ class PacketTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
     def tearDown(self):
         self.temp.cleanup()
+    def timer_case(self, slots, loaded=True, disabled=False, loaded_slots=None, run_at_load='false'):
+        home = self.root / 'home'
+        plist = home / 'Library/LaunchAgents' / (r.LABEL + '.plist')
+        plist.parent.mkdir(parents=True, exist_ok=True)
+        plist.write_bytes(b'synthetic untouched timer metadata')
+        before = plist.read_bytes(), plist.stat().st_mode, plist.stat().st_mtime_ns
+        def output(command, **kwargs):
+            if command[:2] == ['launchctl', 'print-disabled']:
+                return '"' + r.LABEL + '" => ' + ('true' if disabled else 'false')
+            if command[1:3] == ['-c', 'Print :RunAtLoad']:
+                return run_at_load + '\n'
+            self.assertEqual(command, ['/usr/libexec/PlistBuddy', '-x', '-c', 'Print :StartCalendarInterval', str(plist)])
+            return plistlib.dumps(slots)
+        calendar = loaded_slots if loaded_slots is not None else [{'Hour': hour, 'Minute': 0} for hour in range(6, 22)]
+        text = 'environment = {\nSYNTHETIC_IGNORED = placeholder\n}\nevent triggers = {\n'
+        for slot in calendar:
+            text += 'trigger = {\nstream = com.apple.launchd.calendarinterval\ndescriptor = {\n' + ''.join('"'+key+'" => '+str(value)+'\n' for key, value in slot.items()) + '}\n}\n'
+        text += '}\n'
+        process = MagicMock(); process.__enter__.return_value = process
+        process.stdout = io.StringIO(text); process.wait.return_value = 0 if loaded else 1
+        with patch.object(r.Path, 'home', return_value=home), patch.object(r.subprocess, 'check_output', side_effect=output), patch.object(r.subprocess, 'Popen', return_value=process) as run:
+            try:
+                return r.timer_state()
+            finally:
+                self.assertEqual((plist.read_bytes(), plist.stat().st_mode, plist.stat().st_mtime_ns), before)
+                run.assert_called_once_with(['launchctl', 'print', 'gui/' + str(os.getuid()) + '/' + r.LABEL], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    def test_observed_hourly_timer_is_preserved(self):
+        slots = [{'Hour': hour, 'Minute': 0} for hour in range(6, 22)]
+        result = self.timer_case(list(reversed(slots)))
+        self.assertEqual(result['hours'], list(range(6, 22)))
+        self.assertEqual(result['minutes'], [0] * 16)
+        self.assertTrue(result['loaded'])
+    def test_timer_refuses_changed_incomplete_or_disabled_schedule(self):
+        expected = [{'Hour': hour, 'Minute': 0} for hour in range(6, 22)]
+        for slots in [expected[1:], expected + [expected[0]], expected[:-1] + [expected[0]],
+                      [{'Hour': 7, 'Minute': 0}, {'Hour': 16, 'Minute': 0}],
+                      [{**slot, 'Weekday': 1} for slot in expected],
+                      [{**slot, 'Minute': 1} for slot in expected],
+                      [{**slot, 'Minute': False} for slot in expected], {'Hour': 7, 'Minute': 0}]:
+            with self.subTest(slots=slots), self.assertRaises(ValueError): self.timer_case(slots)
+        for kwargs in [{'loaded': False}, {'disabled': True}, {'run_at_load': 'true'}, {'loaded_slots': expected[1:]}, {'loaded_slots': [{**slot, 'Weekday': 1} for slot in expected]}]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError): self.timer_case(expected, **kwargs)
     def test_archive_rejects_paths_and_links(self):
         for index, name in enumerate(['../escape', '/absolute', '.env', '.next/private.db', 'var/data/example.sqlite', 'public/link']):
             archive = self.root / str(index)
