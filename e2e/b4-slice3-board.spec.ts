@@ -51,7 +51,9 @@ for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] a
   expect(palette.scroll).toBeLessThanOrEqual(palette.client+1);expect(palette.overflow).toBe("visible");
   const screens=path.join(process.env.FLOOR_BOARDS_TEST_ROOT!,"b4-slice3-screens");mkdirSync(screens,{recursive:true});
   await page.screenshot({path:path.join(screens,`${board}_${locale}_palette_end.png`)});
-  await page.reload();await expect(page.getByTestId("manager-color-editor")).toBeVisible();
+  await page.reload();
+  await page.getByTestId("compact-manager").click();await page.getByTestId("manager-code-input").fill("8642");await page.getByTestId("manager-unlock-submit").click();
+  await expect(page.getByTestId("manager-color-editor")).toBeVisible();
   expect(await page.getByTestId("paint-palette").locator('button[data-testid^="paint-palette-"]').evaluateAll(nodes=>nodes.map(node=>node.getAttribute("data-testid")))).toEqual(ids);
   const refresh=page.getByTestId("refresh-day");await refresh.scrollIntoViewIfNeeded();
   const box=await refresh.boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.down();

@@ -517,7 +517,7 @@ export function ManagerColorEditor({
               </div>;
             })}
           </div>
-          <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {selectedChoice?.label ?? (selected === "erase" ? copy.erase : "—")}</p>
+          <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {(paletteStation ? displayStationLabel(locale, paletteStation) : selectedChoice?.label) ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>
         <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix" data-sort={rowSort}>
           <table className="min-w-full border-collapse text-left text-xs">

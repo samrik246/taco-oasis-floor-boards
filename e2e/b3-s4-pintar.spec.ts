@@ -86,7 +86,7 @@ test("D7 Pintar sorts, refuses a taken seat, and shows paint-order numbers", asy
   await page.getByTestId("paint-matrix").getByRole("button", { name: "12:00 pm", exact: true }).click();
 
   const rowNames = async () => {
-    const headers = page.getByTestId("paint-matrix").getByRole("rowheader");
+    const headers = page.getByTestId("paint-matrix").locator('[data-testid^="paint-row-"]').getByRole("rowheader");
     return (await headers.allTextContents()).map((text) => text.trim()).filter((text) => text.length > 0);
   };
   await expect(page.getByRole("rowheader", { name: /Nia Moss/ })).toBeVisible();

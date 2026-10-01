@@ -33,6 +33,16 @@ describe("B4 auxiliary classification and independent scheduled counts",()=>{
   input.auxiliaryShifts=[shift("office","Office")];
   expect(scheduledHeadcounts(input,[15,16,17,18,19,22])).toEqual([0,1,2,2,1,0]);
  });
+ it("keeps partial work, subtracts complete and overlapping removals, and ignores cancelled removals",()=>{
+  const input=day();
+  const removal={id:"remove",kind:"remove" as const,employeeId:"evening",partnerEmployeeId:null,stationId:"green1",fromStationId:null,startAt:at(17,15),endAt:at(19),managerId:"synthetic",managerName:"Example",cancelledAt:null,endReason:null};
+  input.overlays=[removal];
+  expect(scheduledHeadcounts(input,[17,18,19],new Date(at(16)))).toEqual([1,0,1]);
+  input.overlays.push({...removal,id:"earlier",startAt:at(17),endAt:at(17,30)});
+  expect(scheduledHeadcounts(input,[17,18,19],new Date(at(16)))).toEqual([0,0,1]);
+  input.overlays=input.overlays.map(row=>({...row,cancelledAt:at(16),endReason:"cancel"}));
+  expect(scheduledHeadcounts(input,[17,18,19],new Date(at(16)))).toEqual([1,1,1]);
+ });
 });
 describe("evening contiguous block regression",()=>{
  function render(input:DayBoardDto){const html=renderToStaticMarkup(createElement(SchedulePanel,{day:input,date,locale:"es",t:messagesFor("es"),now:new Date(at(16))}));const host=document.createElement("div");host.innerHTML=html;return host;}
