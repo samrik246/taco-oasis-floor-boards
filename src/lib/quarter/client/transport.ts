@@ -15,7 +15,7 @@ export async function capabilities():Promise<Capabilities> {
   if(!response.ok)throw new DraftError("PAINT_PROTOCOL_UNAVAILABLE");
   return capabilitySchema.parse(await response.json());
 }
-export function matchCapabilities(cap:Capabilities,day:PublicDayV2) {
+export function matchCapabilities(cap:Capabilities,day:Pick<PublicDayV2,"databaseEpoch"|"capabilitySha256"|"phase">) {
   if(cap.databaseEpoch!==day.databaseEpoch||cap.capabilitySha256!==day.capabilitySha256||cap.phase!==day.phase)throw new DraftError("PAINT_SNAPSHOT_CHANGED");
 }
 /** Prepared retains hourly behavior. Active uses only explicit V2 intervals and V2 writes. */
@@ -39,7 +39,7 @@ export async function fetchCompatibleBoard(board:"caja"|"cocina",date:string,tok
       const extra=await privateResponse.json();
       // Manager/owner fields are never placed in the public DTO or cache.
       if(extra.databaseEpoch===publicDay.databaseEpoch&&extra.worldRevision===publicDay.worldRevision){
-        day.mandatory=extra.mandatory;day.overlayMenu=extra.overlayMenu;
+        day.quarterManagerId=extra.managerId;day.mandatory=extra.mandatory;day.overlayMenu=extra.overlayMenu;
         for(const shift of day.shifts)if(extra.abilities?.[shift.employee.id])shift.employee.abilities=extra.abilities[shift.employee.id];
       }
     }

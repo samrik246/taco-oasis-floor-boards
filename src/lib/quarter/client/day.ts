@@ -7,9 +7,9 @@ import type { DayBoardDto } from "@/components/board/types";
 const id=z.string().min(1), instant=z.iso.datetime(), hash=z.string().regex(/^[a-f0-9]{64}$/), revision=z.string().regex(/^(0|[1-9][0-9]*)$/);
 const source=z.object({shiftId:id,employeeId:id,date:z.iso.date(),board:z.enum(["caja","cocina","other"]),sourcePosition:z.string(),
   startAt:instant,endAt:instant,supersededAt:instant.nullable(),boardRemoved:z.boolean()});
-export const intervalSchema=z.object({startAt:instant,endAt:instant,state:z.enum(["assigned","erased","off"]),stationId:id.nullable(),seatNumber:z.number().int().positive().nullable(),
+export const intervalSchema=z.object({startAt:instant,endAt:instant,state:z.enum(["assigned","erased","off"]),stationId:id.nullable(),seatNumber:z.number().int().positive().nullable(),abilityBlocked:z.boolean().optional(),
   provenance:z.discriminatedUnion("kind",[
-    z.object({kind:z.literal("legacy"),assignmentId:id.nullable()}),
+    z.object({kind:z.literal("legacy"),assignmentId:id.nullable(),startAt:instant.optional(),endAt:instant.optional()}),
     z.object({kind:z.literal("v2"),paintHourId:id,segmentId:id}),
   ])}).refine(i=>i.startAt<i.endAt&&(i.state==="assigned"?i.stationId!==null:i.stationId===null),"Invalid interval");
 const hour=z.object({shiftId:id,hourStart:instant,revision:revision.nullable(),legacySha256:hash.optional(),intervals:z.array(intervalSchema)})
@@ -75,6 +75,7 @@ export function readBoardV2(board:PublicDayV2["board"],now=new Date(),storage:St
     const raw=storage.getItem(BOARD_CACHE_V2);if(raw===null)return {status:"missing"};
     const result=cacheSchema.safeParse(JSON.parse(raw));if(!result.success)return {status:"unsupported"};
     if(result.data.board!==board||result.data.date!==chicagoYmd(now))return {status:"unavailable"};
+    const safe=JSON.stringify(result.data);if(safe!==raw)storage.setItem(BOARD_CACHE_V2,safe);
     return {status:"available",day:boardFromV2(result.data.day),savedAt:result.data.savedAt};
   }catch{return {status:"unavailable"};}
 }

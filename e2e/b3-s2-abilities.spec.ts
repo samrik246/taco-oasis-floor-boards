@@ -330,7 +330,7 @@ test("owner lock leaves no levels in the tablet cache or on a later offline boar
   await expect(page.getByTestId("ability-filter")).toBeVisible();
   await expect.poll(() => ownerBodies.some((body) => body.includes('"abilities"'))).toBe(true);
 
-  const stored = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  const stored = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v2"));
   expect(stored).toBeTruthy();
   expect(stored).not.toContain('"abilities"');
   expect(stored).toContain('"abilityBlocked":true');
@@ -384,13 +384,13 @@ test("owner lock leaves no levels in the tablet cache or on a later offline boar
   await expect(page.getByTestId("ability-badge")).toHaveCount(0);
   await expect(page.locator("[data-testid^='favorite-']")).toHaveCount(0);
   await expect(floor).not.toContainText(/fuerte|entrenando/);
-  const afterLock = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  const afterLock = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v2"));
   expect(afterLock).not.toContain('"abilities"');
 
   await page.evaluate(() => {
-    const key = "taco-oasis-last-board-v1";
+    const key = "taco-oasis-last-board-v2";
     const parsed = JSON.parse(localStorage.getItem(key) || "null");
-    const employee = parsed?.day?.shifts?.[0]?.employee;
+    const employee = parsed?.day?.employees?.[0];
     if (!employee) throw new Error("cache has no shift to poison");
     employee.abilities = [{ stationId: "pdf_guia", level: "forbidden" }];
     localStorage.setItem(key, JSON.stringify(parsed));
@@ -401,7 +401,7 @@ test("owner lock leaves no levels in the tablet cache or on a later offline boar
   await expect(page.getByTestId("ability-badge")).toHaveCount(0);
   await expect(page.locator("[data-testid^='favorite-']")).toHaveCount(0);
   await expect(page.getByTestId("wall-board")).not.toContainText(/fuerte|entrenando/);
-  const afterWall = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v1"));
+  const afterWall = await page.evaluate(() => localStorage.getItem("taco-oasis-last-board-v2"));
   expect(afterWall).not.toContain('"abilities"');
   expect(afterWall).toContain('"abilityBlocked":true');
 });

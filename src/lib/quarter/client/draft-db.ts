@@ -231,6 +231,32 @@ export class DraftDatabase {
       branches.onsuccess=()=>{const all=branches.result as DraftGeneration[], resolved=new Set(all.flatMap(g=>g.resolves));for(const g of all)if(g.managerId===managerId&&g.board===board&&g.disposition==="conflict-branch"&&!resolved.has(g.generationId))dates.add(g.date);finish([...dates].sort());};
     });
   }
+  /** Other V2 controls retain exact requests and outcomes in the preserved metadata store. */
+  async retainCommand(key:string,command:{actionSha256:string;requestBytes:string;requestSha256:string}):Promise<typeof command>{
+    const result=await this.transaction<typeof command>(["clientMeta"],"readwrite",(tx,finish,fail)=>{
+      const store=tx.objectStore("clientMeta"),request=store.get(key);
+      request.onsuccess=()=>{
+        const prior=request.result?.value;
+        if(prior?.state==="pending"){
+          if(prior.actionSha256!==command.actionSha256){fail(new DraftError("ANOTHER_COMMAND_UNCONFIRMED"));return;}
+          if(sha256(prior.requestBytes)!==prior.requestSha256){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
+          finish(prior);return;
+        }
+        store.put({key,value:{...command,state:"pending"}});finish(command);
+      };
+    });
+    const check=await this.transaction<unknown>(["clientMeta"],"readonly",(tx,finish)=>{const r=tx.objectStore("clientMeta").get(key);r.onsuccess=()=>finish(r.result?.value?.requestBytes);});
+    if(check!==result.requestBytes)throw new DraftError("COMMAND_READBACK_FAILED");return result;
+  }
+  async finishCommand(key:string,bytes:string,state:"confirmed"|"rejected",response:unknown){
+    await this.transaction<void>(["clientMeta"],"readwrite",(tx,finish,fail)=>{
+      const store=tx.objectStore("clientMeta"),r=store.get(key);r.onsuccess=()=>{
+        if(r.result?.value?.requestBytes!==bytes){fail(new DraftError("COMMAND_CHANGED"));return;}
+        store.put({key:`${key}:${sha256(bytes)}`,value:{...r.result.value,state,response}});
+        store.put({key,value:{...r.result.value,state,response}});finish();
+      };
+    });
+  }
   async clientInstance():Promise<string> {
     const proposed=randomId();
     return this.transaction(["clientMeta"],"readwrite",(tx,finish)=>{

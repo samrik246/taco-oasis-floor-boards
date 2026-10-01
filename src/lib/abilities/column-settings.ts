@@ -1,3 +1,4 @@
+import { requireLegacy } from "@/lib/quarter/schema";
 import type { Prisma } from "@prisma/client";
 import { boardWrite } from "@/lib/shared-write";
 import { prisma } from "@/lib/db";
@@ -121,6 +122,7 @@ export async function seedAbilityColumnSettings(actor: BoardChangeActor): Promis
   okToForbidden: { pdf_pstl: number; pdf_rngn: number };
 }> {
   return boardWrite(prisma, async (tx) => {
+    await requireLegacy(tx);
     let written = 0;
     let unchanged = 0;
     for (const row of ABILITY_COLUMN_INSTALL_SEED) {

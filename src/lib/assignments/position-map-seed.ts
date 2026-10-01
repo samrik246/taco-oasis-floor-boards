@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy } from "@/lib/quarter/schema";
 import type { PrismaClient } from "@prisma/client";
 import { prisma as defaultPrisma } from "@/lib/db";
 
@@ -24,10 +26,12 @@ export type PositionMapSeedSummary = {
 export async function seedPositionStationMap(
   prisma: PrismaClient = defaultPrisma,
 ): Promise<PositionMapSeedSummary> {
+  return boardWrite(prisma,async tx=>{
+  await requireLegacy(tx);
   let added = 0;
   let stationMissing = 0;
   for (const row of POSITION_STATION_MAP_SEED) {
-    const station = await prisma.station.findUnique({ where: { id: row.stationId } });
+    const station = await tx.station.findUnique({ where: { id: row.stationId } });
     if (!station) {
       stationMissing += 1;
       console.warn(
@@ -35,14 +39,15 @@ export async function seedPositionStationMap(
       );
       continue;
     }
-    const existing = await prisma.positionStationMap.findUnique({
+    const existing = await tx.positionStationMap.findUnique({
       where: { position: row.position },
     });
     if (existing) continue;
-    await prisma.positionStationMap.create({
+    await tx.positionStationMap.create({
       data: { position: row.position, stationId: row.stationId },
     });
     added += 1;
   }
   return { added, stationMissing };
+  });
 }

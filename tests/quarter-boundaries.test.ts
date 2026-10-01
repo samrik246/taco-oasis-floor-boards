@@ -21,6 +21,13 @@ import { GET as dayGet } from "@/app/api/v2/boards/[board]/days/[date]/route";
 import { GET as removalsGet } from "@/app/api/shift-removals/route";
 import { POST as importPost } from "@/app/api/v2/imports/route";
 import { safeDatabasePath } from "../scripts/test-db-path.cjs";
+import { seedPositionStationMap } from "@/lib/assignments/position-map-seed";
+import { seedAbilityColumnSettings } from "@/lib/abilities/column-settings";
+import { getTrafficState,setTrafficEnabled,tickTrafficIfDue } from "@/lib/traffic/service";
+import { sourceSnapshot } from "@/lib/quarter/world";
+import { digest } from "@/lib/quarter/schema";
+import { GET as removalReviewGet } from "@/app/api/v2/shift-removals/route";
+import { removeRestoreV2 } from "@/lib/quarter/removals";
 import { CAPABILITY_SHA256 } from "@/lib/quarter/schema";
 import { POST as movePost } from "@/app/api/position-moves/route";
 import { logPositionMove, listPositionMoves } from "@/lib/position-moves-service";
@@ -172,4 +179,39 @@ describe("quarter foundation review boundaries",()=>{
     const replay=await runFolderImport(settings,{now:new Date(hour-3600000)});expect(replay.outcome).toBe("replayed");expect(replay.dates).toEqual(first.dates);
     expect(formatSummary(replay)[0]).toContain("outcome=replayed");expect(EXIT_CODES[replay.outcome]).toBe(0);expect(startsNextWeek(replay)).toBe(true);expect(await worldRevision(db)).toBe(revision);
   });
+  it("R0 public interval evidence retains original bounds and a boolean blocked fact only",async()=>{
+    const s=await source("blocked",{assigned:true});const assignment=await db.assignment.findFirstOrThrow({where:{shiftId:s.id}});
+    await db.employeeStationAbility.create({data:{employeeId:s.employeeId,stationId:assignment.stationId,level:"forbidden"}});
+    const day=await readQuarterDay(db,"caja",date,now),assigned=day.hours.flatMap(h=>h.intervals).filter(i=>i.state==="assigned");
+    expect(assigned.every(i=>i.abilityBlocked)).toBe(true);expect(assigned[0].provenance).toMatchObject({kind:"legacy",assignmentId:assignment.id,startAt:assignment.hourStart.toISOString(),endAt:assignment.hourEnd.toISOString()});
+    expect(JSON.stringify(day)).not.toContain('"abilities"');expect(JSON.stringify(day)).not.toContain('"forbidden"');
+  });
+  it("R0 active traffic reads make no writes and bootstrap/simulator writes refuse",async()=>{
+    await activate();queries=[];
+    expect((await getTrafficState("caja")).enabled).toBe(false);
+    expect(queries.some(q=>/^(INSERT|UPDATE|DELETE)/.test(q))).toBe(false);
+    const revision=await worldRevision(db),counts=[await db.positionStationMap.count(),await db.abilityColumnSetting.count(),await db.loadStationMeter.count()];
+    await expect(seedPositionStationMap(db)).rejects.toMatchObject({code:"CLIENT_UPGRADE_REQUIRED"});
+    await expect(seedAbilityColumnSettings({id:"synthetic-manager",name:"Synthetic",route:"seed"})).rejects.toMatchObject({code:"CLIENT_UPGRADE_REQUIRED"});
+    await expect(setTrafficEnabled(true)).rejects.toMatchObject({code:"CLIENT_UPGRADE_REQUIRED"});
+    await expect(tickTrafficIfDue({force:true})).rejects.toMatchObject({code:"CLIENT_UPGRADE_REQUIRED"});
+    expect([await db.positionStationMap.count(),await db.abilityColumnSetting.count(),await db.loadStationMeter.count()]).toEqual(counts);expect(await worldRevision(db)).toBe(revision);
+    expect((await setTrafficEnabled(false)).enabled).toBe(false);
+  });
+  it("R0 authorized removal history reports minutes and resolves missing sources with an exact receipt",async()=>{
+    const s=await source("removal",{assigned:true});await activate();fixture.manager=true;
+    const schema=(await db.$queryRawUnsafe<{databaseEpoch:string}[]>("SELECT databaseEpoch FROM QuarterSchema"))[0];
+    const actor={id:"synthetic-manager",name:"Synthetic"},requestId=randomUUID();
+    const command={protocol:2,requestId,capabilitySha256:CAPABILITY_SHA256,board:"caja",date,shiftId:s.id,operation:"remove",reason:"Synthetic review",expected:{databaseEpoch:schema.databaseEpoch,worldRevision:await worldRevision(db),sourceSha256:digest(sourceSnapshot(s)),removalRevision:0}};
+    const receipt=await removeRestoreV2(command,actor,new Date(hour-60000),db);
+    const response=await removalReviewGet(new Request(`http://local/api/v2/shift-removals?board=caja&date=${date}`));expect(response.status).toBe(200);
+    const review=await response.json();expect(review.removals[0].savedMinutes).toBe(60);expect(review.removals[0].events[0].cells).toHaveLength(4);
+    expect(JSON.stringify(review)).not.toContain("legacyJson");expect(await removeRestoreV2(command,actor,now,db)).toEqual(receipt);
+    fixture.manager=false;expect((await removalReviewGet(new Request(`http://local/api/v2/shift-removals?board=caja&date=${date}`))).status).toBe(401);
+    const missing=await db.shiftRemoval.create({data:{externalId:"missing",date,board:"caja",sourcePosition:"Caja",startAt:new Date(hour),endAt:new Date(hour+3600000),cellsJson:"[]"}});
+    const resolve={protocol:2,requestId:randomUUID(),capabilitySha256:CAPABILITY_SHA256,date,board:"caja",operation:"resolve",removalId:missing.id,reason:"Synthetic missing source",expected:{databaseEpoch:schema.databaseEpoch,worldRevision:await worldRevision(db),removalRevision:missing.revision}};
+    const result=await removeRestoreV2(resolve,actor,now,db);expect(result).toMatchObject({state:"resolved"});expect(await removeRestoreV2(resolve,actor,now,db)).toEqual(result);
+    expect((await db.shiftRemoval.findUniqueOrThrow({where:{id:missing.id}})).revision).toBe(missing.revision+1);
+  });
+
 });

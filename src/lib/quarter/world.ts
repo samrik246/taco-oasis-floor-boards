@@ -5,7 +5,7 @@ import { QuarterRefused, canonical, digest, quarterState, worldRevision, type Qu
 export const HOUR_MS = 3_600_000;
 export const QUARTER_MS = 900_000;
 export type Source = Pick<Shift, "id" | "employeeId" | "date" | "board" | "sourcePosition" | "startAt" | "endAt" | "supersededAt" | "boardRemoved">;
-export type Segment = { id: string; quarterStartMs: number; startMs: number; endMs: number; state: "assigned" | "erased" | "off"; stationId: string | null; seatNumber: number | null; assignmentId?: string };
+export type Segment = { id: string; quarterStartMs: number; startMs: number; endMs: number; state: "assigned" | "erased" | "off"; stationId: string | null; seatNumber: number | null; assignmentId?: string; legacyStartAt?: string; legacyEndAt?: string };
 export type PaintHour = { id: string | null; shiftId: string; employeeId: string; date: string; board: string; hourStartMs: number; revision: string | null; sourceJson: string; sourceSha256: string; legacyJson: string; legacySha256: string; segments: Segment[] };
 export type PaintWorld = { date: string; state: Awaited<ReturnType<typeof quarterState>>; revision: string | null; sources: Source[]; stations: Station[]; hours: PaintHour[] };
 export const hourKey = (shiftId: string, start: number) => `${shiftId}|${start}`;
@@ -34,7 +34,7 @@ export function legacyHour(source: Source, start: number, assignments: Assignmen
     const a = matching[0];
     segments.push({ id: `legacy:${source.id}:${startMs}`, quarterStartMs: start + Math.floor((startMs-start)/QUARTER_MS)*QUARTER_MS,
       startMs, endMs, state: !on ? "off" : a ? "assigned" : "erased", stationId: a?.stationId ?? null, seatNumber: a?.seatNumber ?? null,
-      ...(a ? { assignmentId: a.id } : {}) });
+      ...(a ? { assignmentId: a.id, legacyStartAt:a.hourStart.toISOString(), legacyEndAt:a.hourEnd.toISOString() } : {}) });
   }
   const snapshot = sourceSnapshot(source), legacy = legacySnapshot(rows);
   return { id: null, shiftId: source.id, employeeId: source.employeeId, date: source.date, board: source.board, hourStartMs: start,

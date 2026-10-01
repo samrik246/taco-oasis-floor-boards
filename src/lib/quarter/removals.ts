@@ -6,9 +6,13 @@ import { reconcileSource } from "./reconcile";
 import { quarterWrite,receiptFor,persistHour,replaceHourSegments,recordMutation,type CommandActor } from "./transaction";
 import { validatePaintWorld,validateObligations,projectSeatNumbers,peerHours } from "./validation";
 
-export const removalCommandSchema=z.strictObject({protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.iso.date(),board:z.enum(["caja","cocina"]),
-  expected:z.strictObject({databaseEpoch:z.string(),worldRevision:z.string(),sourceSha256:z.string(),removalRevision:z.number().int().nonnegative()}),
-  shiftId:z.string().min(1),operation:z.enum(["remove","restore"]),positions:z.enum(["replay","none"]).optional(),reason:z.string().trim().min(1).max(2000)});
+const removalBase={protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.iso.date(),board:z.enum(["caja","cocina"]),reason:z.string().trim().min(1).max(2000)};
+const removalExpected=z.strictObject({databaseEpoch:z.string(),worldRevision:z.string(),sourceSha256:z.string(),removalRevision:z.number().int().nonnegative()});
+export const removalCommandSchema=z.discriminatedUnion("operation",[
+  z.strictObject({...removalBase,expected:removalExpected,shiftId:z.string().min(1),operation:z.literal("remove")}),
+  z.strictObject({...removalBase,expected:removalExpected,shiftId:z.string().min(1),operation:z.literal("restore"),positions:z.enum(["replay","none"]).optional()}),
+  z.strictObject({...removalBase,expected:removalExpected.omit({sourceSha256:true}),removalId:z.string().min(1),operation:z.literal("resolve")}),
+]);
 type Snapshot={version:2;source:ReturnType<typeof sourceSnapshot>;hours:{before:PaintHour;postRevision:string|null}[]};
 
 export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Date(),client=prisma) {
@@ -21,6 +25,15 @@ export async function removeRestoreV2(raw:unknown,actor:CommandActor,now=new Dat
     if(schema?.phase!=="active")throw new QuarterRefused("QUARTER_NOT_ACTIVE");
     if(command.capabilitySha256!==CAPABILITY_SHA256)throw new QuarterRefused("CAPABILITY_CHANGED");
     if(schema.databaseEpoch!==command.expected.databaseEpoch||await worldRevision(db)!==command.expected.worldRevision)throw new QuarterRefused("REVISION_CONFLICT");
+    if(command.operation==="resolve"){
+      const override=await db.shiftRemoval.findUnique({where:{id:command.removalId}});
+      if(!override||override.date!==command.date||override.board!==command.board||override.state!=="removed"||override.shiftId!==null||override.revision!==command.expected.removalRevision)throw new QuarterRefused("REMOVAL_CHANGED");
+      const updated=await db.shiftRemoval.update({where:{id:override.id},data:{state:"resolved",revision:{increment:1}}});
+      await db.shiftRemovalEvent.create({data:{overrideId:updated.id,action:"resolve",revision:updated.revision,managerId:actor.id,managerName:actor.name,reason:command.reason,
+        sourceJson:canonical({shiftId:null,date:updated.date,board:updated.board,startAt:updated.startAt,endAt:updated.endAt}),cellsJson:updated.cellsJson}});
+      const response={dates:[command.date],ok:true,id:updated.id,revision:updated.revision,state:updated.state,requestId:command.requestId,requestSha256:hash,databaseEpoch:schema.databaseEpoch,committedRevision:await worldRevision(db),refreshRequired:true};
+      await db.$executeRawUnsafe("INSERT INTO PaintCommandReceipt VALUES (?,?,?,?,?,?,?,?)",actor.id,command.requestId,hash,schema.databaseEpoch,command.expected.worldRevision,response.committedRevision,canonical(response),+now);return response;
+    }
     const source=await db.shift.findUnique({where:{id:command.shiftId},include:{employee:{select:{externalId:true}},removalOverride:true}});
     if(!source||source.date!==command.date||source.board!==command.board||source.supersededAt||digest(sourceSnapshot(source))!==command.expected.sourceSha256)throw new QuarterRefused("SOURCE_CHANGED");
     const override=source.removalOverride;

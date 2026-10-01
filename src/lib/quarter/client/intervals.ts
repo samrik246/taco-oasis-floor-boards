@@ -4,7 +4,7 @@ import type { PublicHour } from "./day";
 export type IntervalShift = {startAt:string;endAt:string;supersededAt?:string|null;paintHours?:PublicHour[];
   assignments:readonly {id?:string;stationId:string;hourStart:string;hourEnd?:string;seatNumber?:number|null;abilityBlocked?:boolean}[]};
 export type BasePaint = {startAt:string;endAt:string;state:"assigned"|"erased"|"off";stationId:string|null;seatNumber:number|null;
-  provenance:{kind:"legacy";assignmentId:string|null}|{kind:"v2";paintHourId:string;segmentId:string};abilityBlocked?:boolean};
+  provenance:{kind:"legacy";assignmentId:string|null;startAt?:string;endAt?:string}|{kind:"v2";paintHourId:string;segmentId:string};abilityBlocked?:boolean};
 /** Read-only normalized intervals; callers must not treat provenance as a mutation selector. */
 export function basePaint(shift:IntervalShift):BasePaint[] {
   if(shift.paintHours!==undefined)return shift.paintHours.flatMap(h=>h.intervals);

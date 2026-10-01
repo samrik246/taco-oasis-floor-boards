@@ -1,5 +1,6 @@
 "use client";
 
+import { capabilities } from "@/lib/quarter/client/transport";
 import { useState } from "react";
 import { ImportPreviewModal, type ImportPreviewData } from "@/components/board/ImportPreviewModal";
 import { messagesFor, type Locale } from "@/lib/i18n";
@@ -17,9 +18,10 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
     const form = new FormData();
     form.set("file", file);
     for (const [key, value] of Object.entries(fields)) form.set(key, value);
-    const res = await fetch("/api/imports", {
+    const cap=await capabilities();
+    const res = await fetch(cap.phase==="active"?"/api/v2/imports":"/api/imports", {
       method: "POST",
-      headers: managerAuthHeaders(token),
+      headers: {...managerAuthHeaders(token),...(cap.phase==="active"?{"X-Floor-Boards-Protocol":"2","X-Floor-Boards-Capability":cap.capabilitySha256}:{})},
       body: form,
     });
     return { ok: res.ok, data: (await res.json()) as Record<string, unknown> & { error?: string } };
@@ -43,7 +45,7 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
     setPreview(null);
     setError(null);
     setNotice(
-      updated ? t.toastScheduleUpdated : t.toastImported(Number(res.data.rowCount ?? 0)),
+      res.data.replayed?(locale==="es"?"Importación ya guardada; resultado original recuperado.":"Already imported; original result recovered."):updated ? t.toastScheduleUpdated : t.toastImported(Number(res.data.rowCount ?? 0)),
     );
   }
 
@@ -64,6 +66,7 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
         return;
       }
       await commit(file, data, false);
+    } catch(error) {setError(error instanceof Error?error.message:t.toastUploadFailed);
     } finally {
       setBusy(false);
     }
@@ -94,7 +97,7 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
         onConfirm={() => {
           if (!preview) return;
           setBusy(true);
-          void commit(preview.file, preview.data, true).finally(() => setBusy(false));
+          void commit(preview.file, preview.data, true).catch(error=>setError(error instanceof Error?error.message:t.toastUploadFailed)).finally(() => setBusy(false));
         }}
         locale={locale}
         t={t}

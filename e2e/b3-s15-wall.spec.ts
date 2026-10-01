@@ -18,7 +18,7 @@ function station(id: string, label: string, sortOrder: number) {
 function shift(id: string, name: string, stationId: string, hour: number) {
   const start = hourStart(hour);
   return {
-    id,
+    id, startAt:start,endAt:hourStart(hour+1),
     employee: { id: `${id}-person`, firstName: name, lastName: "Lane" },
     assignments: [{
       id: `${id}-cell`,

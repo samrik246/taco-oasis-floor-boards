@@ -80,6 +80,7 @@ export type StationUseDto = {
 
 export type DayBoardDto = {
   quarter?: PublicDayV2;
+  quarterManagerId?: string;
   /** Prepared bridge snapshot; ordinary hourly UI remains available until activation. */
   bridge?: PublicDayV2;
   board: "caja" | "cocina";

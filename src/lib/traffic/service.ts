@@ -1,3 +1,5 @@
+import { boardWrite } from "@/lib/shared-write";
+import { requireLegacy,quarterState,type QuarterDb } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import {
   allLoadStationDefs,
@@ -13,17 +15,17 @@ import {
 } from "@/lib/traffic/simulator";
 import { processReturnToStation } from "@/lib/tareas/return-service";
 
-async function ensureConfig() {
-  return prisma.trafficSimulatorConfig.upsert({
+async function ensureConfig(db:QuarterDb) {
+  return db.trafficSimulatorConfig.upsert({
     where: { id: "default" },
     create: { id: "default", enabled: false },
     update: {},
   });
 }
 
-async function ensureMeters() {
+async function ensureMeters(db:QuarterDb) {
   for (const s of allLoadStationDefs()) {
-    await prisma.loadStationMeter.upsert({
+    await db.loadStationMeter.upsert({
       where: { loadStationId: s.id },
       create: {
         loadStationId: s.id,
@@ -63,98 +65,35 @@ function snapshotForBoard(
   };
 }
 
-export async function getTrafficState(
-  board?: FloorBoardId,
-): Promise<TrafficStateSnapshot> {
-  await ensureConfig();
-  await ensureMeters();
-  const config = await prisma.trafficSimulatorConfig.findUniqueOrThrow({
-    where: { id: "default" },
+export async function getTrafficState(board?:FloorBoardId):Promise<TrafficStateSnapshot>{
+  return prisma.$transaction(async db=>{
+    // Reading active boards never seeds configuration, meters or a lock row.
+    const config=await db.trafficSimulatorConfig.findUnique({where:{id:"default"}});
+    const rows=await db.loadStationMeter.findMany();
+    return snapshotForBoard(config?.enabled??false,config?.lastTickAt??null,rows,board);
   });
-  const rows = await prisma.loadStationMeter.findMany();
-  return snapshotForBoard(config.enabled, config.lastTickAt, rows, board);
 }
-
-export async function setTrafficEnabled(
-  enabled: boolean,
-  board?: FloorBoardId,
-): Promise<TrafficStateSnapshot> {
-  await ensureConfig();
-  await prisma.trafficSimulatorConfig.update({
-    where: { id: "default" },
-    data: { enabled },
+export async function setTrafficEnabled(enabled:boolean,board?:FloorBoardId):Promise<TrafficStateSnapshot>{
+  await boardWrite(prisma,async db=>{
+    if(enabled)await requireLegacy(db);
+    await ensureConfig(db);
+    await db.trafficSimulatorConfig.update({where:{id:"default"},data:{enabled}});
   });
-  if (enabled) {
-    return tickTrafficIfDue({ force: true, board });
-  }
-  return getTrafficState(board);
+  return enabled?tickTrafficIfDue({force:true,board}):getTrafficState(board);
 }
-
-/**
- * Advance fake order meters when simulator is on and ≥15s since last tick
- * (or force). Also runs return-to-station processing for the given date/hour.
- */
-export async function tickTrafficIfDue(opts?: {
-  force?: boolean;
-  date?: string;
-  hour?: number;
-  board?: FloorBoardId;
-}): Promise<TrafficStateSnapshot> {
-  await ensureConfig();
-  await ensureMeters();
-  const config = await prisma.trafficSimulatorConfig.findUniqueOrThrow({
-    where: { id: "default" },
+/** Dormant simulator writes share the mutex and explicitly refuse an active schema. */
+export async function tickTrafficIfDue(opts?:{force?:boolean;date?:string;hour?:number;board?:FloorBoardId}):Promise<TrafficStateSnapshot>{
+  const advanced=await boardWrite(prisma,async db=>{
+    if((await quarterState(db))?.phase==="active"){await requireLegacy(db);}
+    const config=await ensureConfig(db);await ensureMeters(db);
+    const now=new Date();
+    if(!config.enabled||(!opts?.force&&config.lastTickAt&&+now-+config.lastTickAt<TRAFFIC_TICK_MS))return false;
+    const previous=await db.loadStationMeter.findMany();
+    const counts=simulateTick({now,previousCounts:Object.fromEntries(previous.map(p=>[p.loadStationId,p.orderCount]))});
+    for(const m of metersFromCounts(counts))await db.loadStationMeter.upsert({where:{loadStationId:m.loadStationId},
+      create:{loadStationId:m.loadStationId,level:m.level,orderCount:m.orderCount},update:{level:m.level,orderCount:m.orderCount}});
+    await db.trafficSimulatorConfig.update({where:{id:"default"},data:{lastTickAt:now}});return true;
   });
-
-  if (!config.enabled && !opts?.force) {
-    return getTrafficState(opts?.board);
-  }
-
-  const now = new Date();
-  const due =
-    opts?.force ||
-    !config.lastTickAt ||
-    now.getTime() - config.lastTickAt.getTime() >= TRAFFIC_TICK_MS;
-
-  if (!due || !config.enabled) {
-    return getTrafficState(opts?.board);
-  }
-
-  const previous = await prisma.loadStationMeter.findMany();
-  const prevCounts = Object.fromEntries(
-    previous.map((p) => [p.loadStationId, p.orderCount]),
-  ) as Record<string, number>;
-
-  const counts = simulateTick({ now, previousCounts: prevCounts });
-  const meters = metersFromCounts(counts);
-
-  for (const m of meters) {
-    await prisma.loadStationMeter.upsert({
-      where: { loadStationId: m.loadStationId },
-      create: {
-        loadStationId: m.loadStationId,
-        level: m.level,
-        orderCount: m.orderCount,
-      },
-      update: {
-        level: m.level,
-        orderCount: m.orderCount,
-      },
-    });
-  }
-
-  await prisma.trafficSimulatorConfig.update({
-    where: { id: "default" },
-    data: { lastTickAt: now },
-  });
-
-  if (opts?.date != null && opts?.hour != null) {
-    await processReturnToStation({
-      date: opts.date,
-      hour: opts.hour,
-      board: opts.board,
-    });
-  }
-
+  if(advanced&&opts?.date!=null&&opts.hour!=null)await processReturnToStation({date:opts.date,hour:opts.hour,board:opts.board});
   return getTrafficState(opts?.board);
 }

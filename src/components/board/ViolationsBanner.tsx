@@ -25,7 +25,7 @@ export function ViolationsBanner({ violations, stations, locale, t }: Props) {
       <p className="text-base font-bold">{t.violations(violations.length)}</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold">
         {violations.map((v, i) => (
-          <li key={`${v.assignmentId}-${v.code}-${i}`}>
+          <li key={`${v.assignmentId??v.interval?.shiftId}-${v.code}-${i}`}>
             <span className="font-extrabold">{v.code}</span>
             {" — "}
             {v.employeeName} @ {boardStationLabel(locale, v.stationId, stations)} ({v.hourLabel}):{" "}

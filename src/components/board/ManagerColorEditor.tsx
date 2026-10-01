@@ -1,5 +1,6 @@
 "use client";
 
+import { DraftDatabase } from "@/lib/quarter/client/draft-db";
 import { QuarterHourEditor } from "./QuarterHourEditor";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -133,7 +134,20 @@ function editStillMatches(day: DayBoardDto, date: string, edit: PaintEdit): bool
 }
 
 export function ManagerColorEditor(props:ColorEditorProps){
-  return props.day?.quarter?<QuarterHourEditor {...props}/>:<LegacyColorEditor {...props}/>;
+  const key=`${props.managerId}|${props.board}|${props.date}`;
+  const [storage,setStorage]=useState<{key:string;quarter:boolean;error?:string}|null>(null);
+  const {managerId,board,date}=props;
+  useEffect(()=>{
+    let live=true;
+    void DraftDatabase.open().then(async db=>{try{const snapshot=await db.read({managerId,board,date});
+      if(live)setStorage({key,quarter:Boolean(snapshot.head||snapshot.archives.length||snapshot.generations.length)});
+    }finally{db.close();}}).catch(error=>{if(live)setStorage({key,quarter:true,error:error.message});});
+    return ()=>{live=false;};
+  },[key,managerId,board,date]);
+  if(props.day?.quarter)return <QuarterHourEditor {...props}/>;
+  if(storage?.key!==key)return <p role="status">{props.locale==="es"?"Revisando borradores…":"Reading retained drafts…"}</p>;
+  if(storage.error)return <p role="alert">{props.locale==="es"?"Almacenamiento no disponible; borradores conservados.":"Storage unavailable; retained drafts are preserved."} {storage.error}</p>;
+  return storage.quarter?<QuarterHourEditor {...props}/>:<LegacyColorEditor {...props}/>;
 }
 
 /** Manager's combined position palette, current-hour board and timeline. */

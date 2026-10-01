@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { showDescansoButton } from "@/lib/breaks/picker-steps";
+import { chicagoYmd } from "@/lib/schedule/build-schedule";
 import { formatCompactHour,hourGridHours } from "@/lib/hour-grid";
 import { paletteSlots,PAINT_FAMILY_LABELS } from "@/lib/assignments/paint-families";
 import { activeGeneration, conflictBranches, DraftDatabase } from "@/lib/quarter/client/draft-db";
@@ -25,13 +27,14 @@ export function QuarterHourEditor(props:ColorEditorProps){
   const scope:DraftScope={managerId,board,date};
   const db=useRef<DraftDatabase|null>(null), latest=useRef(publicDay),pendingMemory=useRef<DraftGeneration|null>(null);
   useEffect(()=>{latest.current=publicDay;},[publicDay]);
+  const [pendingPreview,setPendingPreview]=useState<DraftGeneration|null>(null);
   const [unretained,setUnretained]=useState(false),[cleanupPending,setCleanupPending]=useState(false);
   const [snapshot,setSnapshot]=useState(empty),[feedback,setFeedback]=useState(""),[busy,setBusy]=useState(false),[ready,setReady]=useState(false);
   const [choice,setChoice]=useState<string|null>(null),[breakTarget,setBreakTarget]=useState<{employeeId:string;name:string}|null>(null);
   const current=activeGeneration(snapshot),branches=conflictBranches(snapshot),intents=current?.envelope.intents??[];
   const refresh=useCallback(async()=>{
-    if(!db.current||!latest.current)return;
-    const observed=await observeV1(db.current,{managerId,board,date},latest.current);
+    if(!db.current)return;
+    const observed=latest.current?await observeV1(db.current,{managerId,board,date},latest.current):{changed:false,snapshot:await db.current.read({managerId,board,date})};
     setSnapshot(observed.snapshot);
     if(observed.changed)setFeedback(es?"Otra pestaña cambió el borrador anterior; revisa las dos copias.":"Another tab changed the old draft; review both retained copies.");
     const requestId=observed.snapshot.head?.pendingRequestId;
@@ -63,8 +66,8 @@ export function QuarterHourEditor(props:ColorEditorProps){
       // The visible base remains the CAS expectation even if another tab has advanced.
       await db.current!.read(scope);
       const {base,proposal}=proposeHour(scope,snapshot,publicDay,shiftId,hour,action);
-      pendingMemory.current=proposal;setUnretained(true);
-      const result=await db.current!.retain(scope,base,proposal);pendingMemory.current=null;setUnretained(false);setSnapshot(result.snapshot);
+      pendingMemory.current=proposal;setPendingPreview(proposal);setUnretained(true);
+      const result=await db.current!.retain(scope,base,proposal);pendingMemory.current=null;setPendingPreview(null);setUnretained(false);setSnapshot(result.snapshot);
       setFeedback(result.status==="conflict"?(es?"Conflicto: ambas versiones están retenidas.":"Conflict: both versions are retained."):(es?"Retenido localmente; aún sin guardar.":"Locally retained; not yet saved."));
     });
   }
@@ -86,26 +89,31 @@ export function QuarterHourEditor(props:ColorEditorProps){
     const result=await db.current!.retain(scope,snapshot.head!,generation(scope,envelope,[branch.generationId]));setSnapshot(result.snapshot);
     setFeedback(es?"Selección retenida; las versiones originales se conservan.":"Selection retained; original versions are preserved.");
   });}
-  if(!day||!publicDay)return <p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p>;
+  if(!day||!publicDay)return <section><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{snapshot.generations.map(g=><details key={g.generationId}><summary>{es?"Ver borrador retenido":"View retained draft"}</summary><pre>{canonicalJson(g.envelope)}</pre></details>)}</section>;
   return <section className="space-y-3" data-testid="quarter-hour-editor">
     <p className="text-sm">{es?"Esta versión permite pintar horas uniformes. Los intervalos guardados se muestran completos.":"This version edits uniform hours. All saved intervals are shown."}</p>
     <div className="flex flex-wrap gap-2">{paletteSlots(day.stations).map(slot=>{
       const id=slot.kind==="family"?`family:${slot.family}`:slot.id,station=slot.kind==="station"?day.stations.find(s=>s.id===slot.id):null;
-      return <button key={id} type="button" aria-pressed={choice===id} onClick={()=>setChoice(id)} className={`min-h-11 rounded border-2 p-2 font-bold ${station?stationColorClass(station.color):"bg-white text-neutral-900"} ${choice===id?"ring-4 ring-neutral-900":""}`}>{slot.kind==="family"?PAINT_FAMILY_LABELS[slot.family]:station?.label}</button>;
+      return <button key={id} data-testid={`quarter-palette-${id}`} type="button" aria-pressed={choice===id} onClick={()=>setChoice(id)} className={`min-h-11 rounded border-2 p-2 font-bold ${station?stationColorClass(station.color):"bg-white text-neutral-900"} ${choice===id?"ring-4 ring-neutral-900":""}`}>{slot.kind==="family"?PAINT_FAMILY_LABELS[slot.family]:station?.label}</button>;
     })}<button type="button" className="min-h-11 rounded border-2 p-2" aria-pressed={choice==="erase"} onClick={()=>setChoice("erase")}>{es?"Borrar":"Erase"}</button></div>
-    <div className="flex flex-wrap gap-2"><button type="button" className="min-h-11 rounded bg-emerald-800 px-4 text-white disabled:opacity-50" disabled={readonly||busy||!ready||unretained||(!intents.length&&!snapshot.head?.pendingRequestId)||branches.length>0||Boolean(current?.envelope.reviewReasons.length)} onClick={()=>void save()}>{snapshot.head?.pendingRequestId?(es?"Reintentar guardado":"Retry save"):(es?"Guardar":"Save")}</button>
-      <button type="button" className="min-h-11 rounded border px-3" disabled={busy||!ready||Boolean(snapshot.head?.pendingRequestId)||!snapshot.head} onClick={()=>void run(async()=>{const result=await db.current!.discard(scope,snapshot.head!);setSnapshot(result.snapshot);pendingMemory.current=null;setFeedback(result.status==="conflict"?"DRAFT_HEAD_CHANGED":es?"Descartado localmente; historial retenido.":"Locally discarded; history retained.");})}>{es?"Descartar borrador":"Discard draft"}</button>
+    <div className="flex flex-wrap gap-2"><button type="button" data-testid="quarter-save" className="min-h-11 rounded bg-emerald-800 px-4 text-white disabled:opacity-50" disabled={readonly||busy||!ready||unretained||(!intents.length&&!snapshot.head?.pendingRequestId)||branches.length>0||Boolean(current?.envelope.reviewReasons.length)} onClick={()=>void save()}>{snapshot.head?.pendingRequestId?(es?"Reintentar guardado":"Retry save"):(es?"Guardar":"Save")}</button>
+      <button type="button" className="min-h-11 rounded border px-3" disabled={busy||!ready||unretained||Boolean(snapshot.head?.pendingRequestId)||!snapshot.head} onClick={()=>void run(async()=>{const result=await db.current!.discard(scope,snapshot.head!);setSnapshot(result.snapshot);pendingMemory.current=null;setFeedback(result.status==="conflict"?"DRAFT_HEAD_CHANGED":es?"Descartado localmente; historial retenido.":"Locally discarded; history retained.");})}>{es?"Descartar borrador":"Discard draft"}</button>
       <button type="button" className="min-h-11 rounded border px-3" disabled={busy} onClick={()=>void run(refresh)}>{es?"Revisar almacenamiento":"Review retained work"}</button></div>
     <p role="status" className="whitespace-pre-wrap text-sm" data-testid="quarter-draft-status">{feedback}</p>
+    {pendingPreview&&<div role="alert"><p>{es?"Este cambio sigue en memoria; aún no está retenido. Mantén esta pestaña abierta.":"This change is still in memory and has not been retained. Keep this tab open."}</p><details><summary>{es?"Ver cambio completo":"View complete change"}</summary><pre>{canonicalJson(pendingPreview.envelope)}</pre></details><button type="button" className="min-h-11 border p-2" disabled={busy||!ready} onClick={()=>void run(async()=>{
+      const proposal=pendingMemory.current;if(!proposal||!db.current)return;
+      const result=await db.current.retain(scope,{generationId:proposal.envelope.parentGenerationId,localRevision:proposal.envelope.parentRevision},proposal);
+      setSnapshot(result.snapshot);pendingMemory.current=null;setPendingPreview(null);setUnretained(false);setFeedback(result.status==="conflict"?"DRAFT_HEAD_CHANGED":es?"Retenido localmente.":"Locally retained.");
+    })}>{es?"Reintentar retención":"Retry retention"}</button><button type="button" className="min-h-11 border p-2" disabled={busy} onClick={()=>{pendingMemory.current=null;setPendingPreview(null);setUnretained(false);void run(refresh);}}>{es?"Descartar copia en memoria y revisar almacenamiento":"Discard memory copy and review retained storage"}</button></div>}
     {current?.envelope.reviewReasons.length?<p role="alert">{es?"Revisión necesaria; las expectativas originales no se han cambiado.":"Review required; original expectations have not been changed."} {current.envelope.reviewReasons.join(" · ")}</p>:null}
     {snapshot.warnings.map(w=><p key={w} role="alert">{w}</p>)}
     {intents.length>0&&!cleanupPending&&<p>{intents.length} {es?"cambios privados retenidos":"retained private changes"}</p>}
     {branches.map(branch=><div key={branch.generationId} className="rounded border-2 border-amber-700 p-3"><p>{es?"Otra versión retenida":"Another retained version"}: {branch.envelope.intents.length} {es?"cambios":"changes"}</p><details><summary>{es?"Ver versión original":"View original version"}</summary><pre className="overflow-auto text-xs">{canonicalJson(branch.envelope)}</pre></details><button type="button" className="min-h-11 border p-2" disabled={busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,true)}>{es?"Elegir esta versión":"Choose this version"}</button><button type="button" className="min-h-11 border p-2" disabled={busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,false)}>{es?"Conservar versión actual":"Keep current version"}</button></div>)}
     {snapshot.archives.filter(a=>a.result==="review").map(a=><details key={a.v1Sha256}><summary>{es?"Borrador anterior requiere revisión":"Earlier draft requires review"}: {a.staleReason}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
     <div className="overflow-x-auto"><table className="border-collapse text-xs"><thead><tr><th className="min-w-40">{es?"Persona":"Person"}</th>{hourGridHours().map(h=><th className="min-w-36" key={h}><button type="button" className="min-h-11 w-full" aria-pressed={selectedHour===h} onClick={()=>onSelectHour(h)}>{formatCompactHour(h)}</button></th>)}</tr></thead><tbody>
-      {day.shifts.map(shift=><tr key={shift.id}><th className="sticky left-0 z-10 bg-white text-left"><span>{displayName(shift)}</span><button type="button" className="block min-h-11" onClick={()=>setBreakTarget({employeeId:shift.employee.id,name:displayName(shift)})}>BREAK</button><OverlayMenu day={day} shift={shift} board={board} date={date} locale={locale} managerToken={managerToken} readonly={readonly} busy={busy} onSaved={onSaved}/></th>{hourGridHours().map(h=>{
+      {day.shifts.map(shift=><tr key={shift.id}><th className="sticky left-0 z-10 bg-white text-left"><span>{displayName(shift)}</span>{showDescansoButton({readonly,openDate:date,today:chicagoYmd(new Date()),superseded:Boolean(shift.supersededAt),laterShiftOfPerson:day.shifts.some(s=>s.employee.id===shift.employee.id&&s.id!==shift.id&&Date.parse(s.startAt)<Date.parse(shift.startAt))})&&<button type="button" className="block min-h-11" disabled={busy} onClick={()=>setBreakTarget({employeeId:shift.employee.id,name:displayName(shift)})}>BREAK</button>}<OverlayMenu day={day} shift={shift} board={board} date={date} locale={locale} managerToken={managerToken} readonly={readonly} busy={busy} onSaved={onSaved}/></th>{hourGridHours().map(h=>{
         const refusal=hourEditRefusal(publicDay,shift.id,h),pending=intents.filter(i=>i.intent.shiftId===shift.id&&Number(i.intent.quarter.slice(0,2))===h);
-        return <td key={h} className="border p-0.5"><button type="button" className="w-full min-w-36" disabled={busy||readonly||!ready||cleanupPending||!choice||refusal==="SOURCE_NOT_AVAILABLE"} onClick={()=>refusal?setFeedback(explanation(refusal,es)):void stage(shift.id,h)} aria-label={`${displayName(shift)} ${formatCompactHour(h)}`}><SavedShiftHour day={day} shiftId={shift.id} hour={h} locale={locale}/></button>{pending.length>0&&!cleanupPending&&<span className="block border border-dashed border-blue-800 p-1" data-testid="quarter-private-preview">{es?"Privado":"Private"}: {pending.map(i=>`${i.intent.quarter} ${i.intent.action==="station"?day.stations.find(s=>s.id===(i.intent.action==="station"?i.intent.stationId:null))?.label:i.intent.action==="family"?i.intent.family:es?"Borrar":"Erase"}`).join(" · ")}</span>}</td>;
+        return <td key={h} className="border p-0.5"><button type="button" className="w-full min-w-36" disabled={busy||readonly||!ready||cleanupPending||!choice||refusal==="SOURCE_NOT_AVAILABLE"} onClick={()=>refusal?setFeedback(explanation(refusal,es)):void stage(shift.id,h)} data-testid={`quarter-cell-${shift.id}-${h}`} aria-label={`${displayName(shift)} ${formatCompactHour(h)}`}><SavedShiftHour day={day} shiftId={shift.id} hour={h} locale={locale}/></button>{pending.length>0&&!cleanupPending&&<span className="block border border-dashed border-blue-800 p-1" data-testid="quarter-private-preview">{es?"Privado":"Private"}: {pending.map(i=>`${i.intent.quarter} ${i.intent.action==="station"?day.stations.find(s=>s.id===(i.intent.action==="station"?i.intent.stationId:null))?.label:i.intent.action==="family"?i.intent.family:es?"Borrar":"Erase"}`).join(" · ")}</span>}</td>;
       })}</tr>)}<SavedCoverRows day={day} locale={locale} hours={hourGridHours()}/></tbody></table></div><SavedCoverPanel day={day} locale={locale} rows={false}/>
     {breakTarget&&<ManagerBreakDialog employeeId={breakTarget.employeeId} name={breakTarget.name} board={board} locale={locale} managerToken={managerToken} onClose={()=>setBreakTarget(null)} onSaved={onSaved}/>}
   </section>;

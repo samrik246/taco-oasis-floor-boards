@@ -7,7 +7,8 @@ import { moveReasonLabel, boardStationLabel, type Locale, type Messages } from "
 import type { StationDto } from "./types";
 
 export type PendingMove = {
-  assignmentId: string;
+  assignmentId: string | null;
+  quarter?: {shiftId:string;hour:number;day:import("@/lib/quarter/client/day").PublicDayV2};
   employeeId: string;
   employeeName: string;
   fromStationId: string;

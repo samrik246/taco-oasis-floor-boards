@@ -1,3 +1,5 @@
+import { levelWhenUnset } from "@/lib/abilities/column-default";
+import { loadColumnDefaults } from "@/lib/abilities/column-settings";
 import { loadIntervalStationUse } from "@/lib/assignments/station-use";
 import { loadOverlayRecords, overlayDto } from "@/lib/overlays/read";
 import { paletteStationIds } from "@/lib/assignments/palette-order";
@@ -39,6 +41,9 @@ export async function readQuarterDay(db:QuarterDb, board:string, date:string, no
   const world=visibleWorld(canonicalWorld);
   projectSeatNumbers(world);
   const employees=await db.employee.findMany({where:{id:{in:world.sources.map(s=>s.employeeId)}},select:{id:true,firstName:true,lastName:true}});
+  const defaults=await loadColumnDefaults(db);
+  const abilities=await db.employeeStationAbility.findMany({where:{employeeId:{in:employees.map(e=>e.id)}},select:{employeeId:true,stationId:true,level:true}});
+  const levels=new Map(abilities.map(a=>[`${a.employeeId}|${a.stationId}`,a.level]));
   const stationUse=await loadIntervalStationUse(db,board as "caja"|"cocina",date,world.stations.filter(s=>s.board===board).map(s=>s.id));
   const marks=await db.mandatoryMark.findMany({where:{board,date},select:{stationId:true}});
   const ordered=paletteStationIds({stations:world.stations.filter(s=>s.board===board),stationUse,extraStationIds:marks.map(m=>m.stationId).filter(id=>!isDefaultMandatory(id))});
@@ -54,6 +59,6 @@ export async function readQuarterDay(db:QuarterDb, board:string, date:string, no
       endAt:s.endAt.toISOString(),supersededAt:s.supersededAt?.toISOString()??null,boardRemoved:s.boardRemoved})),
     hours:world.hours.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),revision:h.revision,
       ...(h.revision===null?{legacySha256:h.legacySha256}:{}),intervals:h.segments.map(s=>({startAt:new Date(s.startMs).toISOString(),endAt:new Date(s.endMs).toISOString(),
-        state:s.state,stationId:s.stationId,seatNumber:s.seatNumber,provenance:h.id?{kind:"v2",paintHourId:h.id,segmentId:s.id}:{kind:"legacy",assignmentId:s.assignmentId??null}}))})),
+        state:s.state,stationId:s.stationId,seatNumber:s.seatNumber,abilityBlocked:s.state==="assigned"&&levelWhenUnset(levels.get(`${h.employeeId}|${s.stationId}`),defaults.get(s.stationId!))==="forbidden",provenance:h.id?{kind:"v2",paintHourId:h.id,segmentId:s.id}:{kind:"legacy",assignmentId:s.assignmentId??null,...(s.assignmentId?{startAt:s.legacyStartAt,endAt:s.legacyEndAt}:{})}}))})),
     coverDisplay:await quarterCoverDisplay(db,canonicalWorld,board,now)};
 }

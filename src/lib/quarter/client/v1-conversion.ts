@@ -26,7 +26,7 @@ export function convertV1(scope:DraftScope,raw:string,day:PublicDayV2,observedAt
       source.employeeId!==edit.expectedShift.employeeId||source.sourcePosition!==edit.expectedShift.sourcePosition){reasons.push(`V1_SOURCE_CHANGED:${edit.shiftId}`);continue;}
     if(!hour||hour.revision!==null||!hour.legacySha256){reasons.push(`V1_HOUR_ADOPTED:${edit.shiftId}:${edit.hour}`);continue;}
     const assigned=hour.intervals.filter(i=>i.state==="assigned");
-    if(edit.expected===null?assigned.length>0:assigned.length===0||assigned.some(i=>i.provenance.kind!=="legacy"||i.provenance.assignmentId!==edit.expected!.id||i.stationId!==edit.expected!.stationId)){
+    if(edit.expected===null?assigned.length>0:assigned.length===0||assigned.some(i=>i.provenance.kind!=="legacy"||i.provenance.assignmentId!==edit.expected!.id||i.stationId!==edit.expected!.stationId||Date.parse(i.provenance.startAt??"")!==start||Date.parse(i.provenance.endAt??"")!==end)){
       reasons.push(`V1_ASSIGNMENT_CHANGED:${edit.shiftId}:${edit.hour}`);continue;
     }
     const states=new Set(hour.intervals.filter(i=>i.state!=="off").map(i=>`${i.state}:${i.stationId}`));

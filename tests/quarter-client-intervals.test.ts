@@ -5,6 +5,8 @@ import {publicDaySchema,boardFromV2,saveBoardV2,readBoardV2,BOARD_CACHE_V2} from
 import {savedHourSegments,savedStationOccupantsNow} from "@/components/board/cover-display";
 import {slicesForDay} from "@/components/board/day-slice-input";
 import {convertV1} from "@/lib/quarter/client/v1-conversion";
+import {findBoardViolations} from "@/lib/violations";
+import {proposeHours} from "@/lib/quarter/client/edit";
 import {uniformHour} from "@/lib/quarter/client/intervals";
 const date="2038-10-12",start=+chicagoHourStart(date,11),iso=(minutes:number)=>new Date(start+minutes*60000).toISOString();
 function fixture(){return publicDaySchema.parse({schemaVersion:2,databaseEpoch:"epoch",worldRevision:"10",phase:"active",capabilitySha256:"a".repeat(64),board:"caja",date,
@@ -45,4 +47,27 @@ describe("explicit interval client truth",()=>{
   const day=fixture(),source=day.sources[0],v1=JSON.stringify({version:1,updatedAt:iso(0),edits:[{shiftId:"source",hour:11,stationId:"green1",expected:null,expectedShift:{startAt:source.startAt,endAt:source.endAt,employeeId:source.employeeId,sourcePosition:source.sourcePosition}}]});
   expect(convertV1({managerId:"m",board:"caja",date},v1,day).archive.staleReason).toContain("V1_HOUR_ADOPTED");
  });
+ it("sweeps actual overlap bounds and shows public blocked facts without private levels",()=>{
+  const day=fixture();day.hours[0].intervals[0].abilityBlocked=true;
+  const other=structuredClone(day.sources[0]);other.shiftId="second";other.employeeId="second-person";other.startAt=iso(15);other.endAt=iso(20);day.sources.push(other);day.employees.push({id:"second-person",firstName:"Other",lastName:"Synthetic"});
+  day.hours.push({shiftId:"second",hourStart:iso(0),revision:"1",intervals:[
+    {startAt:iso(0),endAt:iso(15),state:"off",stationId:null,seatNumber:null,provenance:{kind:"v2",paintHourId:"other",segmentId:"off1"}},
+    {startAt:iso(15),endAt:iso(20),state:"assigned",stationId:"purple1",seatNumber:1,provenance:{kind:"v2",paintHourId:"other",segmentId:"on"}},
+    {startAt:iso(20),endAt:iso(60),state:"off",stationId:null,seatNumber:null,provenance:{kind:"v2",paintHourId:"other",segmentId:"off2"}},
+  ]});
+  const clean=findBoardViolations(boardFromV2(day));expect(clean.some(v=>v.code==="STATION_FULL")).toBe(false);expect(clean.find(v=>v.code==="FORBIDDEN_ABILITY")?.interval).toEqual({shiftId:"source",startAt:iso(0),endAt:iso(15)});
+  day.hours[0].intervals[1].stationId="purple1";
+  const crowded=findBoardViolations(boardFromV2(day)).filter(v=>v.code==="STATION_FULL");expect(crowded).toHaveLength(2);
+  expect(crowded.every(v=>v.assignmentId===null&&v.interval?.startAt===iso(15)&&v.interval.endAt===iso(20))).toBe(true);
+ });
+ it("refuses mixed-hour bulk controls and detects original legacy assignment bounds",()=>{
+  const day=fixture(),scope={managerId:"m",board:"caja" as const,date},snapshot={head:null,generations:[],submissions:[],archives:[],warnings:[]};
+  expect(()=>proposeHours(scope,snapshot,day,[{shiftId:"source",hour:11,action:{action:"erase"}}])).toThrow("HOUR_NEEDS_QUARTER");
+  day.sources[0].endAt=iso(60);day.hours[0]={shiftId:"source",hourStart:iso(0),revision:null,legacySha256:"b".repeat(64),intervals:[{startAt:iso(0),endAt:iso(60),state:"assigned",stationId:"purple1",seatNumber:1,provenance:{kind:"legacy",assignmentId:"original",startAt:iso(0),endAt:iso(60)}}]};
+  const source=day.sources[0],raw=JSON.stringify({version:1,updatedAt:iso(0),edits:[{shiftId:source.shiftId,hour:11,expected:{id:"original",stationId:"purple1"},stationId:"green1",expectedShift:{startAt:source.startAt,endAt:source.endAt,employeeId:source.employeeId,sourcePosition:source.sourcePosition}}]});
+  expect(convertV1(scope,raw,day).archive.result).toBe("converted");
+  const provenance=day.hours[0].intervals[0].provenance;if(provenance.kind!=="legacy")throw new Error("fixture");provenance.endAt=iso(75);
+  const refused=convertV1(scope,raw,day);expect(refused.archive.original).toBe(raw);expect(refused.archive.staleReason).toContain("V1_ASSIGNMENT_CHANGED");
+ });
+
 });

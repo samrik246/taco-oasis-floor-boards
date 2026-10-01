@@ -46,7 +46,7 @@ export type PlanAction =
   | { kind: "added"; next: ParsedShift }
   | { kind: "takeover"; old: ExistingShift; next: ParsedShift; removeAssignments: ExistingAssignment[] };
 
-export type RemovedAssignmentView = { board: string; stationId: string; hour: number };
+export type RemovedAssignmentView = { board: string; stationId: string; hour: number; startAt?:string;endAt?:string;minutes?:number };
 
 export type DatePreview = {
   date: string;
@@ -58,6 +58,7 @@ export type DatePreview = {
   removed: number;
   skippedOpenShifts: number;
   assignmentsKept: number;
+  paintMinutesKept?: number;
   assignmentsToRemove: RemovedAssignmentView[];
   /** Future cells moved to an unambiguous replacement employee. */
   assignmentsToTransfer: RemovedAssignmentView[];
@@ -228,7 +229,7 @@ function personOverlaps(shifts: ParsedShift[]): Refusal[] {
 }
 
 function assignmentView(board: string, a: ExistingAssignment): RemovedAssignmentView {
-  return { board, stationId: a.stationId, hour: chicagoHourOf(a.hourStart) };
+  return { board, stationId: a.stationId, hour: chicagoHourOf(a.hourStart),...(a.canonicalHourStart?{startAt:a.hourStart.toISOString(),endAt:a.hourEnd.toISOString(),minutes:(+a.hourEnd-+a.hourStart)/60000}:{}) };
 }
 
 export function planReconcile(opts: {
@@ -290,7 +291,8 @@ export function planReconcile(opts: {
     const count = (k: PlanAction["kind"]) => resolvedActions.filter((a) => a.kind === k).length;
     const toRemove: RemovedAssignmentView[] = [];
     const toTransfer: RemovedAssignmentView[] = [];
-    let kept = 0;
+    let kept = 0,paintMinutesKept=0;
+    const intervalMode=resolvedActions.some(a=>"old" in a&&a.old.assignments.some(p=>p.canonicalHourStart));
     for (const a of resolvedActions) {
       if (a.kind === "added") continue;
       const removeIds = new Set("removeAssignments" in a ? a.removeAssignments.map((r) => r.id) : []);
@@ -298,7 +300,7 @@ export function planReconcile(opts: {
         if (removeIds.has(asg.id)) {
           (a.kind === "takeover" ? toTransfer : toRemove).push(assignmentView(a.old.board, asg));
         }
-        else kept += 1;
+        else {kept += 1;paintMinutesKept+=(+asg.hourEnd-+asg.hourStart)/60000;}
       }
     }
     toRemove.sort((x, y) => x.board.localeCompare(y.board) || x.hour - y.hour || x.stationId.localeCompare(y.stationId));
@@ -311,7 +313,7 @@ export function planReconcile(opts: {
       unchanged: count("unchanged"),
       removed: count("removed") + count("takeover"),
       skippedOpenShifts: opts.skippedOpenShifts?.[date] ?? 0,
-      assignmentsKept: kept,
+      assignmentsKept: kept,...(intervalMode?{paintMinutesKept}:{}),
       assignmentsToRemove: toRemove,
       assignmentsToTransfer: toTransfer,
     });

@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { fetchCompatibleBoard } from "@/lib/quarter/client/transport";
+import { saveHourControl } from "@/lib/quarter/client/controls";
+import type { DayBoardDto } from "@/components/board/types";
 import { AbilitiesGrid } from "@/components/admin/AbilitiesGrid";
 import { ScheduleFileUpload } from "@/components/admin/ScheduleFileUpload";
 import { TurnosTab } from "@/components/admin/TurnosTab";
@@ -621,35 +624,30 @@ function SeatsTab({
   const [board, setBoard] = useState<"caja" | "cocina">("caja");
   const [date, setDate] = useState("2026-09-20");
   const [hour, setHour] = useState(12);
-  const [day, setDay] = useState<{
-    stations: { id: string; label: string }[];
-    shifts: {
-      id: string;
-      sourcePosition: string;
-      employee: { firstName: string; lastName: string };
-      assignments: { id: string; stationId: string; hourStart: string }[];
-    }[];
-  } | null>(null);
+  const [day, setDay] = useState<DayBoardDto|null>(null);
   const [shiftId, setShiftId] = useState("");
   const [stationId, setStationId] = useState("");
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/boards/${board}/days/${date}`);
-    if (!res.ok) {
-      onError(await readError(res));
-      return;
-    }
-    const data = await res.json();
-    setDay(data);
-    setShiftId(data.shifts?.[0]?.id ?? "");
-    setStationId(data.stations?.[0]?.id ?? "");
-  }, [board, date, onError]);
+    try{const result=await fetchCompatibleBoard(board,date,auth["x-manager-session"]);
+      if(!result.day){setDay(null);onError("DAY_UNAVAILABLE");return;}
+      setDay(result.day);setShiftId(result.day.shifts[0]?.id??"");setStationId(result.day.stations[0]?.id??"");
+    }catch{setDay(null);onError("DAY_UNAVAILABLE");}
+  }, [board,date,onError,auth]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function seat() {
+    if(day?.quarter){
+      if(!day.quarterManagerId){onError("MANAGER_REQUIRED");return;}
+      try{const result=await saveHourControl({managerId:day.quarterManagerId,board,date},day.quarter,[{shiftId,hour,action:{action:"station",stationId}}],auth["x-manager-session"]);
+        if(result.status!=="saved"&&result.status!=="cleanup-pending"){onError(result.code??"SAVE_UNCONFIRMED_REVIEW_RETAINED_DRAFT");return;}
+        onSaved(result.status==="saved"?copy.seated:"Saved; local cleanup pending.");await load();
+      }catch(error){onError(error instanceof Error?error.message:"DRAFT_REQUIRES_REVIEW");}return;
+    }
+
     const res = await fetch("/api/admin/seat-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth },

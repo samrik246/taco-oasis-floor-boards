@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShiftRemovalPanel } from "@/components/board/ShiftRemovalPanel";
 import type { DayBoardDto } from "@/components/board/types";
-import { managerAuthHeaders } from "@/lib/managers/auth-headers";
+import { fetchCompatibleBoard } from "@/lib/quarter/client/transport";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
 
 export function TurnosTab({ token }: { token: string }) {
@@ -13,33 +13,27 @@ export function TurnosTab({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/boards/${board}/days/${date}`, {
-      headers: managerAuthHeaders(token),
-      cache: "no-store",
-    });
-    if (!res.ok) {
+    const res = await fetchCompatibleBoard(board,date,token);
+    if (!res.day) {
       setDay(null);
       setError("No se pudo abrir ese día.");
       return;
     }
-    setDay((await res.json()) as DayBoardDto);
+    setDay(res.day);
     setError(null);
   }, [board, date, token]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const res = await fetch(`/api/boards/${board}/days/${date}`, {
-        headers: managerAuthHeaders(token),
-        cache: "no-store",
-      });
+      const res = await fetchCompatibleBoard(board,date,token);
       if (cancelled) return;
-      if (!res.ok) {
+      if (!res.day) {
         setDay(null);
         setError("No se pudo abrir ese día.");
         return;
       }
-      setDay((await res.json()) as DayBoardDto);
+      setDay(res.day);
       setError(null);
     })();
     return () => {

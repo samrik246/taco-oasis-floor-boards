@@ -68,6 +68,11 @@ import {
 import { violationMessage } from "@/lib/violation-messages";
 import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
+import { DraftDatabase } from "@/lib/quarter/client/draft-db";
+import { savedAction,saveHourControl } from "@/lib/quarter/client/controls";
+import { hourEditRefusal,type HourChange } from "@/lib/quarter/client/edit";
+import { uniformHour } from "@/lib/quarter/client/intervals";
+import type { PublicDayV2 } from "@/lib/quarter/client/day";
 import { fetchCompatibleBoard, compatibleCachedBoard } from "@/lib/quarter/client/transport";
 import { saveLastBoard, stripSharedTabletDay } from "@/lib/offline-board";
 import {
@@ -186,6 +191,9 @@ export function FloorBoard() {
     null,
   );
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
+  const [quarterSuggestionBase,setQuarterSuggestionBase]=useState<{databaseEpoch:string;worldRevision:string}|null>(null);
+  const [quarterSwap,setQuarterSwap]=useState<{shiftId:string;hour:number;day:PublicDayV2}|null>(null);
+  const draftDatesRequest=useRef(0);
   const [swapFirstId, setSwapFirstId] = useState<string | null>(null);
   const [abilityFilter, setAbilityFilter] = useState<AbilityLevel | "all">(
     "all",
@@ -240,11 +248,14 @@ export function FloorBoard() {
   }, []);
 
   const refreshDraftDates = useCallback(() => {
-    setDraftDateState(manager ? {
-      managerId: manager.id,
-      board,
-      dates: paintDraftDates(manager.id, board),
-    } : null);
+    const request=++draftDatesRequest.current;
+    if(!manager){setDraftDateState(null);return;}
+    const legacy=paintDraftDates(manager.id,board);
+    setDraftDateState({managerId:manager.id,board,dates:legacy});
+    void DraftDatabase.open().then(async db=>{
+      try{const retained=await db.dates(manager.id,board);if(request===draftDatesRequest.current)setDraftDateState({managerId:manager.id,board,dates:[...new Set([...legacy,...retained])].sort()});}
+      finally{db.close();}
+    }).catch(()=>{/* The editor reports unavailable storage without deleting retained dates. */});
   }, [manager, board]);
 
   useEffect(() => {
@@ -447,16 +458,17 @@ export function FloorBoard() {
     }
     try {
       const res = await fetch(
-        `/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
+        day?.quarter?`/api/v2/tareas/suggest?date=${encodeURIComponent(date)}&quarter=${hour.toString().padStart(2,"0")}:00&granularity=hour&templateId=${encodeURIComponent(selectedTareaTemplateId)}`:`/api/tareas?date=${encodeURIComponent(date)}&hour=${hour}&board=${board}&suggest=${encodeURIComponent(selectedTareaTemplateId)}`,
         { headers: managerAuthHeaders(managerToken) },
       );
       if (!res.ok) return;
-      const data = (await res.json()) as { suggestions: SuggestionDto[] };
+      const data = (await res.json()) as { suggestions: SuggestionDto[];expected?:{databaseEpoch:string;worldRevision:string} };
+      setQuarterSuggestionBase(data.expected??null);
       setSuggestions(data.suggestions ?? []);
     } catch {
       /* soft fail */
     }
-  }, [date, hour, selectedTareaTemplateId, board, managerToken]);
+  }, [date, hour, selectedTareaTemplateId, board, managerToken,day]);
 
   const refreshPhase1 = useCallback(async () => {
     await Promise.all([
@@ -663,10 +675,40 @@ export function FloorBoard() {
     await refreshBoard();
   }
 
+  async function quarterControl(changes:HourChange[],snapshot=day?.quarter,stationId?:string):Promise<boolean>{
+    if(!snapshot||!manager?.token||readonly||offline)return false;
+    try{
+      const result=await saveHourControl({managerId:manager.id,board:snapshot.board,date:snapshot.date},snapshot,changes,manager.token);
+      const text=result.status==="saved"?t.toastAssigned:result.status==="cleanup-pending"?(locale==="es"?"Guardado; limpieza local pendiente.":"Saved; local cleanup pending."):
+        result.status==="rejected"?`${t.toastAssignRejected}: ${result.code}`:(locale==="es"?"Guardado sin confirmar. Revisa el borrador para reintentar.":"Save unconfirmed. Open the retained draft to retry.");
+      if(stationId)showCardFeedback(stationId,result.receipt?"ok":"err",text);else showToast(result.receipt?"ok":"err",text);
+      if(result.receipt){await refreshBoard();bumpLedger();}return Boolean(result.receipt);
+    }catch(error){const text=`${locale==="es"?"Revisa el borrador; cambios conservados":"Review draft; retained changes preserved"}: ${error instanceof Error?error.message:String(error)}`;
+      if(stationId)showCardFeedback(stationId,"err",text);else showToast("err",text);return false;
+    }finally{refreshDraftDates();}
+  }
+  async function onQuarterSwap(shiftId:string){
+    if(!day?.quarter||!isManager||readonly||offline)return;
+    if(!quarterSwap){setQuarterSwap({shiftId,hour,day:day.quarter});showToast("ok",t.toastSwapPick);return;}
+    const first=quarterSwap;setQuarterSwap(null);if(first.shiftId===shiftId)return;
+    if(first.hour!==hour||first.day.databaseEpoch!==day.quarter.databaseEpoch||first.day.worldRevision!==day.quarter.worldRevision||first.day.board!==board||first.day.date!==date){showToast("err",t.toastSwapRejected);return;}
+    const left=day.shifts.find(s=>s.id===first.shiftId),right=day.shifts.find(s=>s.id===shiftId);
+    if(!left||!right)return;
+    const a=uniformHour(left,date,hour),b=uniformHour(right,date,hour);
+    if(a.kind!=="uniform"||b.kind!=="uniform"||!a.stationId||!b.stationId){showToast("err",t.toastSwapRejected);return;}
+    await quarterControl([{shiftId:left.id,hour,action:{action:"station",stationId:b.stationId}},{shiftId:right.id,hour,action:{action:"station",stationId:a.stationId}}],first.day);
+  }
+  function requestQuarterClear(shift:ShiftDto,stationId:string){
+    if(!day?.quarter||readonly||offline||!isManager)return;
+    const refusal=hourEditRefusal(day.quarter,shift.id,hour);if(refusal){showCardFeedback(stationId,"err",refusal);return;}
+    if(isOpenHourFuture()){void quarterControl([{shiftId:shift.id,hour,action:{action:"erase"}}],day.quarter,stationId);return;}
+    setPendingMove({assignmentId:null,quarter:{shiftId:shift.id,hour,day:day.quarter},employeeId:shift.employee.id,employeeName:displayName(shift),fromStationId:stationId});
+  }
   async function tapSuggested(stationId: string, shiftId: string) {
     if (readonly || offline || !isManager || !manager?.token || !date) return;
     setSavingStationId(stationId);
     try {
+      if(day?.quarter){await assignWholeShift(shiftId,stationId);return;}
       const res = await fetch("/api/assignments/suggest", {
         method: "PUT",
         headers: {
@@ -693,6 +735,11 @@ export function FloorBoard() {
   }
 
   async function assignWholeShift(shiftId: string, stationId: string) {
+    if(day?.quarter){
+      const changes=hourGridHours().filter(h=>day.quarter!.hours.some(p=>p.shiftId===shiftId&&p.hourStart===chicagoHourStart(date,h).toISOString()&&p.intervals.some(i=>i.state!=="off")))
+        .map(h=>({shiftId,hour:h,action:{action:"station" as const,stationId}}));
+      if(await quarterControl(changes,day.quarter,stationId))setSelectedShiftId(null);return;
+    }
     const res = await fetch("/api/assignments/shift", {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...managerAuthHeaders(manager?.token) },
@@ -733,6 +780,7 @@ export function FloorBoard() {
   }
 
   async function assignOneHour(shiftId: string, stationId: string) {
+    if(day?.quarter){if(await quarterControl([{shiftId,hour,action:{action:"station",stationId}}],day.quarter,stationId))setSelectedShiftId(null);return;}
     const res = await fetch("/api/assignments", {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...managerAuthHeaders(manager?.token) },
@@ -834,6 +882,7 @@ export function FloorBoard() {
 
   async function confirmClear(reason: MoveReason, note: string) {
     if (!pendingMove) return;
+    if(pendingMove.quarter){const original=pendingMove.quarter;setPendingMove(null);await quarterControl([{shiftId:original.shiftId,hour:original.hour,action:{action:"erase",reason,moveNote:note||null}}],original.day,pendingMove.fromStationId);return;}
     const stationId = pendingMove.fromStationId;
     setSavingStationId(stationId);
     try {
@@ -960,12 +1009,25 @@ export function FloorBoard() {
     await refreshReturnPrompts();
   }
 
+  async function quarterTask(action:Record<string,unknown>){
+    if(!day?.quarter)return;
+    try{
+      const result=await savedAction({managerId:manager?.id??"system:staff-status",board,date},day.quarter,"tareas",action,manager?.token??null);
+      showToast(result.status==="saved"||result.status==="cleanup-pending"?"ok":"err",result.status==="saved"?t.toastTareaAssigned:result.status==="cleanup-pending"?(locale==="es"?"Guardado; limpieza local pendiente.":"Saved; local cleanup pending."):
+        result.status==="rejected"?`${t.toastTareaFailed}: ${String(result.body?.code??"")}`:(locale==="es"?"Sin confirmar. Reintentar conserva la solicitud original.":"Unconfirmed. Retry preserves the original request."));
+      if(result.status==="saved"||result.status==="cleanup-pending"){await refreshBoard();await refreshTareas();await refreshSuggestions();}
+    }catch(error){showToast("err",`${t.toastTareaFailed}: ${error instanceof Error?error.message:String(error)}`);}
+  }
   async function assignTarea(employeeId: string, forceLemon: boolean) {
     if (readonly || offline || !selectedTareaTemplateId) return;
     if (!isManager || !manager?.token) {
       setUnlockOpen(true);
       showToast("err", t.managerOnly);
       return;
+    }
+    if(day?.quarter){
+      if(!quarterSuggestionBase||quarterSuggestionBase.databaseEpoch!==day.quarter.databaseEpoch||quarterSuggestionBase.worldRevision!==day.quarter.worldRevision){showToast("err",t.toastTareaFailed);await refreshSuggestions();return;}
+      await quarterTask({operation:"assign",employeeId,templateId:selectedTareaTemplateId,quarter:`${hour.toString().padStart(2,"0")}:00`,granularity:"hour",forceLemon});return;
     }
     const res = await fetch("/api/tareas", {
       method: "POST",
@@ -998,6 +1060,7 @@ export function FloorBoard() {
 
   async function setTareaStatus(id: string, status: "working" | "done") {
     if (readonly || offline) return;
+    if(day?.quarter){await quarterTask({operation:"status",id,status});return;}
     const res = await fetch("/api/tareas", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1797,12 +1860,16 @@ export function FloorBoard() {
                         // Only an actual base assignment at this seat can expose
                         // mutation controls. Derived cover keeps its real ledger identity.
                         const base = !row.cover ? occupied.find(item => item.shift.id === row.shiftId && item.shift.employee.id === row.employeeId) : undefined;
-                        return <span className={cn("flex items-center justify-between gap-2", base && swapFirstId === base.assignment.id && "ring-2 ring-amber-700")}>
+                        const intervalSource=day?.quarter&&!row.cover?day.shifts.find(s=>s.id===row.shiftId&&s.employee.id===row.employeeId):undefined;
+                        const intervalEditable=intervalSource&&day?.quarter&&!hourEditRefusal(day.quarter,intervalSource.id,hour);
+                        return <span className={cn("flex items-center justify-between gap-2", (base && swapFirstId === base.assignment.id || intervalSource&&quarterSwap?.shiftId===intervalSource.id&&quarterSwap.hour===hour) && "ring-2 ring-amber-700")}>
                           <button type="button" className="min-h-11 flex-1 text-left text-sm font-bold active:bg-neutral-100" aria-label={row.name} data-testid={`assignee-${station.id}`}
                             onClick={() => {
                               setLedgerEmployeeId(row.employeeId); setLedgerEmployeeName(row.name);
+                              if(intervalEditable&&isManager&&!editsLocked)void onQuarterSwap(intervalSource.id);
                               if (base && isManager && !editsLocked) void onSwapSelect(base.assignment.id);
                             }}>{row.name}{row.cover ? ` · ${locale === "es" ? "Cubre" : "Cover"}` : ""}</button>
+                          {intervalEditable&&isManager&&!editsLocked&&<button type="button" className="min-h-11 min-w-11 rounded bg-neutral-900 text-white" onClick={()=>requestQuarterClear(intervalSource,station.id)} aria-label={`Clear ${row.name}`} data-testid={`clear-${station.id}`}>✕</button>}
                           {base && isManager && !editsLocked && <button type="button" className="touch-target min-h-11 min-w-11 rounded bg-neutral-900 text-sm font-bold text-white active:bg-neutral-700"
                             onClick={() => requestClear(base.assignment.id, base.shift, station.id)} aria-label={`Clear ${row.name}`} data-testid={`clear-${station.id}`}>✕</button>}
                         </span>;

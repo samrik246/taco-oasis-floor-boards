@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { formatHourLabel } from "@/lib/hour-grid";
 import { boardStationLabel, type Locale, type Messages } from "@/lib/i18n";
-import type { DatePreview, Refusal } from "@/lib/import/reconcile";
+import type { RemovedAssignmentView,DatePreview, Refusal } from "@/lib/import/reconcile";
 
 export type ImportPreviewData = {
   fingerprint: string;
@@ -23,6 +23,7 @@ type Props = {
   t: Messages;
 };
 
+const intervalLabel=(cell:RemovedAssignmentView)=>cell.startAt&&cell.endAt?`${new Date(cell.startAt).toLocaleTimeString("en-US",{timeZone:"America/Chicago",hour:"numeric",minute:"2-digit"})}–${new Date(cell.endAt).toLocaleTimeString("en-US",{timeZone:"America/Chicago",hour:"numeric",minute:"2-digit"})} (${cell.minutes} min)`:formatHourLabel(cell.hour);
 /** Same-day re-import preview (C1): counts per date, removals, Confirm. No names. */
 export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale, t }: Props) {
   if (!preview) return null;
@@ -58,13 +59,13 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
             >
               <h3 className="text-sm font-bold">{d.date}</h3>
               <p className="text-sm tabular-nums">{t.importCounts(d)}</p>
-              <p className="text-sm tabular-nums">{t.importKept(d.assignmentsKept)}</p>
+              <p className="text-sm tabular-nums">{d.paintMinutesKept!==undefined?`${d.paintMinutesKept} min ${locale==="es"?"conservados":"preserved"}`:t.importKept(d.assignmentsKept)}</p>
               {d.assignmentsToTransfer.length > 0 && (
                 <div className="text-sm">
-                  <p className="font-medium tabular-nums">{t.importTransferred(d.assignmentsToTransfer.length)}</p>
+                  <p className="font-medium tabular-nums">{d.paintMinutesKept!==undefined?`${d.assignmentsToTransfer.reduce((n,c)=>n+(c.minutes??0),0)} min ${locale==="es"?"transferidos":"transferred"}`:t.importTransferred(d.assignmentsToTransfer.length)}</p>
                   <ul className="ml-4 list-disc text-xs" data-testid="import-transfers">
                     {d.assignmentsToTransfer.map((cell, i) => (
-                      <li key={i}>{formatHourLabel(cell.hour)} · {boardStationLabel(locale, cell.stationId, preview.stations ?? [])}</li>
+                      <li key={i}>{intervalLabel(cell)} · {boardStationLabel(locale, cell.stationId, preview.stations ?? [])}</li>
                     ))}
                   </ul>
                 </div>
@@ -80,7 +81,7 @@ export function ImportPreviewModal({ preview, busy, onCancel, onConfirm, locale,
                   <ul className="mt-1 text-xs" data-testid="import-removals">
                     {d.assignmentsToRemove.map((r, i) => (
                       <li key={i}>
-                        {formatHourLabel(r.hour)} · {boardStationLabel(locale, r.stationId, preview.stations ?? [])}
+                        {intervalLabel(r)} · {boardStationLabel(locale, r.stationId, preview.stations ?? [])}
                       </li>
                     ))}
                   </ul>

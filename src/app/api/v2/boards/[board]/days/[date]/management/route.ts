@@ -24,7 +24,7 @@ export async function GET(request:Request,{params}:{params:Promise<{board:string
       const defaults=await loadColumnDefaults(db),employees=await db.employee.findMany({where:{shifts:{some:{date,board,boardRemoved:false}}},select:{id:true,abilities:{select:{stationId:true,level:true}}}});
       for(const e of employees)abilities[e.id]=[...e.abilities,...[...defaults].filter(([id,level])=>level==="forbidden"&&!e.abilities.some(a=>a.stationId===id)).map(([stationId])=>({stationId,level:"forbidden"}))];
     }
-    return {databaseEpoch:state?.databaseEpoch??null,worldRevision:state?await worldRevision(db):null,
+    return {managerId:auth.manager.id,databaseEpoch:state?.databaseEpoch??null,worldRevision:state?await worldRevision(db):null,
       mandatory:{stationIds:[...MANDATORY_STATIONS_BY_BOARD[board],...extraStationIds],extraStationIds,canMark:owner},overlayMenu:date===chicagoToday(),...(owner?{abilities}:{})};
   }),{headers:NO_STORE});}catch(error){return quarterError(error);}
 }

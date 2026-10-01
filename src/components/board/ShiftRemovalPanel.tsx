@@ -1,5 +1,8 @@
 "use client";
 
+import { capabilities } from "@/lib/quarter/client/transport";
+import { savedAction } from "@/lib/quarter/client/controls";
+import type { PublicDayV2 } from "@/lib/quarter/client/day";
 import { useCallback, useEffect, useState } from "react";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { DayBoardDto, ShiftDto } from "./types";
@@ -12,12 +15,13 @@ type Event = { action: string; revision: number; managerName: string | null;
 type Entry = {
   id: string; shiftId: string | null; externalId: string; date: string; board: string;
   sourcePosition: string; startAt: string; endAt: string; state: string;
-  revision: number; savedCells: number; currentSource: Source | null;
+  revision: number; savedCells: number; savedMinutes?:number; currentSource: Source | null;
   events: Event[];
 };
-type Pending = { action: "remove"; shift: ShiftDto; futureCount: number } |
+type Review={actorId:string;snapshot:Pick<PublicDayV2,"databaseEpoch"|"worldRevision"|"phase"|"capabilitySha256">;sources:{shiftId:string;sourceSha256:string;removalRevision:number}[]};
+type Pending = ({ action: "remove"; shift: ShiftDto; futureCount: number;futureMinutes?:number } |
   { action: "restore"; entry: Entry; positions: "replay" | "none" } |
-  { action: "resolve"; entry: Entry };
+  { action: "resolve"; entry: Entry }) & {review?:Review|null};
 
 function time(value: string) {
   return new Date(value).toLocaleTimeString("es-MX", {
@@ -35,7 +39,7 @@ function History({ events }: { events: Event[] }) {
       v{event.revision} · {event.action} · {event.managerName ?? "Importación"} · {event.reason} · {event.createdAt}
       {event.source?.startAt && <> · {time(event.source.startAt)}–{time(event.source.endAt)}</>}
       {eventCells(event).length > 0 && <> · {eventCells(event).map((cell) =>
-        `${cell.stationId} ${time(cell.hourStart)}`).join(", ")}</>}
+        `${cell.stationId} ${time(cell.hourStart)}–${time(cell.hourEnd)}`).join(", ")}</>}
     </p>)}
   </div>;
 }
@@ -44,6 +48,7 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
   day: DayBoardDto | null; board: "caja" | "cocina"; date: string;
   managerToken: string; readonly: boolean; onSaved: () => Promise<void>;
 }) {
+  const [review,setReview]=useState<Review|null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -51,23 +56,20 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  const refresh = useCallback(async () => {
-    const res = await fetch(`/api/shift-removals?board=${board}&date=${date}`, {
-      headers: managerAuthHeaders(managerToken), cache: "no-store",
-    });
-    if (!res.ok) { setEntries([]); return; }
-    const data = await res.json() as { removals: Entry[] };
-    setEntries(data.removals);
-  }, [board, date, managerToken]);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/shift-removals?board=${board}&date=${date}`, {
-      headers: managerAuthHeaders(managerToken), cache: "no-store",
-    }).then(async (res) => res.ok ? (await res.json() as { removals: Entry[] }).removals : [])
-      .then((rows) => { if (!cancelled) setEntries(rows); })
-      .catch(() => { if (!cancelled) setEntries([]); });
-    return () => { cancelled = true; };
-  }, [board, date, managerToken]);
+  const read = useCallback(async()=>{
+    const cap=await capabilities();
+    const res=await fetch(`${cap.phase==="active"?"/api/v2":"/api"}/shift-removals?board=${board}&date=${date}`,{headers:managerAuthHeaders(managerToken),cache:"no-store"});
+    if(!res.ok)throw new Error("No se pudo cargar la revisión de turnos.");
+    return await res.json() as {removals:Entry[]}&Partial<Review>;
+  },[board,date,managerToken]);
+  const refresh=useCallback(async()=>{const result=await read();setEntries(result.removals);setReview(result.snapshot?result as Review:null);},[read]);
+  useEffect(()=>{
+    let cancelled=false;
+    void read().then(result=>{if(!cancelled){setEntries(result.removals);setReview(result.snapshot?result as Review:null);}})
+      .catch(error=>{if(!cancelled){setEntries([]);setReview(null);setFeedback(error.message);}});
+    return ()=>{cancelled=true;};
+  },[read]);
+  function begin(value:Pending){setPending({...value,review});}
 
   async function submit() {
     if (!pending || !reason.trim() || busy || readonly) return;
@@ -85,6 +87,17 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
         : { action: "resolve", id: pending.entry.id,
           expectedRevision: pending.entry.revision, reason: reason.trim() };
     try {
+      if(pending.review){
+        const r=pending.review,shiftId=pending.action==="remove"?pending.shift.id:pending.entry.shiftId;
+        const expected=pending.action==="resolve"?{databaseEpoch:r.snapshot.databaseEpoch,worldRevision:r.snapshot.worldRevision,removalRevision:pending.entry.revision}:
+          {...r.sources.find(s=>s.shiftId===shiftId),databaseEpoch:r.snapshot.databaseEpoch,worldRevision:r.snapshot.worldRevision};
+        if("shiftId" in expected)delete expected.shiftId;
+        const action={operation:pending.action,board,reason:reason.trim(),expected,...(pending.action==="resolve"?{removalId:pending.entry.id}:{shiftId}),...(pending.action==="restore"?{positions:pending.positions}:{})};
+        const result=await savedAction({managerId:r.actorId,board,date},r.snapshot,"shift-removals",action,managerToken);
+        if(result.status!=="saved"&&result.status!=="cleanup-pending"){setFeedback(result.status==="rejected"?`Rechazado: ${String(result.body?.code??"")}`:"Guardado sin confirmar. Reintentar conserva la solicitud original.");return;}
+        setPending(null);setReason("");setFeedback(result.status==="saved"?"Cambio de turno guardado.":"Guardado; limpieza local pendiente.");await onSaved();await refresh();return;
+      }
+      if(day?.quarter)throw new Error("La revisión compatible no está disponible.");
       const res = await fetch("/api/shift-removals", {
         method: "POST", headers: { "Content-Type": "application/json", ...managerAuthHeaders(managerToken) },
         body: JSON.stringify(body),
@@ -127,8 +140,9 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
         className="flex flex-wrap items-center justify-between gap-2 rounded border p-2" data-testid={`shift-removal-row-${shift.id}`}>
         <span>{shift.employee.firstName} {shift.employee.lastName} · {shift.sourcePosition} · {date} · {time(shift.startAt)}–{time(shift.endAt)}</span>
         <button type="button" disabled={readonly || busy} className="rounded border px-2 py-1 font-semibold"
-          onClick={() => { setPending({ action: "remove", shift,
-            futureCount: shift.assignments.filter((a) => new Date(a.hourStart).getTime() > Date.now()).length });
+          onClick={() => { begin({ action: "remove", shift,
+            futureCount: shift.assignments.filter((a) => new Date(a.hourStart).getTime() > Date.now()).length,
+            ...(shift.paintHours?{futureMinutes:shift.paintHours.filter(h=>Date.parse(h.hourStart)>Date.now()).flatMap(h=>h.intervals).filter(i=>i.state==="assigned").reduce((n,i)=>n+(Date.parse(i.endAt)-Date.parse(i.startAt))/60000,0)}:{}) });
             setReason(""); setFeedback(""); }}>
           Quitar turno
         </button>
@@ -138,20 +152,20 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
       className="mt-3 rounded border border-amber-500 p-2" data-testid={`removed-shift-${entry.id}`}>
       <p>{entry.externalId} · {entry.sourcePosition} · {entry.date} · {time(entry.startAt)}–{time(entry.endAt)}</p>
       <p className="text-sm">{entry.currentSource
-        ? `${entry.savedCells} posiciones guardadas para revisar. Si una importación rechaza un cambio ambiguo, restaura sin posiciones antes de importar y revisa el turno nuevo.`
+        ? `${entry.savedMinutes!==undefined?`${entry.savedMinutes} minutos`:`${entry.savedCells} posiciones`} guardadas para revisar. Si una importación rechaza un cambio ambiguo, restaura sin posiciones antes de importar y revisa el turno nuevo.`
         : "La fuente ya no contiene este turno. Puedes liberar su bloqueo para importar un nuevo turno visible, o esperar una reaparición exacta."}</p>
       <History events={entry.events} />
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" disabled={readonly || busy || !entry.currentSource}
-          onClick={() => { setPending({ action: "restore", entry, positions: "replay" }); setReason(""); setFeedback(""); }}>
+          onClick={() => { begin({ action: "restore", entry, positions: "replay" }); setReason(""); setFeedback(""); }}>
           Restaurar con posiciones
         </button>
         <button type="button" disabled={readonly || busy || !entry.currentSource}
-          onClick={() => { setPending({ action: "restore", entry, positions: "none" }); setReason(""); setFeedback(""); }}>
+          onClick={() => { begin({ action: "restore", entry, positions: "none" }); setReason(""); setFeedback(""); }}>
           Restaurar sin posiciones
         </button>
         {!entry.currentSource && <button type="button" disabled={readonly || busy}
-          onClick={() => { setPending({ action: "resolve", entry }); setReason(""); setFeedback(""); }}>
+          onClick={() => { begin({ action: "resolve", entry }); setReason(""); setFeedback(""); }}>
           Liberar para nueva importación
         </button>}
       </div>
@@ -163,9 +177,9 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
     </div>)}
     {pending && <div className="mt-3 rounded border-2 border-amber-600 p-3" data-testid="shift-removal-confirm">
       <p className="font-bold">{pending.action === "remove"
-        ? `Quitar solo este turno; se liberarán ${pending.futureCount} posiciones futuras.`
+        ? `Quitar solo este turno; se liberarán ${pending.futureMinutes!==undefined?`${pending.futureMinutes} minutos futuros`:`${pending.futureCount} posiciones futuras`}.`
         : pending.action === "restore"
-          ? pending.positions === "replay" ? `Restaurar este turno y validar ${pending.entry.savedCells} posiciones guardadas.`
+          ? pending.positions === "replay" ? `Restaurar este turno y validar ${pending.entry.savedMinutes!==undefined?`${pending.entry.savedMinutes} minutos`:`${pending.entry.savedCells} posiciones`} guardadas.`
             : "Restaurar solo el turno; las posiciones se volverán a pintar."
           : "Liberar este bloqueo histórico: el próximo horario importado podrá mostrar un turno nuevo. Revisa ese turno y quítalo de nuevo si hace falta."}</p>
       <label className="mt-2 block">Motivo

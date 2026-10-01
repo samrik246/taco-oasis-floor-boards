@@ -1,0 +1,68 @@
+import {test,expect,type Page} from "@playwright/test";
+import {PrismaClient} from "@prisma/client";
+import {join} from "node:path";
+import {fromZonedTime} from "date-fns-tz";
+import {safeDatabasePath} from "../scripts/test-db-path.cjs";
+const date="2040-10-10",person="r0-http-person",shift="r0-http-source",origin="http://floor-boards.test:3100";
+let db:PrismaClient,activated=false;
+const requests:string[]=[];
+test.describe.configure({mode:"serial"});
+test.beforeAll(async()=>{
+  const root=process.env.FLOOR_BOARDS_TEST_ROOT!;
+  const url=`file:${join(root,"e2e.db")}`;safeDatabasePath({...process.env,DATABASE_URL:url});
+  db=new PrismaClient({datasources:{db:{url}}});
+  const rows=await db.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintHour");expect(Number(rows[0].n)).toBe(0);
+  const state=await db.$queryRawUnsafe<{phase:string}[]>("SELECT phase FROM QuarterSchema WHERE id=1");expect(state[0].phase).toBe("prepared");
+  await db.employee.create({data:{id:person,externalId:person,firstName:"R0",lastName:"Synthetic"}});
+  await db.shift.create({data:{id:shift,employeeId:person,board:"caja",date,sourcePosition:"Caja",startAt:fromZonedTime(`${date}T11:00:00`,"America/Chicago"),endAt:fromZonedTime(`${date}T13:00:00`,"America/Chicago")}});
+  // This is the already-guarded, disposable browser fixture only; no activation claim.
+  await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2 WHERE id=1");activated=true;
+});
+test.afterAll(async()=>{
+  if(activated){
+    await db.$transaction(async tx=>{
+      await tx.$executeRawUnsafe("DELETE FROM PaintSegment WHERE paintHourId IN (SELECT id FROM PaintHour WHERE date=?)",date);
+      await tx.$executeRawUnsafe("DELETE FROM PaintMutation WHERE date=?",date);
+      await tx.$executeRawUnsafe("DELETE FROM PaintHour WHERE date=?",date);
+      for(const id of requests)await tx.$executeRawUnsafe("DELETE FROM PaintCommandReceipt WHERE requestId=?",id);
+      const remaining=await tx.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintHour");expect(Number(remaining[0].n)).toBe(0);
+      await tx.$executeRawUnsafe("UPDATE QuarterSchema SET phase='prepared',minReader=1,minWriter=1 WHERE id=1");
+    });
+    await db.shift.delete({where:{id:shift}});await db.employee.delete({where:{id:person}});
+  }
+  await db?.$disconnect();
+});
+async function openEditor(page:Page){
+  await page.goto(`${origin}/?board=caja`);
+  await page.getByTestId("compact-manager").click();await page.getByTestId("manager-code-input").fill("e2e-second-owner");await page.getByTestId("manager-unlock-submit").click();
+  await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role","manager");
+  await page.getByTestId("compact-date").selectOption(date);await page.getByTestId("compact-view").selectOption("timeline");
+  await expect(page.getByTestId("quarter-hour-editor")).toBeVisible();
+}
+test("ordinary HTTP real save loses response, then reload reconciles original receipt without duplicate mutation",async({page})=>{
+  await page.addInitScript(()=>{
+    Object.defineProperty(crypto,"randomUUID",{value:undefined});Object.defineProperty(crypto,"subtle",{value:undefined});Object.defineProperty(window,"BroadcastChannel",{value:undefined});
+  });
+  await openEditor(page);expect(await page.evaluate(()=>isSecureContext)).toBe(false);
+  await page.getByTestId("quarter-palette-family:green").click();await page.getByTestId(`quarter-cell-${shift}-11`).click();
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+  let responseSaved=false;
+  await page.route("**/api/v2/assignments/paint",async route=>{
+    const body=route.request().postDataJSON();requests.push(body.requestId);
+    const result=await route.fetch();expect(result.status()).toBe(200);responseSaved=true;await route.abort("failed");
+  });
+  await page.getByTestId("quarter-save").click();await expect.poll(()=>responseSaved).toBe(true);
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/sin confirmar|unconfirmed/);
+  const before=await db.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintMutation WHERE requestId=?",requests[0]);expect(Number(before[0].n)).toBeGreaterThan(0);
+  await page.unroute("**/api/v2/assignments/paint");await openEditor(page);
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/Guardado|Saved/);
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(0);
+  const after=await db.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintMutation WHERE requestId=?",requests[0]);expect(after).toEqual(before);
+  const retained=await page.evaluate(()=>new Promise<{generations:number;state:string;requestId:string}>((resolve,reject)=>{
+    const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{
+      const tx=r.result.transaction(["generations","submissions"]),g=tx.objectStore("generations").getAll(),s=tx.objectStore("submissions").getAll();
+      tx.oncomplete=()=>{resolve({generations:g.result.length,state:s.result[0].state,requestId:s.result[0].requestId});r.result.close();};
+    };
+  }));
+  expect(retained).toMatchObject({state:"confirmed",requestId:requests[0]});expect(retained.generations).toBeGreaterThan(1);
+});

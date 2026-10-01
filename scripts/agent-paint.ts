@@ -1,3 +1,4 @@
+import { quarterAppDir } from "../src/lib/quarter/lease";
 /**
  * Host colour-edit command. Reads one JSON packet on stdin.
  *
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
     raw,
     mode: args.mode,
     applySha: args.applySha,
-    appDir: process.cwd(),
+    appDir: quarterAppDir(),
   });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
