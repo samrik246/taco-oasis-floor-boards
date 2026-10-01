@@ -8,9 +8,10 @@ import { ReceiptWorkerSupervisor, UnknownCompletion, HistoryUnavailable, type Wo
 import { digest, line, LIMITS, type CallInput } from "../../src/lib/receipts/transport-codec";
 
 async function main() {
-  const { config, input } = JSON.parse(readFileSync(0, "utf8")) as { config: { engine_sha: string; application_inventory_sha256: string }; input: CallInput };
+  const { config, input } = JSON.parse(readFileSync(0, "utf8")) as { config: { engine_sha: string; application_inventory_sha256: string; catalog: { devices: { device_id: string }[] } }; input: CallInput };
   const [stage, mode] = process.argv.slice(2);
   const configBytes = line(config, LIMITS.config);
+  const devices = config.catalog.devices.map((device) => device.device_id);
   let events!: WorkerEvents; let generation = ""; let writes = 0;
   const signals: string[] = [];
   const supervisor = new ReceiptWorkerSupervisor({
@@ -40,9 +41,9 @@ async function main() {
     await supervisor.start();
     if (stage === "call") await supervisor.call(input);
     if (stage === "handler") {
-      const command = parseCommand((input.args as { browser_command: unknown }).browser_command);
+      const command = parseCommand((input.args as { browser_command: unknown }).browser_command, devices);
       const request = new Request("http://localhost/api/receipts", { method: "POST", headers: { "content-type": "application/json", "x-manager-session": "synthetic" }, body: JSON.stringify(command) });
-      response = await (await handleReceipt(request, { engine: residentAdapter(supervisor), authenticate: async () => input.authenticated_actor })).json();
+      response = await (await handleReceipt(request, { devices, engine: residentAdapter(supervisor, devices), authenticate: async () => input.authenticated_actor })).json();
       outcome = "public_response";
     }
   }
