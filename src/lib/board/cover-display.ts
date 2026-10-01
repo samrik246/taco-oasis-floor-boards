@@ -68,7 +68,7 @@ export function projectCoverDisplay(input: {
     // Newest-first precedence matches loadOverlayRecords/buildDaySlices; cross-board overlaps are ambiguous.
     const overlay = active[0];
     const paints = s.assignments.filter(a => +a.hourStart <= start && +a.hourEnd >= end);
-    let id = paints[0]?.stationId ?? null;
+    let id: string | null = paints[0]?.stationId ?? null;
     if (overlay?.kind === "remove" && overlay.employeeId === s.employeeId) id = null;
     else if (overlay?.kind === "switch") id = overlay.employeeId === s.employeeId ? overlay.stationId : overlay.fromStationId;
     else if (overlay?.kind === "add" && overlay.partnerEmployeeId === s.employeeId) id = overlay.stationId;
