@@ -6,7 +6,7 @@ import {quarterAppDir} from "./lease";
 import {assertArtifactSchema,loadedArtifactSha256} from "./artifact";
 import {canonical,digest,QuarterRefused,quarterState,type QuarterDb} from "./schema";
 const instant=z.iso.datetime(),id=z.string().min(1).max(160),hash=z.string().regex(/^[a-f0-9]{64}$/);
-const origin=z.url().refine(value=>{const u=new URL(value);return ["http:","https:"].includes(u.protocol)&&u.origin===value;});
+const origin=z.url().refine(value=>{try{const u=new URL(value);return ["http:","https:"].includes(u.protocol)&&u.origin===value;}catch{return false;}});
 export const inventorySchema=z.strictObject({version:z.literal(1),synthetic:z.boolean(),revision:id,operatorId:id,enumeratedAt:instant,
   devices:z.array(z.strictObject({label:id,role:z.enum(["floor","wall","editor"]),origin,clientInstanceId:z.uuid(),board:z.enum(["caja","cocina"]),view:id,
     disposition:z.enum(["retained","retired"]),noReturnToFloor:z.boolean().optional()})).min(1).max(100)}).superRefine((v,c)=>{

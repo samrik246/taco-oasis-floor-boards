@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RECEIPT_DEVICES, ROLES, OBSERVATIONS, id, parseResponseFor, type Command, type Data, type Defaults, type Document, type Op, type Response, type Review, type Role, type Status } from "@/lib/receipts/protocol";
 import { receiptTransport, requestId, type ReceiptTransport } from "@/lib/receipts/client";
-import { documentText, OBSERVATION_COPY, priorObservationDetails, statusText, words, type ReceiptLocale } from "./copy";
+import { documentText, OBSERVATION_COPY, printerName, priorObservationDetails, statusText, words, type ReceiptLocale } from "./copy";
 
 export type ReceiptDocumentChoice = { document_handle: string; role: Role };
 type Entry = { request_id: string; op: Op };
@@ -195,7 +195,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
   const printerSelect = (value: string, onChange: (value: string) => void, label: string) => (
     <select className="min-h-14 rounded border-2 border-neutral-700 bg-white p-2" aria-label={label} value={value} disabled={blocked} onChange={(e) => onChange(e.target.value)}>
       <option value="">{t("Elegir impresora…", "Choose printer…")}</option>
-      {devices.map((device) => <option key={device} value={device}>{device}</option>)}
+      {devices.map((device) => <option key={device} value={device}>{printerName(device)}</option>)}
     </select>
   );
 
@@ -229,7 +229,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       {ROLES.map((r) => <label key={r} className="my-2 flex flex-wrap items-center gap-4">{r}{printerSelect(savedRoutes[r] ?? "", (value) => { setSavedRoutes((old) => ({ ...old, [r]: value || null })); setSaveReview(false); }, t("Predeterminado ", "Default ") + r)}</label>)}
       {!saveReview ? <button className={BUTTON} disabled={blocked || !defaults} onClick={() => setSaveReview(true)}>{t("Guardar destinos predeterminados", "Save default destinations")}</button> : <div>
         <h3 className="font-bold">{t("Guardar estos destinos para próximos envíos", "Save these destinations for future sends")}</h3>
-        <ul>{ROLES.map((r) => <li key={r}>{r} → {savedRoutes[r] ?? "—"}</li>)}</ul>
+        <ul>{ROLES.map((r) => <li key={r}>{r} → {savedRoutes[r] ? printerName(savedRoutes[r]) : "—"}</li>)}</ul>
         <button className={BUTTON} disabled={blocked || !defaults} onClick={() => void issue(command("save_defaults", { expected_revision: defaults!.revision, routes: savedRoutes, reason: "" }))}>{t("Confirmar destinos", "Confirm destinations")}</button>
         <button className={BUTTON} onClick={() => setSaveReview(false)}>{t("Cancelar", "Cancel")}</button>
       </div>}
@@ -239,12 +239,12 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       <h2 className="text-2xl font-black">{t("Revisa antes de imprimir", "Review before printing")}</h2>
       {review.mode !== "order" && <p className="font-bold">{t("1 boleto de prueba. No es un pedido y no cambia los destinos guardados.", "One test ticket. This is not an order and does not change saved destinations.")}</p>}
       {review.documents.map((doc) => <article className="my-4 border-b-2 pb-3" key={doc.reservation_handle}>
-        <h3 className="font-bold">1 {doc.action === "cambio" ? "CAMBIO · " : ""}{doc.role} → {doc.device_id}</h3>
+        <h3 className="font-bold">1 {doc.action === "cambio" ? "CAMBIO · " : ""}{doc.role} → {printerName(doc.device_id)}</h3>
         {doc.parent_attempt_id && <p>{t("Ligado al intento anterior; puede salir una copia adicional.", "Linked to the previous attempt; an additional copy may print.")}</p>}
         <pre className="overflow-auto whitespace-pre-wrap break-words rounded bg-neutral-100 p-3 text-xl">{doc.preview_lines.join("\n")}</pre>
       </article>)}
       <p>{review.total_documents} {t("boletos en total.", "tickets total.")}</p>
-      <ul>{review.totals.map((v) => <li key={v.device_id}>{v.device_id}: {v.count}</li>)}</ul>
+      <ul>{review.totals.map((v) => <li key={v.device_id}>{printerName(v.device_id)}: {v.count}</li>)}</ul>
       {(!review.submit_allowed || Date.parse(review.expires_at) <= now) && <p role="status">{Date.parse(review.expires_at) <= now ? t("Revisión vencida. Revisa una nueva vista previa antes de enviar.", "Review expired. Review a new preview before sending.") : t("El envío todavía no está habilitado.", "Sending is not enabled yet.")}</p>}
       <div className="mt-3 flex flex-wrap gap-3">
         <button className={BUTTON} disabled={blocked || !review.submit_allowed || Date.parse(review.expires_at) <= now} onClick={() => void issue(command("submit", { review_handle: review.review_handle }))}>{review.mode === "order" ? t(`Imprimir ${review.total_documents} boleto${review.total_documents === 1 ? "" : "s"}`, `Print ${review.total_documents} ticket${review.total_documents === 1 ? "" : "s"}`) : t("Enviar 1 boleto de prueba", "Send 1 test ticket")}</button>
@@ -267,7 +267,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
         {group.documents.map((row) => {
         const actions = group.suppressedContinuations.includes(row.reservation_handle) ? [] : row.allowed_actions;
         return <article data-testid="receipt-history-row" key={row.reservation_handle} className="my-4 rounded-lg border-2 border-neutral-300 p-3">
-        <h3 className="font-bold">{row.role} → {row.device_id}</h3>
+        <h3 className="font-bold">{row.role} → {printerName(row.device_id)}</h3>
         <p>{t("Último estado registrado: ", "Last recorded state: ")}{row.state === "not_attempted" ? t("No se intentó enviar en este envío", "No send was attempted in this send") : documentText(row.state, locale)}</p>
         <p>{t("Fecha del resultado de este envío: ", "Result time for this send: ")}<time dateTime={row.last_event_at}>{new Date(row.last_event_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</time></p>
         {(row.state === "uncertain" || row.state === "transmitted" || row.observation === "not_seen") && <p>{t("Puede haber salido papel. Cambiar de impresora puede producir una copia duplicada. No se reenviará automáticamente.", "Paper may have printed. Changing printers can produce a duplicate. Nothing will be resent automatically.")}</p>}
@@ -289,7 +289,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       <div className="grid gap-4 lg:grid-cols-2">{devices.map((device) => {
         const status = statuses[device];
         return <article key={device} className="my-3 rounded-lg border-2 border-neutral-300 p-3">
-          <h3 className="text-xl font-bold">{device}</h3>
+          <h3 className="text-xl font-bold">{printerName(device)}</h3>
           <p className="font-bold">{statusText(status, locale, now)}</p>
           <p>{status?.commissioned_for_orders ? t("Habilitada para pedidos; revisa cada envío en papel.", "Commissioned for orders; check paper after every send.") : t("Pendiente de prueba en papel", "Paper commissioning pending")}</p>
           <p>{t("Última consulta: ", "Last request: ")}{status?.last_request_at ? new Date(status.last_request_at).toLocaleString(locale, { timeZone: "America/Chicago" }) : "—"}</p>

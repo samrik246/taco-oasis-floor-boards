@@ -1,6 +1,8 @@
 import type { Document, Observation, Status } from "@/lib/receipts/protocol";
 export type ReceiptLocale = "es" | "en";
 export const words = (locale: ReceiptLocale, es: string, en: string) => locale === "es" ? es : en;
+/** Display only: canonical device IDs remain the routing and history identity. */
+export const printerName = (device: string) => device === "receipt-160" ? "PACKING PRINTER 160 (receipt-160)" : device;
 
 const STATUS: Record<Status["display_code"], [string, string]> = {
   ready: ["Sin avisos · respuesta reciente", "No warnings · recent response"],

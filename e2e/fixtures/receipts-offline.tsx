@@ -1,9 +1,13 @@
 // Test bundle only. No route or environment flag exposes this fake in the app.
 import { createRoot } from "react-dom/client";
 import { ReceiptWorkspace } from "../../src/components/receipts/ReceiptWorkspace";
-import fixture from "../../fixtures/receipts/v4-examples.json";
+import sourceFixture from "../../fixtures/receipts/v4-examples.json";
 import type { Command, Response, Review, Batch, Status } from "../../src/lib/receipts/protocol";
 
+// Canonical labels still use the same in-memory transport; no device address exists here.
+const fixture: typeof sourceFixture = new URLSearchParams(location.search).get("canonical") === "1"
+  ? JSON.parse(JSON.stringify(sourceFixture).replaceAll('"receipt-fx-a"', '"receipt-160"').replaceAll('"receipt-fx-b"', '"receipt-169"'))
+  : sourceFixture;
 const caseOne = fixture.cases[0].scenarios[0].steps;
 const data = (i: number) => (caseOne[i].expect as { response: Response }).response.data;
 const prepared = data(0) as Review;

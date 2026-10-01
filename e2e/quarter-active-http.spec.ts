@@ -132,6 +132,6 @@ test("ordinary HTTP receipt cleanup failure keeps a newer tab intent visible and
     await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
     await expect(page.getByTestId("quarter-save")).toBeDisabled();
     await openEditor(newer);await expect(newer.getByTestId("quarter-private-preview")).toHaveCount(1);
-    await expect(newer.getByRole("alert")).toContainText("SAVED_COMMAND_CHANGED_EXPECTATIONS");
+    await expect(newer.getByRole("alert").filter({hasText:"SAVED_COMMAND_CHANGED_EXPECTATIONS"})).toHaveCount(1);
   }finally{release();await newer.close();}
 });

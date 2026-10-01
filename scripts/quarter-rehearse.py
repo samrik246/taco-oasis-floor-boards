@@ -31,7 +31,7 @@ def run_command(root, argv, database):
     record(root / 'evidence/commands.jsonl', 'start', argv=argv, database=str(database))
     with log.open('wb') as output:
         result = subprocess.run(argv, cwd=APP, env=env, stdout=output, stderr=subprocess.STDOUT)
-    record(root / 'evidence/commands.jsonl', 'finish', argv=argv, exit=result.returncode, log=str(log), sha256=file_hash(log))
+    record(root / 'evidence/commands.jsonl', 'finish', argv=argv, exit=result.returncode, outputLog=str(log), sha256=file_hash(log))
     if result.returncode:
         raise ValueError('REHEARSAL_COMMAND_FAILED:' + str(log))
 

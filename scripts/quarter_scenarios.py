@@ -39,9 +39,6 @@ def run_scenario(root, manifest_file, scenario):
         record(root / 'evidence/rehearsal.jsonl', 'synthetic-r0-self-fixture-active', scope='not-activation-acceptance')
     os.environ.update(MANAGER_SESSION_SECRET='quarter-rehearsal-session-0000000000', STAFF_PASSCODE_PEPPER='quarter-rehearsal-pepper-0000000000')
     service = Service(app, database, 3100, run)
-    if not service.state.exists():
-        service.start()
-    service.readback()
     writes = run / 'acknowledged-writes.json'
     before_recovery = None
     date = (calendar_date.fromisoformat(fixture['date']) + timedelta(days=index)).isoformat()
@@ -94,6 +91,9 @@ def run_scenario(root, manifest_file, scenario):
             return checker_wait(run, phase, seconds=0.1)
         return 'reject' if 'reject' in scenario else 'pass'
     try:
+        if not service.state.exists():
+            service.start()
+        service.readback()
         if 'incompatible' in scenario:
             healthy = json.loads(service.state.read_text()); before = capture(database)
             packet['candidate'] = {'path': str(run / 'incompatible'), 'manifestSha256': '0' * 64}; atomic_json(packet_file, packet)
