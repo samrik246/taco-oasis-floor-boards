@@ -162,5 +162,51 @@ activation switch or service change is supplied here. Real Node/Python golden
 bytes and persistence, schema5 constructor behavior, hard worker self-deadline,
 parent death and actual group reaping require the independently judged pair and
 real OS tests. Protected-release provisioning, legacy-sender exclusion, trusted
-content/grants and paper activation remain separate gates. The accepted
-unfinished-batch projection addendum belongs to its later source boundary.
+content/grants and paper activation remain separate gates. The adopted projection boundary is described below.
+
+
+## Unfinished and closed-send projection
+
+The public validator uses the effective submit state/reason, including inside a
+successful original-ID recovery. Accepted unfinished rows all carry attempts.
+Pending/null and unfinished unavailable/result_unconfirmed permit only recover
+on every row, including a transmitted prefix. Validated history_unavailable
+retains its separate envelope. Terminal aggregates, row reasons/observations and
+non-accepted ReviewData retain separate checks. Complete serialized public
+wrappers, including the final LF, remain bounded to 65,536 UTF-8 bytes.
+
+The interface labels checkpoint state and time separately from the current
+aggregate outcome. A pending result says Send in progress; a lost positive proof
+says Paper may have printed and retains recorded facts. Neither state causes
+polling, resending or another mutation. Only deliberate original-ID recovery
+changes that projection; recovery ok means retrieval, not paper success.
+
+Displayed groups retain effective original submit ID plus plan_handle. Rows are
+keyed within that group; sharing a reservation, attempt or current revision
+cannot collapse two sends. A closed earlier send retains its own state, time,
+null observation and empty continuation actions through successor activity.
+Not-attempted wording is scoped to that send. A successful older read cannot
+clear a newer unresolved request or replace its pending notice.
+
+Observe still names only attempt_id publicly. The view retains the selected
+claimed group and validates matching row identity/state before updating only
+that group. A recovered observation with no selected membership asks for a
+deliberate original-send read and changes no displayed group. These display
+bindings do not replace authoritative engine membership, history or permissions.
+
+Pinned test intake:
+- Unfinished V2: e02e6f8bf27fbde7b22c58472e2c639c5421d1c01ba7664e0e6c184e1968bbd6.
+- Overlay V1: d4abc41f9f99323b33f9f2d411bd5c3c4e327ded3d97a7e492b65df537f9f8e4.
+- Shared/wire baselines remain ff38147c7ad065a5b231e41c280c74adb90cc772b84ed3ff9394d8eed7d703e3
+  and 94ff82505930ee5d43ded728f3d5354381241966a86b0070d84546b95ca724ca.
+- Closed-send accepted boundary: d295a4c06c3501a6a8c689f45bc9c625c3d05dd256d14e9f09cf28fbae74f482.
+  Copied document examples retain all three source hashes in
+  fixtures/receipts/closed-batch-examples-v1.json.
+
+The overlay verifies both hashes and the unique V4-14/active-coordinator/
+read-aggregate selector, changing only the test expectation in memory. Its
+unchanged observe response is a negative control through the actual validator.
+No production response is repaired. Eight engine-context negatives N15–N19 and
+N23–N25 remain outside stateless validation acceptance. Synthetic transition and
+browser tests do not establish durable engine, worker ownership or paper proof.
+Production still injects no engine.

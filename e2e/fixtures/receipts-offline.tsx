@@ -20,6 +20,11 @@ async function transport(command: Command): Promise<Response> {
   if (command.op === "read_defaults" || command.op === "save_defaults") result = fixture.common_setup.defaults;
   else if (command.op === "submit") {
     const rows = structuredClone(sent);
+    if (new URLSearchParams(location.search).get("unfinished") === "pending") {
+      rows.documents[1].state = "in_flight"; rows.documents[1].reason = null;
+      rows.documents.forEach((row) => { row.allowed_actions = ["recover"]; });
+      return { schema: "receipt-public/v1", request_id: command.request_id, op: command.op, state: "pending", reason: null, data: rows };
+    }
     rows.documents[1].state = "uncertain"; rows.documents[1].reason = "result_unconfirmed";
     return { schema: "receipt-public/v1", request_id: command.request_id, op: command.op, state: "partial", reason: "result_unconfirmed", data: rows };
   } else if (command.op === "status_cached" || command.op === "status_refresh") {

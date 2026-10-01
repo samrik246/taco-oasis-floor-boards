@@ -105,21 +105,50 @@ export function parseCommand(value: unknown, devices: readonly string[] = RECEIP
 const envelope = z.object({ schema: z.literal("receipt-public/v1"), request_id: id.nullable(), op: z.enum(OPS).nullable(), state, reason, data: z.unknown() }).strict();
 
 export function parseResponse(value: unknown, devices: readonly string[] = RECEIPT_DEVICES): Response {
+  if (new TextEncoder().encode(JSON.stringify(value) + "\n").length > 65536) throw new Error("result size");
   const out = envelope.parse(value); const s = schemas(devices);
-  function data(op: Op, raw: unknown): Data {
+  function data(op: Op, raw: unknown, resultState: Response["state"], resultReason: Reason | null): Data {
+    if (op !== "submit" && (!["ok", "refused", "unavailable"].includes(resultState) || (resultState === "ok") !== (resultReason === null))) throw new Error("data envelope");
     if (["prepare", "prepare_test", "read_review", "re_review"].includes(op)) {
       const r = s.review.parse(raw);
       const totals: { device_id: string; count: number }[] = [];
       for (const d of r.documents) { const total = totals.find((t) => t.device_id === d.device_id); if (total) total.count++; else totals.push({ device_id: d.device_id, count: 1 }); }
       if (r.total_documents !== r.documents.length || JSON.stringify(totals) !== JSON.stringify(r.totals) || !unique(r.documents.map((d) => d.reservation_handle)) || !unique(r.documents.map((d) => d.document_handle)) || !unique(r.documents.map((d) => d.role)) || Date.parse(r.expires_at) - Date.parse(r.created_at) !== 300_000 || (r.submit_allowed && r.blocked_reason !== null)) throw new Error("review");
+      if (resultState !== "ok" && (r.submit_allowed || r.blocked_reason !== resultReason)) throw new Error("review envelope");
       return r;
     }
-    const checkDocument = (d: Document) => {
+    const checkDocument = (d: Document, recoverOnly = false) => {
       const allowed: Record<Document["state"], string[]> = { prepared: ["review_pending"], not_attempted: ["review_pending"], refused: ["retry"], in_flight: ["recover"], transmitted: ["observe", "cambio"], uncertain: ["observe", "cambio"] };
-      if (d.allowed_actions.some((a) => !(d.reason === "history_unavailable" ? ["recover"] : allowed[d.state]).includes(a))) throw new Error("actions");
+      if (["in_flight", "refused", "transmitted", "uncertain"].includes(d.state) && d.attempt_id === null) throw new Error("attempt");
+      if ((d.observation === null) !== (d.observation_id === null) || (d.observation !== null && (!d.attempt_id || !["transmitted", "uncertain"].includes(d.state)))) throw new Error("observation");
+      if (["prepared", "in_flight", "transmitted"].includes(d.state) && d.reason !== null) throw new Error("row reason");
+      if ((d.state === "uncertain" && d.reason !== "result_unconfirmed") || (d.state === "refused" && d.reason === null)) throw new Error("row reason");
+      if (d.allowed_actions.some((a) => !(recoverOnly ? ["recover"] : allowed[d.state]).includes(a))) throw new Error("actions");
       if (d.allowed_actions.includes("cambio") && (!d.observation_id || !d.observation || d.observation === "pending")) throw new Error("observation");
     };
-    if (op === "submit") { const b = s.batch.parse(raw); if (b.total_documents !== b.documents.length || !unique(b.documents.map((d) => d.reservation_handle))) throw new Error("batch"); b.documents.forEach(checkDocument); return b; }
+    if (op === "submit") {
+      const b = s.batch.parse(raw), rows = b.documents;
+      if (b.total_documents !== rows.length || !unique(rows.map((d) => d.reservation_handle)) || !unique(rows.map((d) => d.document_handle)) || !unique(rows.map((d) => d.role)) || !unique(rows.map((d) => d.attempt_id).filter((id) => id !== null))) throw new Error("batch identities");
+      const unfinished = rows.some((d) => d.state === "prepared" || d.state === "in_flight");
+      const historyUnavailable = resultState === "unavailable" && resultReason === "history_unavailable";
+      const ownerUnconfirmed = unfinished && resultState === "unavailable" && resultReason === "result_unconfirmed";
+      const pending = unfinished && resultState === "pending" && resultReason === null;
+      if (unfinished && rows.some((d) => d.attempt_id === null)) throw new Error("accepted attempt");
+      // The effective submit envelope constrains EVERY retained row. It does
+      // not change row facts or prove acceptance/positive ownership itself.
+      rows.forEach((d) => checkDocument(d, historyUnavailable || ownerUnconfirmed || pending));
+      if (historyUnavailable || ownerUnconfirmed || pending) return b;
+      if (unfinished || resultState === "unavailable") throw new Error("unfinished envelope");
+      const stopping = rows.find((d) => d.reason !== null)?.reason ?? null;
+      const stopped = rows.every((d) => d.state === "refused" || d.state === "not_attempted");
+      const allSent = rows.every((d) => d.state === "transmitted");
+      const expectedState = stopped ? "refused" : allSent ? "ok" : "partial";
+      const expectedReason = stopped ? (rows.every((d) => d.state === "not_attempted") ? "sequence_not_started" : stopping)
+        : allSent ? null : rows.some((d) => d.state === "uncertain") ? "result_unconfirmed" : stopping;
+      if (resultState !== expectedState || resultReason !== expectedReason) throw new Error("aggregate");
+      return b;
+    }
+    if (resultState !== "ok") throw new Error("read envelope");
     if (op === "observe") { const o = s.observed.parse(raw); checkDocument(o.attempt); if (o.observation_id !== o.attempt.observation_id) throw new Error("observation ID"); return o; }
     if (op === "read_defaults" || op === "save_defaults") return s.defaults.parse(raw);
     if (op === "status_cached" || op === "status_refresh") {
@@ -137,23 +166,14 @@ export function parseResponse(value: unknown, devices: readonly string[] = RECEI
     return out as Response;
   }
   if (out.data === null) { if (!["refused", "unavailable"].includes(out.state) || out.reason === null) throw new Error("missing data"); return out as Response; }
-  function checkAggregate(op: Op, resultState: Response["state"], parsed: Data | null) {
-    if (op !== "submit" || !parsed || !("documents" in parsed) || resultState === "unavailable") return;
-    const rows = (parsed as Batch).documents;
-    const expected = rows.some((d) => d.state === "prepared" || d.state === "in_flight") ? "pending"
-      : rows.every((d) => d.state === "refused" || d.state === "not_attempted") ? "refused"
-      : rows.every((d) => d.state === "transmitted") ? "ok" : "partial";
-    if (resultState !== expected) throw new Error("aggregate");
-  }
   if (out.op === "recover") {
+    if (out.state !== "ok" || out.reason !== null) throw new Error("recovery envelope");
     const r = z.object({ original_request_id: id, original_op: z.enum(OPS).refine((v) => v !== "recover"), original_state: state, original_reason: reason, original_data: z.unknown() }).strict().parse(out.data);
     if (r.original_data === null && (!["refused", "unavailable"].includes(r.original_state) || r.original_reason === null)) throw new Error("missing original");
-    const original = r.original_data === null ? null : data(r.original_op, r.original_data);
-    checkAggregate(r.original_op, r.original_state, original);
+    const original = r.original_data === null ? null : data(r.original_op, r.original_data, r.original_state, r.original_reason);
     return { ...out, data: { ...r, original_data: original } } as Response;
   }
-  const parsed = data(out.op, out.data);
-  checkAggregate(out.op, out.state, parsed);
+  const parsed = data(out.op, out.data, out.state, out.reason);
   return { ...out, data: parsed } as Response;
 }
 

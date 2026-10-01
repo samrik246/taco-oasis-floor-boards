@@ -1,0 +1,303 @@
+{
+  "overlay_schema": "imprimir-v4-fixture-compatibility-overlay/v1",
+  "status": "draft_pending_zane_review",
+  "created": "2026-10-01",
+  "scope": "Fixture expectation overlay only; both baseline files remain unchanged. No ENGINE/B4 source, live operation, or executed implementation acceptance.",
+  "precedence": {
+    "governing_note": {
+      "path": "PLANS/IMPRIMIR_V4_UNFINISHED_BATCH_PROJECTION_ADDENDUM_V1_2026_10_01.txt",
+      "sha256": "299b77e8919d18346b03381e24d0e7d2ff80caf035b359cd52e8ade1b14b8bec"
+    },
+    "accepted_note_review": {
+      "path": "WORK_LOGS/ZANE_UNFINISHED_BATCH_PROJECTION_V2_REVIEW_2026_10_01.md",
+      "sha256": "13df462515818e7313ab067448799564636cea6093414ac8d6ab39e9716559f0"
+    },
+    "rule": "The accepted unfinished-submit envelope limits EVERY row to a subset of [recover], including a transmitted prefix inside RecoveryData.original_data. This replaces the single older observe expectation; it does not weaken the validator.",
+    "other_contracts": "Frozen V4, terminal closed-batch actions and ordinary unaccepted ReviewData retain their existing rules."
+  },
+  "source_inspection": {
+    "engine_head": "28f92aa77d4726221ea012258918884bab6e5f4f",
+    "wire_blob": "1b73925b57c3c2a27aadadb87fb018a28abfbb8e",
+    "source_imported_or_executed": false
+  },
+  "application": [
+    "Verify the baseline file SHA and unique case/scenario/step selector before applying the expectation overlay in memory; a mismatch or missing/duplicate selector stops application, never falls back to the obsolete positive expectation.",
+    "The JSON Patch paths are relative to the complete corresponding baseline JSON document. Both projections identify the same one logical case, not two different behaviors.",
+    "Change only documents[0].allowed_actions from [observe] to [recover]. Keep requests, wrappers, states, IDs, revisions, observations, event times, row order and all other expectations byte-for-byte/structurally unchanged.",
+    "Register the exact old response below as a negative control under the new envelope rule; preserve both original files on disk. A parser rejection is local result validation, not a new public refusal token.",
+    "No runtime response is patched or repaired by this overlay. The future engine must emit the corrected result; B4 must reject the obsolete result.",
+    "The synthetic coordinator_active arrangement represents positive executor proof for this example only. Its boolean, a PID or a stale saved owner row is not production ownership proof.",
+    "After Zane checks this overlay, engine and B4 use the same pin at their next applicable source boundary. Real implementation tests remain separate."
+  ],
+  "baselines": [
+    {
+      "name": "shared",
+      "path": "WORK_LOGS/IMPRIMIR_V4_SHARED_FIXTURE_CASES_V2_2026_10_01.json",
+      "sha256": "ff38147c7ad065a5b231e41c280c74adb90cc772b84ed3ff9394d8eed7d703e3",
+      "selector": {
+        "case": "V4-14",
+        "scenario": "active-coordinator",
+        "step": "read-aggregate"
+      },
+      "response_pointer": "/cases/13/scenarios/4/steps/0/expect/response",
+      "patch": [
+        {
+          "op": "test",
+          "path": "/cases/13/scenarios/4/steps/0/expect/response/data/original_data/documents/0/allowed_actions",
+          "value": [
+            "observe"
+          ]
+        },
+        {
+          "op": "replace",
+          "path": "/cases/13/scenarios/4/steps/0/expect/response/data/original_data/documents/0/allowed_actions",
+          "value": [
+            "recover"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wire",
+      "path": "REPOS/UNIVERSAL_SQUARE_IMPRIMIR_ENGINE_IGOR/fixtures/receipt_v4/wire_examples.json",
+      "sha256": "94ff82505930ee5d43ded728f3d5354381241966a86b0070d84546b95ca724ca",
+      "selector": {
+        "case": "V4-14",
+        "scenario": "active-coordinator",
+        "step": "read-aggregate"
+      },
+      "response_pointer": "/vectors/61/response",
+      "patch": [
+        {
+          "op": "test",
+          "path": "/vectors/61/response/data/original_data/documents/0/allowed_actions",
+          "value": [
+            "observe"
+          ]
+        },
+        {
+          "op": "replace",
+          "path": "/vectors/61/response/data/original_data/documents/0/allowed_actions",
+          "value": [
+            "recover"
+          ]
+        }
+      ]
+    }
+  ],
+  "case": {
+    "selector": {
+      "case": "V4-14",
+      "scenario": "active-coordinator",
+      "step": "read-aggregate"
+    },
+    "request": {
+      "schema": "receipt-browser/v1",
+      "request_id": "15d52929aedd699484dece9063c1aedb",
+      "op": "recover",
+      "args": {
+        "original_request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd"
+      }
+    },
+    "arrange": {
+      "accepted_request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd",
+        "op": "submit",
+        "args": {
+          "review_handle": "94931e68ff44ce74a1b3ee36fd62051b"
+        }
+      },
+      "row_states": [
+        "transmitted",
+        "in_flight"
+      ],
+      "trusted_positive_live_executor": true,
+      "note": "Reuse the pinned original setup and clock; this overlay alters no durable fact."
+    },
+    "positive": {
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "15d52929aedd699484dece9063c1aedb",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd",
+          "original_op": "submit",
+          "original_state": "pending",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "e0603c1570014c1cf55006b272a4826e",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "03ea1f63fbc3871770f43f0b624f5594",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "0a01f7ff8104d810b74e8218a071d16c",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "recover"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "76f782b7a5471b17db9a15f0e2e737fc",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "5ef76f941d0dfc9e112694e652ad49b2",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "in_flight",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "recover"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "expect": "accept under the accepted unfinished-submit envelope rule",
+      "expected_effective_state": "pending",
+      "expected_effective_reason": null,
+      "all_rows_allowed_actions": [
+        [
+          "recover"
+        ],
+        [
+          "recover"
+        ]
+      ],
+      "display": "Envío en curso; outer recover ok means retrieval only.",
+      "io_delta": {
+        "real_device_calls": 0,
+        "fake_payload_calls_delta": 0,
+        "fake_status_probes_delta": 0,
+        "automatic_query_or_resend_calls": 0,
+        "new_claims": 0,
+        "durable_mutations": 0,
+        "operation_lock_acquisitions": 0,
+        "device_lock_acquisitions": 0
+      }
+    },
+    "negative_control": {
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "15d52929aedd699484dece9063c1aedb",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd",
+          "original_op": "submit",
+          "original_state": "pending",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "e0603c1570014c1cf55006b272a4826e",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "03ea1f63fbc3871770f43f0b624f5594",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "0a01f7ff8104d810b74e8218a071d16c",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "76f782b7a5471b17db9a15f0e2e737fc",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "5ef76f941d0dfc9e112694e652ad49b2",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "in_flight",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "recover"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "expect": "reject",
+      "rejection_layer": "stateless_envelope_action_ceiling",
+      "reason": "The transmitted prefix offers observe while the original accepted submit remains pending. All other values exactly match the positive control.",
+      "fallback_or_resend": false,
+      "io_delta": {
+        "real_device_calls": 0,
+        "fake_payload_calls_delta": 0,
+        "fake_status_probes_delta": 0,
+        "automatic_query_or_resend_calls": 0,
+        "new_claims": 0,
+        "durable_mutations": 0,
+        "operation_lock_acquisitions": 0,
+        "device_lock_acquisitions": 0
+      }
+    }
+  },
+  "bounded_readback": {
+    "method": "Recursively inspect all receipt-public/v1 and receipt-result/v1 objects in exactly the two pinned baseline files; unwrap successful recover once and compare effective submit rows against the accepted unfinished-envelope scope and recover ceiling. No candidate imports/tests.",
+    "inventory": [
+      {
+        "baseline": "shared",
+        "response_objects": 72,
+        "effective_submit_envelopes": 17,
+        "batch_responses": 13,
+        "relevant_envelopes": 1,
+        "conflicts": [
+          {
+            "response_pointer": "/cases/13/scenarios/4/steps/0/expect/response",
+            "row_index": 0,
+            "allowed_actions": [
+              "observe"
+            ]
+          }
+        ]
+      },
+      {
+        "baseline": "wire",
+        "response_objects": 71,
+        "effective_submit_envelopes": 16,
+        "batch_responses": 12,
+        "relevant_envelopes": 1,
+        "conflicts": [
+          {
+            "response_pointer": "/vectors/61/response",
+            "row_index": 0,
+            "allowed_actions": [
+              "observe"
+            ]
+          }
+        ]
+      }
+    ],
+    "finding": "Exactly one logical conflicting vector, present once in each file. No additional unfinished-envelope/action conflict was found in these two pinned files. This is not a general re-review of all prior examples or an executed validator result."
+  }
+}

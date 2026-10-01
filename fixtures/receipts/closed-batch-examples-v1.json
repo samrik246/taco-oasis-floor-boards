@@ -1,0 +1,248 @@
+{
+  "provenance": {
+    "WORK_LOGS/ZANE_REPEATED_ACCEPTANCE_PROJECTION_RULING_2026_10_01.md": "8b59da39c94e606c01ffbfadca1a1927eba0ef122ba4f3642d2bb87e837b0492",
+    "WORK_LOGS/YUKI_REPEATED_ACCEPTANCE_PROJECTION_REVIEW_2026_10_01.txt": "bad116ace8c5e5119eca43cbe5d31f5a7de0368e9c0b4bb214c4df6131878997",
+    "PLANS/IMPRIMIR_DURABLE_BATCH_ACCEPTANCE_TRANSITIONS_V1_2026_10_01.md": "b4e53c093c1d7797479923f6992e9028f8792c98aaf25d7b58c317104cf62dfd"
+  },
+  "examples": {
+    "status": "proposed_document_examples_not_fixture_adoption_or_executed_results",
+    "setup": {
+      "all_identities": "invented",
+      "device_has_endpoint": false,
+      "content_and_actor_bindings": "same validated bindings throughout",
+      "never_claimed_original_released": false,
+      "read_clock": "2000-01-01T00:00:10.000Z",
+      "timeline": [
+        {
+          "at": "2000-01-01T00:00:00.000Z",
+          "event": "P1 prepared",
+          "revision": 1
+        },
+        {
+          "at": "2000-01-01T00:00:01.000Z",
+          "event": "S1 accepts B1, allocates A",
+          "revision": 2,
+          "state": "prepared"
+        },
+        {
+          "at": "2000-01-01T00:00:02.000Z",
+          "event": "exclusive recovery closes B1 without claim; reservation retained",
+          "revision": 3,
+          "state": "not_attempted"
+        },
+        {
+          "at": "2000-01-01T00:00:03.000Z",
+          "event": "explicit re_review creates P2 on same R/A",
+          "revision": 4
+        },
+        {
+          "at": "2000-01-01T00:00:04.000Z",
+          "event": "distinct S2 accepts B2/P2",
+          "revision": 5,
+          "state": "prepared"
+        },
+        {
+          "at": "2000-01-01T00:00:05.000Z",
+          "event": "B2 claims A once",
+          "revision": 6,
+          "state": "in_flight"
+        },
+        {
+          "at": "2000-01-01T00:00:06.000Z",
+          "event": "B2 transmitted and closed",
+          "revision": 7,
+          "state": "transmitted"
+        }
+      ]
+    },
+    "identities": {
+      "document": "0dc9084170ea5dfe2daf1ad79f2def24",
+      "reservation": "3462ceb3623c560a67ef11a37e3c61d4",
+      "attempt": "ed192b9d74859f698f08e11af50b2fe7",
+      "plan_b1": "4232be02a07c1369ba887a2a5981b950",
+      "plan_b2": "85bee66ab87351bc4daacb4f245b8981",
+      "review_b1": "7cd6849c9976d77917a5846f678b7b64",
+      "review_b2": "423cf0dee04f0fd442e7bba1262cb699",
+      "submit_b1": "3492227c4620340d453e0dd7e7df790d",
+      "submit_b2": "bc688bb3d560094907d6fd362479c22a",
+      "recover_b1": "a636d8744cc2f7b0d46000c74bd12626",
+      "recover_b2": "f3c5cacc501d6732591f6131debfe30d"
+    },
+    "direct_b1_replay": {
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3492227c4620340d453e0dd7e7df790d",
+        "op": "submit",
+        "args": {
+          "review_handle": "7cd6849c9976d77917a5846f678b7b64"
+        }
+      },
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3492227c4620340d453e0dd7e7df790d",
+        "op": "submit",
+        "state": "refused",
+        "reason": "sequence_not_started",
+        "data": {
+          "plan_handle": "4232be02a07c1369ba887a2a5981b950",
+          "documents": [
+            {
+              "document_handle": "0dc9084170ea5dfe2daf1ad79f2def24",
+              "reservation_handle": "3462ceb3623c560a67ef11a37e3c61d4",
+              "reservation_revision": 7,
+              "role": "FRIO",
+              "attempt_id": "ed192b9d74859f698f08e11af50b2fe7",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-a",
+              "state": "not_attempted",
+              "reason": "sequence_not_started",
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": []
+            }
+          ],
+          "total_documents": 1
+        }
+      }
+    },
+    "original_id_b1_recovery": {
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a636d8744cc2f7b0d46000c74bd12626",
+        "op": "recover",
+        "args": {
+          "original_request_id": "3492227c4620340d453e0dd7e7df790d"
+        }
+      },
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a636d8744cc2f7b0d46000c74bd12626",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "3492227c4620340d453e0dd7e7df790d",
+          "original_op": "submit",
+          "original_state": "refused",
+          "original_reason": "sequence_not_started",
+          "original_data": {
+            "plan_handle": "4232be02a07c1369ba887a2a5981b950",
+            "documents": [
+              {
+                "document_handle": "0dc9084170ea5dfe2daf1ad79f2def24",
+                "reservation_handle": "3462ceb3623c560a67ef11a37e3c61d4",
+                "reservation_revision": 7,
+                "role": "FRIO",
+                "attempt_id": "ed192b9d74859f698f08e11af50b2fe7",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": "sequence_not_started",
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": []
+              }
+            ],
+            "total_documents": 1
+          }
+        }
+      }
+    },
+    "direct_b2_replay": {
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "bc688bb3d560094907d6fd362479c22a",
+        "op": "submit",
+        "args": {
+          "review_handle": "423cf0dee04f0fd442e7bba1262cb699"
+        }
+      },
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "bc688bb3d560094907d6fd362479c22a",
+        "op": "submit",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "plan_handle": "85bee66ab87351bc4daacb4f245b8981",
+          "documents": [
+            {
+              "document_handle": "0dc9084170ea5dfe2daf1ad79f2def24",
+              "reservation_handle": "3462ceb3623c560a67ef11a37e3c61d4",
+              "reservation_revision": 7,
+              "role": "FRIO",
+              "attempt_id": "ed192b9d74859f698f08e11af50b2fe7",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-a",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:06.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            }
+          ],
+          "total_documents": 1
+        }
+      }
+    },
+    "original_id_b2_recovery": {
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "f3c5cacc501d6732591f6131debfe30d",
+        "op": "recover",
+        "args": {
+          "original_request_id": "bc688bb3d560094907d6fd362479c22a"
+        }
+      },
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "f3c5cacc501d6732591f6131debfe30d",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "bc688bb3d560094907d6fd362479c22a",
+          "original_op": "submit",
+          "original_state": "ok",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "85bee66ab87351bc4daacb4f245b8981",
+            "documents": [
+              {
+                "document_handle": "0dc9084170ea5dfe2daf1ad79f2def24",
+                "reservation_handle": "3462ceb3623c560a67ef11a37e3c61d4",
+                "reservation_revision": 7,
+                "role": "FRIO",
+                "attempt_id": "ed192b9d74859f698f08e11af50b2fe7",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:06.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              }
+            ],
+            "total_documents": 1
+          }
+        }
+      }
+    },
+    "per_read_expected_deltas": {
+      "claims": 0,
+      "payload_calls": 0,
+      "device_queries": 0,
+      "durable_mutations": 0,
+      "operation_or_device_lock_acquisitions": 0,
+      "automatic_queries_or_resends": 0
+    }
+  }
+}

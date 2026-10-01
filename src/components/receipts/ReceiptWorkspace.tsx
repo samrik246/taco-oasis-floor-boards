@@ -8,6 +8,7 @@ import { documentText, OBSERVATION_COPY, priorObservationDetails, statusText, wo
 export type ReceiptDocumentChoice = { document_handle: string; role: Role };
 type Entry = { request_id: string; op: Op };
 type Journal = { pending: Entry | null; entries: Entry[] };
+type HistoryGroup = { key: string; request_id: string; plan_handle: string; state: Response["state"]; reason: Response["reason"]; documents: Document[] };
 const MUTATIONS = new Set<Op>(["prepare", "prepare_test", "re_review", "submit", "observe", "save_defaults"]);
 const BUTTON = "min-h-14 rounded-lg border-2 border-neutral-900 bg-white px-4 py-2 text-xl font-bold text-neutral-950 disabled:opacity-40 active:bg-neutral-200";
 const BOX = "rounded-xl border-2 border-neutral-400 bg-white p-4";
@@ -47,9 +48,11 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
   const [selected, setSelected] = useState<string[]>([]);
   const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [review, setReview] = useState<Review | null>(null);
-  const [history, setHistory] = useState<Document[]>([]);
+  const [groups, setGroups] = useState<HistoryGroup[]>([]);
+  const history = groups.flatMap((group) => group.documents);
   const [reason, setReason] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<{ requestId: string; text: string } | null>(null);
   const [journal, setJournal] = useState<Journal>(() => {
     try { return readJournal(key); } catch { return { pending: null, entries: [] }; }
   });
@@ -66,30 +69,42 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
     journalRef.current = value; setJournal(value);
   }, [key]);
 
-  function merge(rows: Document[]) {
-    setHistory((old) => {
-      const next = [...old];
-      for (const row of rows) { const index = next.findIndex((d) => d.reservation_handle === row.reservation_handle); if (index < 0) next.push(row); else next[index] = row; }
-      return next;
-    });
-  }
-  function accept(op: Op, data: Data | null) {
-    if (!data) return;
+  function accept(op: Op, data: Data | null, requestId: string, state: Response["state"], resultReason: Response["reason"], selectedGroup?: string): boolean {
+    if (!data) return true;
     if ("review_handle" in data) setReview(data);
-    else if ("plan_handle" in data) { merge(data.documents); setReview(null); }
-    else if ("attempt" in data) merge([data.attempt]);
-    else if ("routes" in data) { setDefaults(data); setSavedRoutes(data.routes); if (defaults && defaults.revision !== data.revision) setReview(null); if (op === "save_defaults") { setReview(null); setSaveReview(false); } }
+    else if ("plan_handle" in data) {
+      const key = requestId + ":" + data.plan_handle;
+      const group: HistoryGroup = { key, request_id: requestId, plan_handle: data.plan_handle, state, reason: resultReason, documents: data.documents };
+      setGroups((old) => { const index = old.findIndex((g) => g.key === key); return index < 0 ? [...old, group] : old.map((g, i) => i === index ? group : g); });
+      setReview(null);
+    } else if ("attempt" in data) {
+      // Observe names only A. Retain the selected claimed membership locally;
+      // never broadcast it into historical batches that happen to share A.
+      const group = groups.find((g) => g.key === selectedGroup);
+      const row = group?.documents.find((d) => d.attempt_id === data.attempt.attempt_id && ["transmitted", "uncertain"].includes(d.state));
+      if (!row || row.reservation_handle !== data.attempt.reservation_handle || row.document_handle !== data.attempt.document_handle || row.device_id !== data.attempt.device_id || row.role !== data.attempt.role || row.parent_attempt_id !== data.attempt.parent_attempt_id || row.state !== data.attempt.state) return false;
+      setGroups((old) => old.map((g) => g.key === selectedGroup ? { ...g, documents: g.documents.map((d) => d.reservation_handle === row.reservation_handle ? data.attempt : d) } : g));
+    } else if ("routes" in data) { setDefaults(data); setSavedRoutes(data.routes); if (defaults && defaults.revision !== data.revision) setReview(null); if (op === "save_defaults") { setReview(null); setSaveReview(false); } }
     else if ("device_id" in data) setStatuses((old) => ({ ...old, [data.device_id]: data }));
+    return true;
   }
   function responseNotice(result: Response): string | null {
     if (["status_cached", "status_refresh"].includes(result.op ?? "") && result.state !== "ok") return t("No se pudo completar la consulta. No tenemos un estado actual de la impresora.", "The check could not complete. Current printer status is unavailable.");
     if (result.reason === "revision_conflict") return t("Los destinos predeterminados cambiaron desde que abriste esta pantalla. No se guardaron tus cambios. Carga los actuales y revísalos antes de guardar.", "Defaults changed. Your changes were not saved. Load the current destinations and review them before saving.");
     if (result.reason === "stale_plan") return t("El pedido, los destinos o la selección cambiaron. Revisa una nueva vista previa antes de enviar.", "The order, destinations or selection changed. Review a new preview before sending.");
-    if (result.state === "unavailable") return t("No se pudo leer el registro. No podemos confirmar los envíos anteriores en este momento. Revisa este intento cuando el registro vuelva a estar disponible, antes de preparar otra copia.", "History is unavailable. We cannot confirm previous sends. Review this attempt when history is available before preparing another copy.");
+    if (result.op === "submit" && result.state === "pending") return t("Envío en curso. Revisa este intento; no se reenviará automáticamente.", "Send in progress. Review this attempt; it will not resend automatically.");
+    if (result.reason === "result_unconfirmed") return t("Puede haber salido papel. El estado actual no está confirmado. Revisa este intento; no se reenviará automáticamente.", "Paper may have printed. The current state is unconfirmed. Review this attempt; it will not resend automatically.");
+    if (result.state === "unavailable") return t("No se pudo leer el registro. No podemos confirmar los envíos anteriores en este momento. Revisa este intento cuando el registro vuelva a estar disponible, antes de preparar otra copia.", "Could not read the record. We cannot confirm previous sends. Review this attempt when history is available before preparing another copy.");
+    if (result.op === "submit" && result.state === "refused") return t("Este envío se detuvo. Revisa el resultado registrado de cada boleto.", "This send stopped. Review each ticket's recorded result.");
     if (result.state === "refused") return t("No se pudo preparar esta acción. Revisa el contenido, el destino y el acceso antes de continuar.", "This action could not be prepared. Check content, destination and access before continuing.");
     return null;
   }
-  async function issue(request: Command) {
+  function pendingNotice(requestId: string, text: string | null) {
+    // Reading an older send cannot replace the notice for a different pending one.
+    if (journalRef.current.pending && journalRef.current.pending.request_id !== requestId) return;
+    setPendingMessage(text ? { requestId, text } : null);
+  }
+  async function issue(request: Command, selectedGroup?: string) {
     if (running.current || !alive.current) return;
     const mutation = MUTATIONS.has(request.op);
     if (mutation && (journalRef.current.pending || storageUnavailable)) return;
@@ -114,18 +129,23 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       if (request.op === "recover" && result.data && "original_request_id" in result.data) {
         if (result.data.original_request_id !== request.args.original_request_id) throw new Error("original ID");
         const recovered = result.data;
-        accept(recovered.original_op, recovered.original_data);
+        const shown = accept(recovered.original_op, recovered.original_data, recovered.original_request_id, recovered.original_state, recovered.original_reason);
         const unresolved = recovered.original_state === "unavailable" || recovered.original_state === "pending";
         if (unresolved) holdRecovery(recovered.original_request_id);
         if (!unresolved && journalRef.current.pending?.request_id === recovered.original_request_id) persist({ ...journalRef.current, pending: null });
-        setNotice(responseNotice({ ...result, state: recovered.original_state, reason: recovered.original_reason, data: recovered.original_data }));
+        const message = responseNotice({ ...result, op: recovered.original_op, state: recovered.original_state, reason: recovered.original_reason, data: recovered.original_data });
+        setNotice(shown ? message : t("Revisa el registro del envío para ver esta observación en su contexto.", "Review the send record to see this observation in context."));
+        if (recovered.original_op === "submit") pendingNotice(recovered.original_request_id, message);
       } else {
-        if (result.data && !("original_request_id" in result.data)) accept(request.op, result.data);
+        const shown = !result.data || "original_request_id" in result.data || accept(request.op, result.data, request.request_id, result.state, result.reason, selectedGroup);
         if (mutation && result.state !== "unavailable" && result.state !== "pending") persist({ ...journalRef.current, pending: null });
-        setNotice(responseNotice(result));
+        const message = responseNotice(result);
+        setNotice(shown ? message : t("Revisa el registro del envío para ver esta observación en su contexto.", "Review the send record to see this observation in context."));
+        if (request.op === "submit" || request.op === "recover") pendingNotice(request.op === "recover" ? request.args.original_request_id : request.request_id, message);
       }
     } catch {
       if (alive.current) {
+        if (request.op === "submit" || request.op === "recover") pendingNotice(request.op === "recover" ? request.args.original_request_id : request.request_id, null);
         if (request.op === "recover") holdRecovery(request.args.original_request_id);
         if (request.op === "status_refresh" || request.op === "status_cached") {
           invalidateStatus(request.args.device_id);
@@ -169,7 +189,7 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
   return <section className="flex flex-col gap-5 text-neutral-950" data-testid="receipt-workspace">
     {notice && <p role="alert" className="rounded-lg border-2 border-amber-800 bg-amber-50 p-4">{notice}</p>}
     {journal.pending && <div className={BOX} role="status">
-      <p>{t("Puede haber salido papel. El intento anterior sigue pendiente de revisión. No se reenviará automáticamente.", "Paper may have printed. The previous attempt still needs review. It will not be resent automatically.")}</p>
+      <p>{pendingMessage?.requestId === journal.pending.request_id ? pendingMessage.text : t("Puede haber salido papel. El intento anterior sigue pendiente de revisión. No se reenviará automáticamente.", "Paper may have printed. The previous attempt still needs review. It will not be resent automatically.")}</p>
       <button className={BUTTON} disabled={busy} onClick={() => recover(journal.pending!)}>{t("Revisar este intento", "Review this attempt")}</button>
     </div>}
 
@@ -224,17 +244,25 @@ export function ReceiptWorkspace({ manager, documents = [], locale = "es", onLoc
       <h2 className="text-2xl font-black">{t("Resultado de cada envío", "Each send result")}</h2>
       <p>{t("Revisa el resultado de cada boleto. Algunos pueden haber salido. No repitas el pedido completo para resolver un solo boleto pendiente.", "Review each ticket result. Some may have printed. Do not repeat the whole order to resolve one pending ticket.")}</p>
       <label className="my-3 block">{t("Motivo de la copia CAMBIO", "Reason for CAMBIO copy")}<input className="ml-3 border-2 p-2" value={reason} maxLength={160} onChange={(e) => setReason(e.target.value)} /></label>
-      {history.map((row) => <article key={row.reservation_handle} className="my-4 rounded-lg border-2 border-neutral-300 p-3">
-        <h3 className="font-bold">{row.role} → {row.device_id}: {documentText(row.state, locale)}</h3>
-        <p>{new Date(row.last_event_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</p>
+      {groups.map((group, groupIndex) => {
+        const message = responseNotice({ schema: "receipt-public/v1", request_id: group.request_id, op: "submit", state: group.state, reason: group.reason, data: { plan_handle: group.plan_handle, documents: group.documents, total_documents: group.documents.length } });
+        return <section key={group.key} data-testid="receipt-history-group" className="my-4 rounded-lg border-2 border-neutral-600 p-3">
+        <h3 className="text-xl font-bold">{t("Resultado de este envío", "Result of this send")} · {groupIndex + 1}</h3>
+        {message && <p data-testid="receipt-group-outcome">{message}</p>}
+        {group.documents.map((row) => <article data-testid="receipt-history-row" key={row.reservation_handle} className="my-4 rounded-lg border-2 border-neutral-300 p-3">
+        <h3 className="font-bold">{row.role} → {row.device_id}</h3>
+        <p>{t("Último estado registrado: ", "Last recorded state: ")}{row.state === "not_attempted" ? t("No se intentó enviar en este envío", "No send was attempted in this send") : documentText(row.state, locale)}</p>
+        <p>{t("Fecha del resultado de este envío: ", "Result time for this send: ")}<time dateTime={row.last_event_at}>{new Date(row.last_event_at).toLocaleString(locale, { timeZone: "America/Chicago" })}</time></p>
         {(row.state === "uncertain" || row.state === "transmitted" || row.observation === "not_seen") && <p>{t("Puede haber salido papel. Cambiar de impresora puede producir una copia duplicada. No se reenviará automáticamente.", "Paper may have printed. Changing printers can produce a duplicate. Nothing will be resent automatically.")}</p>}
         {row.observation && <p>{OBSERVATION_COPY[row.observation][locale === "es" ? 0 : 1]}</p>}
-        {row.allowed_actions.includes("observe") && row.attempt_id && <fieldset disabled={blocked} className="my-2 flex flex-wrap gap-2"><legend>{t("Registrar lo que salió", "Record what printed")}</legend>{OBSERVATIONS.map((o) => <button key={o} className={BUTTON} onClick={() => void issue(command("observe", { attempt_id: row.attempt_id!, observation: o, evidence_handle: null }))}>{OBSERVATION_COPY[o][locale === "es" ? 0 : 1]}</button>)}</fieldset>}
+        {row.allowed_actions.includes("observe") && row.attempt_id && <fieldset disabled={blocked} className="my-2 flex flex-wrap gap-2"><legend>{t("Registrar lo que salió", "Record what printed")}</legend>{OBSERVATIONS.map((o) => <button key={o} className={BUTTON} onClick={() => void issue(command("observe", { attempt_id: row.attempt_id!, observation: o, evidence_handle: null }), group.key)}>{OBSERVATION_COPY[o][locale === "es" ? 0 : 1]}</button>)}</fieldset>}
         {row.allowed_actions.some((a) => ["retry", "cambio", "review_pending"].includes(a)) && printerSelect(destination(row.reservation_handle, row.device_id), (v) => changeDestination(row.reservation_handle, v), t("Destino siguiente ", "Next destination ") + row.role)}
         {row.allowed_actions.includes("retry") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "retry")}>{t("Reintentar este boleto", "Retry this ticket")}</button>}
         {row.allowed_actions.includes("cambio") && row.observation && row.observation !== "pending" && <button className={BUTTON} disabled={blocked || !defaults || !reason.trim() || !destination(row.reservation_handle, row.device_id)} onClick={() => child(row, "cambio")}>{t("Preparar copia CAMBIO", "Prepare CAMBIO copy")}</button>}
         {row.allowed_actions.includes("review_pending") && <button className={BUTTON} disabled={blocked || !defaults || !destination(row.reservation_handle, row.device_id)} onClick={() => reReview([row])}>{t("Revisar boletos pendientes", "Review pending tickets")}</button>}
       </article>)}
+      </section>;
+      })}
     </section>}
 
     <section className={BOX} aria-label={t("Impresoras de recibos", "Receipt printers")}>

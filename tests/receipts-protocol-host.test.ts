@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseCommand, parseJSON, parseResponse, parseResponseFor, refusal } from "@/lib/receipts/protocol";
 import { handleReceipt, translateResult, type ReceiptDependencies, type DurableReceiptAdapter } from "@/lib/receipts/host";
 import { actor, devices, example, first, fixtureHash, fixtures, review } from "./helpers/receipt-fixtures";
+import { adopted } from "./helpers/receipt-projection-fixtures";
 
 function request(value: unknown, headers: Record<string, string> = {}) {
   return new Request("http://local/api/receipts", { method: "POST", headers: { "content-type": "application/json", "x-manager-session": "synthetic", origin: "http://local", ...headers }, body: typeof value === "string" ? value : JSON.stringify(value) });
@@ -24,7 +25,7 @@ describe("frozen V4 examples are protocol fixtures, not engine transition execut
     expect(fixtures.cases.flatMap((c) => c.scenarios)).toHaveLength(43);
     expect(fixtures.cases.flatMap((c) => c.scenarios.flatMap((s) => s.steps))).toHaveLength(70);
   });
-  for (const c of fixtures.cases) for (const s of c.scenarios) for (const step of s.steps) {
+  for (const c of adopted.shared.cases) for (const s of c.scenarios) for (const step of s.steps) {
     if (!step.expect.response) continue; // Trusted content import is not a browser op.
     it(`${c.case_id} ${s.name}: ${step.step_id} conforms to the public boundary`, () => {
       const result = parseResponse(step.expect.response, devices);

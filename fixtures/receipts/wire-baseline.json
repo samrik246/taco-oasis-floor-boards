@@ -1,0 +1,3529 @@
+{
+  "source_sha256": "ff38147c7ad065a5b231e41c280c74adb90cc772b84ed3ff9394d8eed7d703e3",
+  "contract_sha256": "2836799c5c2eface28a733684bfcdf89961ddf2c9f8d96d3eff55fc6cea5e133",
+  "scope": "Wire examples extracted verbatim; not executed transition evidence.",
+  "vectors": [
+    {
+      "case": "V4-01",
+      "scenario": "two-documents",
+      "step": "prepare",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "d9a590d8d64d333119bd7524d188f5b5",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa",
+          "plan_handle": "20d307baca004a376e7befeb28666adf",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            },
+            {
+              "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+              "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+              "reservation_revision": 1,
+              "role": "GERENTE",
+              "device_id": "receipt-fx-b",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "GERENTE",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            },
+            {
+              "device_id": "receipt-fx-b",
+              "count": 1
+            }
+          ],
+          "total_documents": 2,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "d9a590d8d64d333119bd7524d188f5b5",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751",
+            "d8110f8e3dd7c8222d02f2555cc7787b"
+          ],
+          "device_ids": [
+            "receipt-fx-a",
+            "receipt-fx-b"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null,
+            null
+          ],
+          "observation_ids": [
+            null,
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      },
+      "host": {
+        "request": {
+          "schema": "receipt-command/v1",
+          "request_id": "d9a590d8d64d333119bd7524d188f5b5",
+          "actor_id": "216476d2b43c69cc7ee40bf53cd74a9a",
+          "op": "prepare",
+          "args": {
+            "device_ids": [
+              "receipt-fx-a",
+              "receipt-fx-b"
+            ],
+            "action": "original",
+            "parent_attempt_ids": [
+              null,
+              null
+            ],
+            "observation_ids": [
+              null,
+              null
+            ],
+            "expected_defaults_revision": 7,
+            "reason": "Synthetic acceptance case",
+            "content_handles": [
+              "78657b29656c1ad0292b57810100acf9",
+              "7280d548fceee8f85cdf086c46b6a464"
+            ]
+          }
+        },
+        "response": {
+          "schema": "receipt-result/v1",
+          "request_id": "d9a590d8d64d333119bd7524d188f5b5",
+          "op": "prepare",
+          "state": "ok",
+          "reason": null,
+          "data": {
+            "review_handle": "ef57df95b888d2a947ebc35b5a8557fa",
+            "plan_handle": "20d307baca004a376e7befeb28666adf",
+            "mode": "order",
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:05:00.000Z",
+            "expected_defaults_revision": 7,
+            "registry_revision": 4,
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+                "reservation_revision": 1,
+                "role": "FRIO",
+                "device_id": "receipt-fx-a",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "FRIO",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null,
+                "logical_key": "a57f8d54d82fb50e8ff47d6e45812c84f9587b639c5047110c7b0c299fea87fd",
+                "artifact_sha256": "b7a2252c298b71befaac0dbdbbb07a0bd062c0b5ead7d7a68e831498e6f35d11",
+                "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f"
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+                "reservation_revision": 1,
+                "role": "GERENTE",
+                "device_id": "receipt-fx-b",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "GERENTE",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null,
+                "logical_key": "498874248a4af5f56c13b065e6438550a9c4e331eba621c31a75496954dc67aa",
+                "artifact_sha256": "a1fb3327df715986610fe88a49a582665ace06cd681a8d72b4722befad0bfabb",
+                "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f"
+              }
+            ],
+            "totals": [
+              {
+                "device_id": "receipt-fx-a",
+                "count": 1
+              },
+              {
+                "device_id": "receipt-fx-b",
+                "count": 1
+              }
+            ],
+            "total_documents": 2,
+            "submit_allowed": true,
+            "blocked_reason": null,
+            "plan_id": "c274f9d0fe09e491c0e67a3ae41142f6",
+            "plan_sha256": "9ec8a8e8202b9113fe2921b05e5178de95bc12f26d989ac06550ca7648c06d1e"
+          }
+        },
+        "public_response": {
+          "schema": "receipt-public/v1",
+          "request_id": "d9a590d8d64d333119bd7524d188f5b5",
+          "op": "prepare",
+          "state": "ok",
+          "reason": null,
+          "data": {
+            "review_handle": "ef57df95b888d2a947ebc35b5a8557fa",
+            "plan_handle": "20d307baca004a376e7befeb28666adf",
+            "mode": "order",
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:05:00.000Z",
+            "expected_defaults_revision": 7,
+            "registry_revision": 4,
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+                "reservation_revision": 1,
+                "role": "FRIO",
+                "device_id": "receipt-fx-a",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "FRIO",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+                "reservation_revision": 1,
+                "role": "GERENTE",
+                "device_id": "receipt-fx-b",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "GERENTE",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null
+              }
+            ],
+            "totals": [
+              {
+                "device_id": "receipt-fx-a",
+                "count": 1
+              },
+              {
+                "device_id": "receipt-fx-b",
+                "count": 1
+              }
+            ],
+            "total_documents": 2,
+            "submit_allowed": true,
+            "blocked_reason": null
+          }
+        },
+        "assertions": [
+          "Actor comes from fake authenticated session, never browser args.",
+          "Strip private plan/hash and every logical/profile/artifact hash."
+        ]
+      }
+    },
+    {
+      "case": "V4-01",
+      "scenario": "two-documents",
+      "step": "read-immutable-review",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "c4afe458c6cc8a8ea803980fa9772ba7",
+        "op": "read_review",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa",
+          "plan_handle": "20d307baca004a376e7befeb28666adf",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            },
+            {
+              "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+              "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+              "reservation_revision": 1,
+              "role": "GERENTE",
+              "device_id": "receipt-fx-b",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "GERENTE",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            },
+            {
+              "device_id": "receipt-fx-b",
+              "count": 1
+            }
+          ],
+          "total_documents": 2,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "c4afe458c6cc8a8ea803980fa9772ba7",
+        "op": "read_review",
+        "args": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa"
+        }
+      }
+    },
+    {
+      "case": "V4-01",
+      "scenario": "two-documents",
+      "step": "submit-two-fake-payloads",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a9956c895746f7b900108a32181038a0",
+        "op": "submit",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "plan_handle": "20d307baca004a376e7befeb28666adf",
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+              "reservation_revision": 3,
+              "role": "FRIO",
+              "attempt_id": "9c8093dd6d108a6cbee78023bb97a91a",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-a",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            },
+            {
+              "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+              "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+              "reservation_revision": 3,
+              "role": "GERENTE",
+              "attempt_id": "05a8c0c06a4cf0bf5e6db16a51c52414",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-b",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            }
+          ],
+          "total_documents": 2
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a9956c895746f7b900108a32181038a0",
+        "op": "submit",
+        "args": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa"
+        }
+      }
+    },
+    {
+      "case": "V4-01",
+      "scenario": "two-documents",
+      "step": "recover-original-submit",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a265ba8ad4a56a0da6b19ef1fa786547",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "a9956c895746f7b900108a32181038a0",
+          "original_op": "submit",
+          "original_state": "ok",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "20d307baca004a376e7befeb28666adf",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "9c8093dd6d108a6cbee78023bb97a91a",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "05a8c0c06a4cf0bf5e6db16a51c52414",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-b",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a265ba8ad4a56a0da6b19ef1fa786547",
+        "op": "recover",
+        "args": {
+          "original_request_id": "a9956c895746f7b900108a32181038a0"
+        }
+      }
+    },
+    {
+      "case": "V4-02",
+      "scenario": "not-seen-is-not-no-send",
+      "step": "observe-not-seen",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "24c6376f63bc5c480e0bb7a7704e7c4b",
+        "op": "observe",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "observation_id": "175a774725db3bc9e2747fe3150eaebf",
+          "attempt": {
+            "document_handle": "ce04f0c704756206f3beca703c1d0751",
+            "reservation_handle": "d798aad39404e9e1350a6aaa8a86888d",
+            "reservation_revision": 3,
+            "role": "FRIO",
+            "attempt_id": "54e81f2031631cdc0dd78325b4d32888",
+            "parent_attempt_id": null,
+            "device_id": "receipt-fx-a",
+            "state": "uncertain",
+            "reason": "result_unconfirmed",
+            "observation": "not_seen",
+            "observation_id": "175a774725db3bc9e2747fe3150eaebf",
+            "last_event_at": "2000-01-01T00:00:02.000Z",
+            "allowed_actions": [
+              "observe",
+              "cambio"
+            ]
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "24c6376f63bc5c480e0bb7a7704e7c4b",
+        "op": "observe",
+        "args": {
+          "attempt_id": "54e81f2031631cdc0dd78325b4d32888",
+          "observation": "not_seen",
+          "evidence_handle": null
+        }
+      }
+    },
+    {
+      "case": "V4-02",
+      "scenario": "not-seen-is-not-no-send",
+      "step": "prepare-marked-child",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "334e3cec785a6ecee4ad0609633e967e",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "6de58d46786917ec3da4bf7765090b78",
+          "plan_handle": "08e66d8bf03a585b8a4d1a73db34fe3b",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:03.000Z",
+          "expires_at": "2000-01-01T00:05:03.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "f9fb3d00695d20d06f4a39efae1cb049",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "54e81f2031631cdc0dd78325b4d32888",
+              "observation_id": "175a774725db3bc9e2747fe3150eaebf"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "334e3cec785a6ecee4ad0609633e967e",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "cambio",
+          "parent_attempt_ids": [
+            "54e81f2031631cdc0dd78325b4d32888"
+          ],
+          "observation_ids": [
+            "175a774725db3bc9e2747fe3150eaebf"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-02",
+      "scenario": "pending-does-not-unlock",
+      "step": "refuse-pending-cambio",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3aca6a3a0930323ce2833da9ce0395c9",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "observation_required",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3aca6a3a0930323ce2833da9ce0395c9",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "cambio",
+          "parent_attempt_ids": [
+            "54e81f2031631cdc0dd78325b4d32888"
+          ],
+          "observation_ids": [
+            "776a440fe7305aa39489e3afff485079"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-03",
+      "scenario": "replay-precedes-admission",
+      "step": "replay-accepted-submit",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "063596c82599b686be3fad65a4a1e4ca",
+        "op": "submit",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "plan_handle": "20d307baca004a376e7befeb28666adf",
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "fe4ce52ee1db35aaa20220ccf5f966d0",
+              "reservation_revision": 3,
+              "role": "FRIO",
+              "attempt_id": "9c8093dd6d108a6cbee78023bb97a91a",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-a",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            },
+            {
+              "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+              "reservation_handle": "6dbbe105ca8ea3ed5d03e072b44889a5",
+              "reservation_revision": 3,
+              "role": "GERENTE",
+              "attempt_id": "05a8c0c06a4cf0bf5e6db16a51c52414",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-b",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            }
+          ],
+          "total_documents": 2
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "063596c82599b686be3fad65a4a1e4ca",
+        "op": "submit",
+        "args": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa"
+        }
+      }
+    },
+    {
+      "case": "V4-03",
+      "scenario": "replay-precedes-admission",
+      "step": "different-id-same-accepted-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "e2b820663715661c0f6ffff85121c7b0",
+        "op": "submit",
+        "state": "refused",
+        "reason": "request_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "e2b820663715661c0f6ffff85121c7b0",
+        "op": "submit",
+        "args": {
+          "review_handle": "ef57df95b888d2a947ebc35b5a8557fa"
+        }
+      }
+    },
+    {
+      "case": "V4-03",
+      "scenario": "replay-precedes-admission",
+      "step": "same-id-changed-input",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "063596c82599b686be3fad65a4a1e4ca",
+        "op": "submit",
+        "state": "refused",
+        "reason": "request_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "063596c82599b686be3fad65a4a1e4ca",
+        "op": "submit",
+        "args": {
+          "review_handle": "2674f1b733985d64a2fa0b14b5341b4b"
+        }
+      }
+    },
+    {
+      "case": "V4-04",
+      "scenario": "manager-a-transaction-wins",
+      "step": "winner",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a7f41171b9b17d8508b1699a94b5ada9",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "270e2e8bd5fa1522c8b71bd43e5ead03",
+          "plan_handle": "ccc30a299ff859cc844bde139af79659",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "df250fb16f68d980ba34e5575304873c",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "7bc75d09428169a36b320bbcffd2b269",
+              "observation_id": "22463cab5d2ea96f5e19a6f4c92d5e82"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a7f41171b9b17d8508b1699a94b5ada9",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "cambio",
+          "parent_attempt_ids": [
+            "7bc75d09428169a36b320bbcffd2b269"
+          ],
+          "observation_ids": [
+            "22463cab5d2ea96f5e19a6f4c92d5e82"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-04",
+      "scenario": "manager-a-transaction-wins",
+      "step": "loser-other-device",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "70aae4ca2a03ab893acbb9413aea426e",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "request_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "70aae4ca2a03ab893acbb9413aea426e",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "action": "cambio",
+          "parent_attempt_ids": [
+            "7bc75d09428169a36b320bbcffd2b269"
+          ],
+          "observation_ids": [
+            "22463cab5d2ea96f5e19a6f4c92d5e82"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-04",
+      "scenario": "manager-a-transaction-wins",
+      "step": "winner-replay",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a7f41171b9b17d8508b1699a94b5ada9",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "270e2e8bd5fa1522c8b71bd43e5ead03",
+          "plan_handle": "ccc30a299ff859cc844bde139af79659",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "df250fb16f68d980ba34e5575304873c",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "7bc75d09428169a36b320bbcffd2b269",
+              "observation_id": "22463cab5d2ea96f5e19a6f4c92d5e82"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a7f41171b9b17d8508b1699a94b5ada9",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "cambio",
+          "parent_attempt_ids": [
+            "7bc75d09428169a36b320bbcffd2b269"
+          ],
+          "observation_ids": [
+            "22463cab5d2ea96f5e19a6f4c92d5e82"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-05",
+      "scenario": "one-action-per-new-prepare",
+      "step": "first-test",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "f0666c85011a224cca330f191ea9fd15",
+        "op": "prepare_test",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "9c255f2516a813ff19fc7f4e4f08c644",
+          "plan_handle": "f08ba449d5e5fa9e53ce68d7f60abb2a",
+          "mode": "manager_test",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "e23d88187d8f76f10cb9f1f7b3619668",
+              "reservation_handle": "4fc3e80282c8a3326f2a722fac3980df",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "f0666c85011a224cca330f191ea9fd15",
+        "op": "prepare_test",
+        "args": {
+          "device_id": "receipt-fx-a",
+          "mode": "manager_test",
+          "expected_registry_revision": 4
+        }
+      }
+    },
+    {
+      "case": "V4-05",
+      "scenario": "one-action-per-new-prepare",
+      "step": "repeat-identical-prepare",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "f0666c85011a224cca330f191ea9fd15",
+        "op": "prepare_test",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "9c255f2516a813ff19fc7f4e4f08c644",
+          "plan_handle": "f08ba449d5e5fa9e53ce68d7f60abb2a",
+          "mode": "manager_test",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "e23d88187d8f76f10cb9f1f7b3619668",
+              "reservation_handle": "4fc3e80282c8a3326f2a722fac3980df",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "f0666c85011a224cca330f191ea9fd15",
+        "op": "prepare_test",
+        "args": {
+          "device_id": "receipt-fx-a",
+          "mode": "manager_test",
+          "expected_registry_revision": 4
+        }
+      }
+    },
+    {
+      "case": "V4-05",
+      "scenario": "one-action-per-new-prepare",
+      "step": "send-first-test-once",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "eff5aa17086d6954a2c532f24a8ea3e4",
+        "op": "submit",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "plan_handle": "f08ba449d5e5fa9e53ce68d7f60abb2a",
+          "documents": [
+            {
+              "document_handle": "e23d88187d8f76f10cb9f1f7b3619668",
+              "reservation_handle": "4fc3e80282c8a3326f2a722fac3980df",
+              "reservation_revision": 3,
+              "role": "FRIO",
+              "attempt_id": "6f46f819f5036a962040a7a9771cf459",
+              "parent_attempt_id": null,
+              "device_id": "receipt-fx-a",
+              "state": "transmitted",
+              "reason": null,
+              "observation": null,
+              "observation_id": null,
+              "last_event_at": "2000-01-01T00:00:02.000Z",
+              "allowed_actions": [
+                "observe"
+              ]
+            }
+          ],
+          "total_documents": 1
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "eff5aa17086d6954a2c532f24a8ea3e4",
+        "op": "submit",
+        "args": {
+          "review_handle": "9c255f2516a813ff19fc7f4e4f08c644"
+        }
+      }
+    },
+    {
+      "case": "V4-05",
+      "scenario": "one-action-per-new-prepare",
+      "step": "deliberate-new-test",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "6e0f0934a3d2049b4f49b0780d26b165",
+        "op": "prepare_test",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "4c987febe79c4593cc6a53d46a909596",
+          "plan_handle": "cf42c03c5009c4f7afe1c4dd5b80e8cf",
+          "mode": "manager_test",
+          "created_at": "2000-01-01T00:00:03.000Z",
+          "expires_at": "2000-01-01T00:05:03.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "e23d88187d8f76f10cb9f1f7b3619668",
+              "reservation_handle": "9f077ea6fabbdf37aff6863230497e36",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "6e0f0934a3d2049b4f49b0780d26b165",
+        "op": "prepare_test",
+        "args": {
+          "device_id": "receipt-fx-a",
+          "mode": "manager_test",
+          "expected_registry_revision": 4
+        }
+      }
+    },
+    {
+      "case": "V4-06",
+      "scenario": "before-first",
+      "step": "reconcile-all-rows",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "029e96326c6d1d7c87c82e3eaa52ebd8",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "47b0891d0dbd2897d24edf8feeba0c50",
+          "original_op": "submit",
+          "original_state": "refused",
+          "original_reason": "sequence_not_started",
+          "original_data": {
+            "plan_handle": "a2916cb6ec3ca4096efc3237e92dddc0",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "7a4f6c3553c977490de3cee4095f797f",
+                "reservation_revision": 2,
+                "role": "FRIO",
+                "attempt_id": "9fb7dd7e5a7c96f06d02c648c19803dd",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "0965760c6de322c6feabd82efc50dd0b",
+                "reservation_revision": 2,
+                "role": "GERENTE",
+                "attempt_id": "99568d568ccd3d5ecd3bd5e044b89112",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "029e96326c6d1d7c87c82e3eaa52ebd8",
+        "op": "recover",
+        "args": {
+          "original_request_id": "47b0891d0dbd2897d24edf8feeba0c50"
+        }
+      }
+    },
+    {
+      "case": "V4-06",
+      "scenario": "after-second-claim",
+      "step": "reconcile-all-rows",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "19530041fce35782610720fff9fa79b0",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "d1267b4a639072ce42730577af14c276",
+          "original_op": "submit",
+          "original_state": "partial",
+          "original_reason": "result_unconfirmed",
+          "original_data": {
+            "plan_handle": "d50ec12043ae2579418db28028a3a034",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "264f91c4178f4af25500fc7ad178f99d",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "fdda234be18d7e2ae055d6d784046003",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "05a76d3b26d496a8ebacd4e63602d87e",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "cd3bc58528cd40330f6e905a01b4ad65",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "uncertain",
+                "reason": "result_unconfirmed",
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d369ac35e51584b1e8af529300c98073",
+                "reservation_handle": "04ef629b794fbcf275d363d31ecb2811",
+                "reservation_revision": 2,
+                "role": "CALIENTE",
+                "attempt_id": "1d3704b52e18e4e985c42e33bfd2f4fc",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              }
+            ],
+            "total_documents": 3
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "19530041fce35782610720fff9fa79b0",
+        "op": "recover",
+        "args": {
+          "original_request_id": "d1267b4a639072ce42730577af14c276"
+        }
+      }
+    },
+    {
+      "case": "V4-07",
+      "scenario": "stale-then-reload",
+      "step": "stale-save",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "6d5e35911bd9a7550fd985734a3134d0",
+        "op": "save_defaults",
+        "state": "refused",
+        "reason": "revision_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "6d5e35911bd9a7550fd985734a3134d0",
+        "op": "save_defaults",
+        "args": {
+          "expected_revision": 6,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          },
+          "reason": "Synthetic defaults"
+        }
+      }
+    },
+    {
+      "case": "V4-07",
+      "scenario": "stale-then-reload",
+      "step": "read-current",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3f0be68f5b6c20439d2671c92346fec8",
+        "op": "read_defaults",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "revision": 7,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3f0be68f5b6c20439d2671c92346fec8",
+        "op": "read_defaults",
+        "args": {}
+      }
+    },
+    {
+      "case": "V4-07",
+      "scenario": "stale-then-reload",
+      "step": "save-with-current-revision",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "bb4434225c5e0ae17a3a95c52bd5b081",
+        "op": "save_defaults",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "revision": 8,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "bb4434225c5e0ae17a3a95c52bd5b081",
+        "op": "save_defaults",
+        "args": {
+          "expected_revision": 7,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          },
+          "reason": "Synthetic defaults"
+        }
+      }
+    },
+    {
+      "case": "V4-07",
+      "scenario": "stale-then-reload",
+      "step": "replay-saved-request",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "bb4434225c5e0ae17a3a95c52bd5b081",
+        "op": "save_defaults",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "revision": 8,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "bb4434225c5e0ae17a3a95c52bd5b081",
+        "op": "save_defaults",
+        "args": {
+          "expected_revision": 7,
+          "routes": {
+            "packing": null,
+            "CALIENTE": "receipt-fx-a",
+            "FRIO": "receipt-fx-a",
+            "EQUIPO": "receipt-fx-b",
+            "GERENTE": "receipt-fx-b"
+          },
+          "reason": "Synthetic defaults"
+        }
+      }
+    },
+    {
+      "case": "V4-08",
+      "scenario": "attestation-only-change",
+      "step": "prepare-uses-accepted-profile",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "fc2f9df5b1ff747cebe11df85c5c87e4",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "09b4862afabe7187d92dc2cababc2290",
+          "plan_handle": "35e95ff3416c81a7e1d7196f45c32d13",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "0b038de95fe2a397a4bac2ce42b8f7e3",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "fc2f9df5b1ff747cebe11df85c5c87e4",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-08",
+      "scenario": "no-cut-and-unknown-profile",
+      "step": "diagnosable-without-profile",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "0bdf3599256f958a35323fcb4dfadb40",
+        "op": "status_cached",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": null,
+          "commissioned_for_orders": false,
+          "last_request_at": null,
+          "last_probe_at": null,
+          "last_outcome": "never",
+          "reason": null,
+          "last_valid": null,
+          "condition": "unknown",
+          "display_code": "unknown"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "0bdf3599256f958a35323fcb4dfadb40",
+        "op": "status_cached",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-08",
+      "scenario": "no-cut-and-unknown-profile",
+      "step": "prepare-candidate-not-order-eligible",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "21c8bfde54171ae38fc6fb855067e285",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "c5ff1f3b7b7ed18d43fcc066f591d683",
+          "plan_handle": "199455130de3615ec0831002a58464e1",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "64520060f3d376ea055b3790c5d51f45",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": false,
+          "blocked_reason": "uncommissioned"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "21c8bfde54171ae38fc6fb855067e285",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-08",
+      "scenario": "wrong-identity-attestation-does-not-enable-orders",
+      "step": "prepare-without-order-eligibility",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "915f059ecc3c1dce73b5500e42ef7cba",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "d0a779e89f0698feb5cb16d096f7f134",
+          "plan_handle": "9b3c6b1f996ab183a7e2059e2ea06e71",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "c9cbb14b399244190fb0808d27d51e80",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": false,
+          "blocked_reason": "uncommissioned"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "915f059ecc3c1dce73b5500e42ef7cba",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-08",
+      "scenario": "wrong-identity-attestation-does-not-enable-orders",
+      "step": "refuse-explicit-submit",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "8437551b1d8a43a86d60271da467a7fe",
+        "op": "submit",
+        "state": "refused",
+        "reason": "uncommissioned",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "8437551b1d8a43a86d60271da467a7fe",
+        "op": "submit",
+        "args": {
+          "review_handle": "d0a779e89f0698feb5cb16d096f7f134"
+        }
+      }
+    },
+    {
+      "case": "V4-09",
+      "scenario": "successive-requests",
+      "step": "valid-fault",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "589ea1223acaf9c8b5958a1d06be93a6",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:00.000Z",
+          "last_probe_at": "2000-01-01T00:00:00.000Z",
+          "last_outcome": "valid",
+          "reason": "device_fault",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "blocked",
+            "identity_match": true,
+            "problems": [
+              "paper_out"
+            ],
+            "warnings": []
+          },
+          "condition": "blocked",
+          "display_code": "paper_out"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "589ea1223acaf9c8b5958a1d06be93a6",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-09",
+      "scenario": "successive-requests",
+      "step": "failed-refresh",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "6a163a1b3f1bb321d8908e0c415c4109",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:10.000Z",
+          "last_probe_at": "2000-01-01T00:00:10.000Z",
+          "last_outcome": "failed",
+          "reason": "no_response",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "blocked",
+            "identity_match": true,
+            "problems": [
+              "paper_out"
+            ],
+            "warnings": []
+          },
+          "condition": "unknown",
+          "display_code": "no_response"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "6a163a1b3f1bb321d8908e0c415c4109",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-09",
+      "scenario": "successive-requests",
+      "step": "busy-refresh",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "12d9930dfd610454150ddf9d12505b2b",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:20.000Z",
+          "last_probe_at": "2000-01-01T00:00:10.000Z",
+          "last_outcome": "busy",
+          "reason": "device_busy",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "blocked",
+            "identity_match": true,
+            "problems": [
+              "paper_out"
+            ],
+            "warnings": []
+          },
+          "condition": "busy",
+          "display_code": "busy"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "12d9930dfd610454150ddf9d12505b2b",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-09",
+      "scenario": "successive-requests",
+      "step": "cached-after-expiry",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "4e7e7ceb16374c2aaa654357278c7b0f",
+        "op": "status_cached",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:20.000Z",
+          "last_probe_at": "2000-01-01T00:00:10.000Z",
+          "last_outcome": "busy",
+          "reason": "device_busy",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "blocked",
+            "identity_match": true,
+            "problems": [
+              "paper_out"
+            ],
+            "warnings": []
+          },
+          "condition": "busy",
+          "display_code": "busy"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "4e7e7ceb16374c2aaa654357278c7b0f",
+        "op": "status_cached",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-09",
+      "scenario": "valid-observation-only-expiry",
+      "step": "dated-stale-fault",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "e45c81c487354a0c42cefecba6de9c1b",
+        "op": "status_cached",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:00.000Z",
+          "last_probe_at": "2000-01-01T00:00:00.000Z",
+          "last_outcome": "valid",
+          "reason": "device_fault",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "blocked",
+            "identity_match": true,
+            "problems": [
+              "paper_out"
+            ],
+            "warnings": []
+          },
+          "condition": "stale",
+          "display_code": "stale"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "e45c81c487354a0c42cefecba6de9c1b",
+        "op": "status_cached",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-10",
+      "scenario": "accepted-synthetic-historical-import",
+      "step": "offline-historical-review",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "c94df024a5b2a490a74b7ed77773da88",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "280bf3c6972fe87e1e563b0e0e68f1a0",
+          "plan_handle": "403aa42ad57a40b423ac540611eb8bfb",
+          "mode": "commissioning",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "2cf6a613b75800c5218d12aedc2d6b31",
+              "reservation_handle": "28692f6241bce3f4b708391a75dbb9b0",
+              "reservation_revision": 1,
+              "role": "packing",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "HISTORICAL TEST",
+                "DO NOT PREPARE",
+                "NOT FOR FULFILLMENT",
+                "PICKUP DUE 1999-12-31 19:15 CT",
+                "1 SYNTHETIC ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": false,
+          "blocked_reason": "gate_off"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "c94df024a5b2a490a74b7ed77773da88",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "2cf6a613b75800c5218d12aedc2d6b31"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "typed-quantity",
+      "step": "quantity-is-content",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "7354ac3aee6f46ae686bc7365cff28f4",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "71cec6cf3b19d660e405930e9172567c",
+          "plan_handle": "650cffab627a257b55e09894bfe53b5c",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "39029490624ad9456a2ab7146a7cb86a",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "7354ac3aee6f46ae686bc7365cff28f4",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "privacy-hold",
+      "step": "refuse-before-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3f735002a39387c5276090963e31c711",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "content_held",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3f735002a39387c5276090963e31c711",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "unsupported-encoding",
+      "step": "refuse-before-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "ad36001521e3dd7e22fe1801becb67eb",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "encoding_unsupported",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "ad36001521e3dd7e22fe1801becb67eb",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "changed-artifact",
+      "step": "refuse-before-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "203fb4e568f96be8fcb172be6405bd0e",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "artifact_changed",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "203fb4e568f96be8fcb172be6405bd0e",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "retry-marked-parent",
+      "step": "retry-copies-exact-bytes",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "57c5c9f9e071298c3fbc7413addba27a",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "edda631dab3e182e123729036c05fbf9",
+          "plan_handle": "5d85f0d5b9bf1a326860784b5476250d",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "2deb40558c008f56ea87e2b6fdf73f27",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "retry",
+              "parent_attempt_id": "f94c0bb5c968e0013354d4e19b3a6cc9",
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "57c5c9f9e071298c3fbc7413addba27a",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "retry",
+          "parent_attempt_ids": [
+            "f94c0bb5c968e0013354d4e19b3a6cc9"
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "known-held-control-content",
+      "step": "reject-control-before-usable-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "19a412e190300fd95ca68e32b58ac854",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "content_held",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "19a412e190300fd95ca68e32b58ac854",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-11",
+      "scenario": "known-held-control-content",
+      "step": "replay-known-content-hold",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "19a412e190300fd95ca68e32b58ac854",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "content_held",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "19a412e190300fd95ca68e32b58ac854",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "expired-unsubmitted-child",
+      "step": "replace-active-plan",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "76a4544d103bc63377b1f83b7ff128be",
+        "op": "re_review",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "be4f916c1ea8970c2b1e186e25393213",
+          "plan_handle": "2f8a11f5e7c79d6286dda08b2e38ba96",
+          "mode": "order",
+          "created_at": "2000-01-01T00:06:00.000Z",
+          "expires_at": "2000-01-01T00:11:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "02af097a76bdfe7171f6341b29fbc0f9",
+              "reservation_revision": 2,
+              "role": "FRIO",
+              "device_id": "receipt-fx-b",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "0d0657bbf16fdb50ae48d19791a6dfa5",
+              "observation_id": "b5e08716e353630244dbaf1998a01443"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-b",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "76a4544d103bc63377b1f83b7ff128be",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            1
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "expired-unsubmitted-child",
+      "step": "losing-concurrent-rereview",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "c3490d0cbf89ff23cab79f206da64a91",
+        "op": "re_review",
+        "state": "refused",
+        "reason": "revision_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "c3490d0cbf89ff23cab79f206da64a91",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            1
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "expired-unsubmitted-child",
+      "step": "replay-winner-before-revision-check",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "76a4544d103bc63377b1f83b7ff128be",
+        "op": "re_review",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "be4f916c1ea8970c2b1e186e25393213",
+          "plan_handle": "2f8a11f5e7c79d6286dda08b2e38ba96",
+          "mode": "order",
+          "created_at": "2000-01-01T00:06:00.000Z",
+          "expires_at": "2000-01-01T00:11:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "02af097a76bdfe7171f6341b29fbc0f9",
+              "reservation_revision": 2,
+              "role": "FRIO",
+              "device_id": "receipt-fx-b",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "0d0657bbf16fdb50ae48d19791a6dfa5",
+              "observation_id": "b5e08716e353630244dbaf1998a01443"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-b",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "76a4544d103bc63377b1f83b7ff128be",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            1
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "expired-unsubmitted-child",
+      "step": "old-review-cannot-submit",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "0843daaa7fff7f6d2ed5cc6418a9f5d1",
+        "op": "submit",
+        "state": "refused",
+        "reason": "stale_plan",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "0843daaa7fff7f6d2ed5cc6418a9f5d1",
+        "op": "submit",
+        "args": {
+          "review_handle": "9ae76e5b1af00c2f978ce79eb336eca6"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "closed-batch-unclaimed-child",
+      "step": "continue-same-untouched-child",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "aea27f8999718e245a4c77076283657d",
+        "op": "re_review",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "be4f916c1ea8970c2b1e186e25393213",
+          "plan_handle": "2f8a11f5e7c79d6286dda08b2e38ba96",
+          "mode": "order",
+          "created_at": "2000-01-01T00:06:00.000Z",
+          "expires_at": "2000-01-01T00:11:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "02af097a76bdfe7171f6341b29fbc0f9",
+              "reservation_revision": 3,
+              "role": "FRIO",
+              "device_id": "receipt-fx-b",
+              "copy_count": 1,
+              "preview_lines": [
+                "CAMBIO",
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "cambio",
+              "parent_attempt_id": "0d0657bbf16fdb50ae48d19791a6dfa5",
+              "observation_id": "b5e08716e353630244dbaf1998a01443"
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-b",
+              "count": 1
+            }
+          ],
+          "total_documents": 1,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "aea27f8999718e245a4c77076283657d",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            2
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "ever-claimed-child-refuses",
+      "step": "no-rereview-after-claim",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "d74aa980d04df5e08699b0489f680e65",
+        "op": "re_review",
+        "state": "refused",
+        "reason": "invalid_parent",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "d74aa980d04df5e08699b0489f680e65",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            3
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "ever-claimed-child-refuses",
+      "step": "replay-ever-claimed-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "d74aa980d04df5e08699b0489f680e65",
+        "op": "re_review",
+        "state": "refused",
+        "reason": "invalid_parent",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "d74aa980d04df5e08699b0489f680e65",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "02af097a76bdfe7171f6341b29fbc0f9"
+          ],
+          "expected_reservation_revisions": [
+            3
+          ],
+          "device_ids": [
+            "receipt-fx-b"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic same-child review"
+        }
+      }
+    },
+    {
+      "case": "V4-12",
+      "scenario": "whole-selection-atomic-revision-conflict",
+      "step": "no-partial-plan-replacement",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "147cd964c7d5c76dc00ab4dbe711bb68",
+        "op": "re_review",
+        "state": "refused",
+        "reason": "revision_conflict",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "147cd964c7d5c76dc00ab4dbe711bb68",
+        "op": "re_review",
+        "args": {
+          "reservation_handles": [
+            "e715afe6af356d4b53bf2b7cd447c5eb",
+            "c680321819ea737e92c2f534440d565c"
+          ],
+          "expected_reservation_revisions": [
+            1,
+            1
+          ],
+          "device_ids": [
+            "receipt-fx-a",
+            "receipt-fx-a"
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic atomic re-review"
+        }
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "empty",
+      "step": "structural-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": null,
+        "op": null,
+        "state": "refused",
+        "reason": "invalid_request",
+        "data": null
+      },
+      "request": {}
+    },
+    {
+      "case": "V4-13",
+      "scenario": "unknown-op",
+      "step": "structural-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "923e8e25313a93837986e3b7143d7d7a",
+        "op": null,
+        "state": "refused",
+        "reason": "invalid_request",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "923e8e25313a93837986e3b7143d7d7a",
+        "op": "invented_unknown_op",
+        "args": {}
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "invalid-id",
+      "step": "structural-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": null,
+        "op": "read_defaults",
+        "state": "refused",
+        "reason": "invalid_request",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "not-an-id",
+        "op": "read_defaults",
+        "args": {}
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "known-unsupported-business-request",
+      "step": "correlated-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "959c70efac1200b7eeabb52a69fea4e3",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "unsupported_action",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "959c70efac1200b7eeabb52a69fea4e3",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "updated",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "known-unsupported-business-request",
+      "step": "replay-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "959c70efac1200b7eeabb52a69fea4e3",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "unsupported_action",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "959c70efac1200b7eeabb52a69fea4e3",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751"
+          ],
+          "device_ids": [
+            "receipt-fx-a"
+          ],
+          "action": "updated",
+          "parent_attempt_ids": [
+            null
+          ],
+          "observation_ids": [
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "known-unsupported-business-request",
+      "step": "recover-refusal",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "080da856e0e329bb7e2a5dfd314c8998",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "959c70efac1200b7eeabb52a69fea4e3",
+          "original_op": "prepare",
+          "original_state": "refused",
+          "original_reason": "unsupported_action",
+          "original_data": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "080da856e0e329bb7e2a5dfd314c8998",
+        "op": "recover",
+        "args": {
+          "original_request_id": "959c70efac1200b7eeabb52a69fea4e3"
+        }
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "malformed-child-cannot-be-success",
+      "step": "host-refuses-malformed-child",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "849dbf25ddb9b9cf4b094925fd2b148c",
+        "op": "status_refresh",
+        "state": "unavailable",
+        "reason": "query_unavailable",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "849dbf25ddb9b9cf4b094925fd2b148c",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-13",
+      "scenario": "unknown-history",
+      "step": "unknown-is-not-empty-success",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "849ce37b0f6c4a3cf4d06ea4a34a48e1",
+        "op": "recover",
+        "state": "unavailable",
+        "reason": "unknown_request",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "849ce37b0f6c4a3cf4d06ea4a34a48e1",
+        "op": "recover",
+        "args": {
+          "original_request_id": "fb7fca509421c67311cf968a378d5153"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "refused-and-untouched",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "d0dfb8beeac781c26f7cdb964da1aac0",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "c01de8a3575a2f3e4332287c64cb8a16",
+          "original_op": "submit",
+          "original_state": "refused",
+          "original_reason": "device_fault",
+          "original_data": {
+            "plan_handle": "4b455b05c776091aaf9a95500d38aec4",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "38d18bd2f514b450ad602c41aad58692",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "fcd5cb9f68a43414bc6856cdd44736b9",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "refused",
+                "reason": "device_fault",
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "retry"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "f9d9868579588e4609020a1c4fa1e40d",
+                "reservation_revision": 2,
+                "role": "GERENTE",
+                "attempt_id": "8d2edd0eb4726f0ef2e0b8f49bfc366f",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "d0dfb8beeac781c26f7cdb964da1aac0",
+        "op": "recover",
+        "args": {
+          "original_request_id": "c01de8a3575a2f3e4332287c64cb8a16"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "all-untouched",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "9c5506589cf28245f22ad001f8a91dc2",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "ed897d9acb12d43badabc644e2009bf6",
+          "original_op": "submit",
+          "original_state": "refused",
+          "original_reason": "sequence_not_started",
+          "original_data": {
+            "plan_handle": "a2dce6485362ed6902597d71c1581909",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "cf5a75fb89bc03788a7c720ec34124a8",
+                "reservation_revision": 2,
+                "role": "FRIO",
+                "attempt_id": "4419c4f5d26aab77fbc8c8013342fb2e",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "7c6d86551036903e3deb5fc3bae78e5b",
+                "reservation_revision": 2,
+                "role": "GERENTE",
+                "attempt_id": "f552f2703cb57a3d26c68e9d01b735bf",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "not_attempted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "review_pending"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "9c5506589cf28245f22ad001f8a91dc2",
+        "op": "recover",
+        "args": {
+          "original_request_id": "ed897d9acb12d43badabc644e2009bf6"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "possible-paper",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "27c5e6991525adde83fdb8d2757b0ab0",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "43838a4d6da5b8983148dd1834b8b0c1",
+          "original_op": "submit",
+          "original_state": "partial",
+          "original_reason": "result_unconfirmed",
+          "original_data": {
+            "plan_handle": "76e046e6135a7146ad431e8c11579b0a",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "3fb322d75f307aff34496a502aa3a659",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "7ccc2d41b3f4809a3febe164c9f4c5fc",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "0a1b878f09f2a0bd8186c9e2d37f2fd5",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "b91f6930fe8ce352ac7d95e69be8e83a",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "uncertain",
+                "reason": "result_unconfirmed",
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "27c5e6991525adde83fdb8d2757b0ab0",
+        "op": "recover",
+        "args": {
+          "original_request_id": "43838a4d6da5b8983148dd1834b8b0c1"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "all-transmitted",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "a493549bf231d68867bef2df2782ba36",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "67acf1b73026b7c9e135789cff1458f4",
+          "original_op": "submit",
+          "original_state": "ok",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "85c443e7f16e8ed7f7b2ca06ab12f028",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "e71c8c1974addccc89572453e790e316",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "7204368443d8ac38d089e59129d34562",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "3a6ed1e5b2ad12990dc202e4b515bd72",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "8b417d56d29eb90eb7554fa4a5a21045",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "a493549bf231d68867bef2df2782ba36",
+        "op": "recover",
+        "args": {
+          "original_request_id": "67acf1b73026b7c9e135789cff1458f4"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "active-coordinator",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "15d52929aedd699484dece9063c1aedb",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd",
+          "original_op": "submit",
+          "original_state": "pending",
+          "original_reason": null,
+          "original_data": {
+            "plan_handle": "e0603c1570014c1cf55006b272a4826e",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "03ea1f63fbc3871770f43f0b624f5594",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "0a01f7ff8104d810b74e8218a071d16c",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "76f782b7a5471b17db9a15f0e2e737fc",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "5ef76f941d0dfc9e112694e652ad49b2",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "in_flight",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "recover"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "15d52929aedd699484dece9063c1aedb",
+        "op": "recover",
+        "args": {
+          "original_request_id": "8f5aa4534047dd6d9e25c1e7f007f4dd"
+        }
+      }
+    },
+    {
+      "case": "V4-14",
+      "scenario": "sent-then-refused",
+      "step": "read-aggregate",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3c90b6b9c81c294dcbb4bc65bc23d9a8",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "a247cc1f0e4a3a84c4ab4a19b5143959",
+          "original_op": "submit",
+          "original_state": "partial",
+          "original_reason": "no_response",
+          "original_data": {
+            "plan_handle": "783228f6ab769a58b851e5c45fe8a775",
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "36955ef039538747872a33363f404a6b",
+                "reservation_revision": 3,
+                "role": "FRIO",
+                "attempt_id": "9e33bdbc2fe679c5036710a688b3e7be",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "transmitted",
+                "reason": null,
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "observe"
+                ]
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "fa426188f2e02df6f115dcd18a0937e2",
+                "reservation_revision": 3,
+                "role": "GERENTE",
+                "attempt_id": "3cd482e9ba2292b2ba5e9c6d05602ad8",
+                "parent_attempt_id": null,
+                "device_id": "receipt-fx-a",
+                "state": "refused",
+                "reason": "no_response",
+                "observation": null,
+                "observation_id": null,
+                "last_event_at": "2000-01-01T00:00:02.000Z",
+                "allowed_actions": [
+                  "retry"
+                ]
+              }
+            ],
+            "total_documents": 2
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3c90b6b9c81c294dcbb4bc65bc23d9a8",
+        "op": "recover",
+        "args": {
+          "original_request_id": "a247cc1f0e4a3a84c4ab4a19b5143959"
+        }
+      }
+    },
+    {
+      "case": "V4-15",
+      "scenario": "oversized-four-document-selection",
+      "step": "refuse-before-reserving",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "186c6421049d673be60c37a3a2e10a3b",
+        "op": "prepare",
+        "state": "refused",
+        "reason": "preview_too_large",
+        "data": null
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "186c6421049d673be60c37a3a2e10a3b",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751",
+            "d8110f8e3dd7c8222d02f2555cc7787b",
+            "d369ac35e51584b1e8af529300c98073",
+            "520fff1e38dd14ce64fb0635dc6cf52f"
+          ],
+          "device_ids": [
+            "receipt-fx-a",
+            "receipt-fx-a",
+            "receipt-fx-a",
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "observation_ids": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-15",
+      "scenario": "small-selection-fits",
+      "step": "return-complete-small-review",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "3a1a7a7255671d28cf87c996eb3c58e1",
+        "op": "prepare",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "review_handle": "b9b22ee29c1515184a7d776297276b56",
+          "plan_handle": "dac375904f4aa7cdb8c3c58fe573be04",
+          "mode": "order",
+          "created_at": "2000-01-01T00:00:00.000Z",
+          "expires_at": "2000-01-01T00:05:00.000Z",
+          "expected_defaults_revision": 7,
+          "registry_revision": 4,
+          "documents": [
+            {
+              "document_handle": "ce04f0c704756206f3beca703c1d0751",
+              "reservation_handle": "f5355d5794a22b841cfda25d4224d0f1",
+              "reservation_revision": 1,
+              "role": "FRIO",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "FRIO",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            },
+            {
+              "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+              "reservation_handle": "e487ff445d3ec48c042ffcb3606da63d",
+              "reservation_revision": 1,
+              "role": "GERENTE",
+              "device_id": "receipt-fx-a",
+              "copy_count": 1,
+              "preview_lines": [
+                "SYNTHETIC TEST",
+                "GERENTE",
+                "2.04 lb TEST ITEM"
+              ],
+              "action": "original",
+              "parent_attempt_id": null,
+              "observation_id": null
+            }
+          ],
+          "totals": [
+            {
+              "device_id": "receipt-fx-a",
+              "count": 2
+            }
+          ],
+          "total_documents": 2,
+          "submit_allowed": true,
+          "blocked_reason": null
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "3a1a7a7255671d28cf87c996eb3c58e1",
+        "op": "prepare",
+        "args": {
+          "document_handles": [
+            "ce04f0c704756206f3beca703c1d0751",
+            "d8110f8e3dd7c8222d02f2555cc7787b"
+          ],
+          "device_ids": [
+            "receipt-fx-a",
+            "receipt-fx-a"
+          ],
+          "action": "original",
+          "parent_attempt_ids": [
+            null,
+            null
+          ],
+          "observation_ids": [
+            null,
+            null
+          ],
+          "expected_defaults_revision": 7,
+          "reason": "Synthetic acceptance case"
+        }
+      }
+    },
+    {
+      "case": "V4-15",
+      "scenario": "small-selection-fits",
+      "step": "recover-complete-small-review",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "0030e5354c74743967b34db719fac686",
+        "op": "recover",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "original_request_id": "3a1a7a7255671d28cf87c996eb3c58e1",
+          "original_op": "prepare",
+          "original_state": "ok",
+          "original_reason": null,
+          "original_data": {
+            "review_handle": "b9b22ee29c1515184a7d776297276b56",
+            "plan_handle": "dac375904f4aa7cdb8c3c58fe573be04",
+            "mode": "order",
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:05:00.000Z",
+            "expected_defaults_revision": 7,
+            "registry_revision": 4,
+            "documents": [
+              {
+                "document_handle": "ce04f0c704756206f3beca703c1d0751",
+                "reservation_handle": "f5355d5794a22b841cfda25d4224d0f1",
+                "reservation_revision": 1,
+                "role": "FRIO",
+                "device_id": "receipt-fx-a",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "FRIO",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null
+              },
+              {
+                "document_handle": "d8110f8e3dd7c8222d02f2555cc7787b",
+                "reservation_handle": "e487ff445d3ec48c042ffcb3606da63d",
+                "reservation_revision": 1,
+                "role": "GERENTE",
+                "device_id": "receipt-fx-a",
+                "copy_count": 1,
+                "preview_lines": [
+                  "SYNTHETIC TEST",
+                  "GERENTE",
+                  "2.04 lb TEST ITEM"
+                ],
+                "action": "original",
+                "parent_attempt_id": null,
+                "observation_id": null
+              }
+            ],
+            "totals": [
+              {
+                "device_id": "receipt-fx-a",
+                "count": 2
+              }
+            ],
+            "total_documents": 2,
+            "submit_allowed": true,
+            "blocked_reason": null
+          }
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "0030e5354c74743967b34db719fac686",
+        "op": "recover",
+        "args": {
+          "original_request_id": "3a1a7a7255671d28cf87c996eb3c58e1"
+        }
+      }
+    },
+    {
+      "case": "V4-16",
+      "scenario": "no-response",
+      "step": "explicit-status-attempt",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "416806cffeee27b61c9d6747c7cf470e",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:10.000Z",
+          "last_probe_at": "2000-01-01T00:00:10.000Z",
+          "last_outcome": "failed",
+          "reason": "no_response",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "ready",
+            "identity_match": true,
+            "problems": [],
+            "warnings": []
+          },
+          "condition": "unknown",
+          "display_code": "no_response"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "416806cffeee27b61c9d6747c7cf470e",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-16",
+      "scenario": "shared-query-lock",
+      "step": "explicit-status-attempt",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "6ea403c2873a1f9acc2ba9ec783f0845",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:10.000Z",
+          "last_probe_at": "2000-01-01T00:00:00.000Z",
+          "last_outcome": "busy",
+          "reason": "device_busy",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "ready",
+            "identity_match": true,
+            "problems": [],
+            "warnings": []
+          },
+          "condition": "busy",
+          "display_code": "busy"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "6ea403c2873a1f9acc2ba9ec783f0845",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    },
+    {
+      "case": "V4-16",
+      "scenario": "rate-limit",
+      "step": "explicit-status-attempt",
+      "response": {
+        "schema": "receipt-public/v1",
+        "request_id": "f6d60e4599e09d9dcad73e3069f50e4c",
+        "op": "status_refresh",
+        "state": "ok",
+        "reason": null,
+        "data": {
+          "device_id": "receipt-fx-a",
+          "registry_revision": 4,
+          "profile_sha256": "3151efa8c0f57be06ac7b11d85a91f107fd8ccf266e78abae64054943cc87a7f",
+          "commissioned_for_orders": true,
+          "last_request_at": "2000-01-01T00:00:10.000Z",
+          "last_probe_at": "2000-01-01T00:00:00.000Z",
+          "last_outcome": "throttled",
+          "reason": "rate_limited",
+          "last_valid": {
+            "observed_at": "2000-01-01T00:00:00.000Z",
+            "expires_at": "2000-01-01T00:01:00.000Z",
+            "condition": "ready",
+            "identity_match": true,
+            "problems": [],
+            "warnings": []
+          },
+          "condition": "rate_limited",
+          "display_code": "rate_limited"
+        }
+      },
+      "request": {
+        "schema": "receipt-browser/v1",
+        "request_id": "f6d60e4599e09d9dcad73e3069f50e4c",
+        "op": "status_refresh",
+        "args": {
+          "device_id": "receipt-fx-a"
+        }
+      }
+    }
+  ]
+}
