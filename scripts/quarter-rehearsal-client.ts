@@ -1,8 +1,8 @@
 /** Synthetic ordinary HTTP writer used while the candidate waits for a checker. No token is logged. */
 import {randomUUID} from "node:crypto";
-import {writeFileSync} from "node:fs";
+import {writeFileSync,readFileSync} from "node:fs";
 import {z} from "zod";
-const [origin,date,shiftId,output,mode="write"]=process.argv.slice(2);
+const [origin,date,shiftId,output,mode="write",prior]=process.argv.slice(2);
 const url=new URL(origin);if(url.hostname!=="127.0.0.1"||url.protocol!=="http:"||!process.env.FLOOR_BOARDS_TEST_ROOT)throw new Error("SYNTHETIC_LOOPBACK_REQUIRED");
 z.iso.date().parse(date);
 async function main(){
@@ -10,7 +10,14 @@ async function main(){
   if(!login.ok)throw new Error("SYNTHETIC_LOGIN_FAILED");
   const {sessionToken}=await login.json();const headers={"x-manager-session":sessionToken,"Content-Type":"application/vnd.floor-boards.paint-v2+json","X-Floor-Boards-Protocol":"2"};
   const getDay=async()=>{const response=await fetch(`${origin}/api/v2/boards/caja/days/${date}`,{headers});if(!response.ok)throw new Error("SYNTHETIC_READ_FAILED");return response.json();};
-  if(mode==="read"){writeFileSync(output,JSON.stringify(await getDay())+"\n");return;}
+  const snapshot=async()=>{const response=await fetch(`${origin}/api/employees/${shiftId}/hours?weekOf=${date}`,{headers});if(!response.ok)throw new Error("REHEARSAL_LEDGER_FAILED");return {day:await getDay(),ledger:await response.json()};};
+  if(mode==="read"){writeFileSync(output,JSON.stringify(await snapshot())+"\n");return;}
+  if(mode==="replay"){
+    const original=JSON.parse(readFileSync(prior,"utf8")),receipts=[];
+    for(const command of original.requests){const response=await fetch(`${origin}/api/v2/assignments/paint`,{method:"PUT",headers,body:JSON.stringify(command)});if(!response.ok)throw new Error("REHEARSAL_REPLAY_FAILED");receipts.push(await response.json());}
+    if(JSON.stringify(receipts)!==JSON.stringify(original.receipts))throw new Error("REHEARSAL_RECEIPTS_CHANGED");
+    writeFileSync(output,JSON.stringify({receipts,snapshot:await snapshot()})+"\n");return;
+  }
   const receipts:unknown[]=[],requests:unknown[]=[];
   for(const intents of [[{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"green1"},{shiftId,quarter:"09:30",granularity:"quarter",action:"erase"},{shiftId,quarter:"12:00",granularity:"quarter",action:"station",stationId:"purple1"}],
     [{shiftId,quarter:"09:15",granularity:"quarter",action:"station",stationId:"blue"}]] as const){
@@ -19,6 +26,6 @@ async function main(){
     const response=await fetch(`${origin}/api/v2/assignments/paint`,{method:"PUT",headers,body:JSON.stringify(command)}),receipt=await response.json();
     if(!response.ok)throw new Error(`SYNTHETIC_SAVE_FAILED:${receipt.code}`);requests.push(command);receipts.push(receipt);
   }
-  writeFileSync(output,JSON.stringify({requests,receipts,day:await getDay()})+"\n");
+  writeFileSync(output,JSON.stringify({requests,receipts,...await snapshot()})+"\n");
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1;});

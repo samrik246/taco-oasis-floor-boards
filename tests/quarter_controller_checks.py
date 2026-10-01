@@ -11,6 +11,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import quarter_guard as guard
 import quarter_release as release
+import quarter_importers as importers
+from datetime import datetime, timezone
 
 
 class ControllerChecks(unittest.TestCase):
@@ -113,6 +115,61 @@ class ControllerChecks(unittest.TestCase):
             code='import sys;sys.path.insert(0,sys.argv[1]);from quarter_release import release_lease\nwith release_lease(sys.argv[2],wait_seconds=0): pass'
             result=subprocess.run([sys.executable,'-c',code,str(Path(release.__file__).parent),str(self.app)],capture_output=True,text=True)
             self.assertNotEqual(result.returncode,0);self.assertIn('RELEASE_BUSY',result.stderr);owned()
+
+    def test_relative_importer_process_is_not_missed(self):
+        import subprocess
+        observed=[]
+        def pgrep(argv,**kwargs):
+            observed.append(argv)
+            return subprocess.CompletedProcess(argv,0,'8123\n','')
+        with patch.object(importers.subprocess,'run',side_effect=pgrep):
+            self.assertEqual(importers.matching_importers(self.app),{8123})
+        self.assertIn('wiw-export',observed[0][-1]);self.assertNotIn(str(self.app),observed[0][-1])
+
+    def test_loaded_timer_measures_launch_and_calendar(self):
+        public={'ProgramArguments':['/synthetic/run-import','--hourly'],'WorkingDirectory':'/synthetic/app'}
+        lines=['program = /synthetic/run-import','working directory = /synthetic/app','arguments = {','/synthetic/run-import','--hourly','}',
+               'environment = {','discarded = redacted-fixture','}', 'event triggers = {','stream = com.apple.launchd.calendarinterval','descriptor = {','"Hour" => 6','"Minute" => 0','}','}']
+        self.assertEqual(importers.loaded_timer(lines,public),[{'Hour':6,'Minute':0}])
+        for old,new in [('program = /synthetic/run-import','program = /synthetic/old-import'),('--hourly','--old'),('working directory = /synthetic/app','working directory = /synthetic/old')]:
+            with self.assertRaisesRegex(ValueError,'IMPORTER_LOADED_LAUNCH_CHANGED'):
+                importers.loaded_timer([new if line==old else line for line in lines],public)
+
+    def test_client_readback_negative_matrix(self):
+        now=1790880000000
+        iso=lambda ms:datetime.fromtimestamp(ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+        device={'label':'floor','clientInstanceId':'11111111-1111-4111-8111-111111111111','origin':'http://floor-boards.test:3100','role':'floor','board':'caja','view':'schedule','disposition':'retained'}
+        manifest={'sourceSha':'a'*40,'staticSha256':'b'*64}
+        inventory={'version':1,'synthetic':True,'operatorId':'owner','revision':'fixture','enumeratedAt':iso(now-2000),'devices':[device]}
+        record={'version':1,'synthetic':True,'challengeId':'22222222-2222-4222-8222-222222222222','issuedAt':iso(now-1500),'receivedAt':iso(now-500),'operatorId':'owner','inventorySha256':guard.hash_value(inventory),'artifactSha256':'c'*64,'staticSha256':'b'*64,'label':'floor','matched':True,
+                'measurement':{k:device[k] for k in ('clientInstanceId','origin','role','board')},'visible':{k:device[k] for k in ('label','clientInstanceId','board','view')}}
+        record['measurement'].update(challengeId=record['challengeId'],observedDatabaseEpoch='fixture-epoch',schemaFingerprint=guard.capture(self.db)['schemaSha256'],clientBuildSha='a'*40,protocol=2,cacheSchema=2,draftDbVersion=1,isSecureContext=False,idbProbe='commit-readback-ok',legacyBoardCacheAbsent=True)
+        record['visible'].update(oldTabsClosed=True,observedAt=iso(now-1000))
+        server=self.app/'var/quarter-clients';server.mkdir(parents=True)
+        inv_file=self.root/'inventory.json';records_file=self.root/'readbacks.json'
+        def publish(inv,record):
+            inv_file.write_text(guard.canonical(inv));(server/('inventory-'+guard.hash_value(inv)+'.json')).write_text(guard.canonical(inv))
+            record=dict(record,inventorySha256=guard.hash_value(inv));record['recordSha256']=guard.hash_value(record)
+            records_file.write_text(guard.canonical([record]));(server/(record['challengeId']+'.receipt.json')).write_text(guard.canonical(record))
+            return {'clients':{'inventoryPath':str(inv_file),'inventorySha256':guard.file_hash(inv_file),'readbacksPath':str(records_file),'readbacksSha256':guard.file_hash(records_file)},'r0':{'path':'r0','manifestSha256':'c'*64},'candidate':{'path':'q1','manifestSha256':'d'*64}}
+        with patch.object(release.artifacts,'verify',return_value=manifest):
+            self.assertEqual(release.readbacks(publish(inventory,record),self.app,guard.capture(self.db),now)['retained'],1)
+            for mode in ('expired','future','origin','epoch','build','unmatched','future-inventory','stale-inventory','duplicate-device','protocol-boolean','challenge'):
+                with self.subTest(mode=mode):
+                    inv=json.loads(json.dumps(inventory));r=json.loads(json.dumps(record))
+                    if mode=='expired':r['receivedAt']=iso(now-900001)
+                    if mode=='future':r['receivedAt']=iso(now+1)
+                    if mode=='origin':r['measurement']['origin']='http://other.test:3100'
+                    if mode=='epoch':r['measurement']['observedDatabaseEpoch']='other'
+                    if mode=='build':r['measurement']['clientBuildSha']='f'*40
+                    if mode=='unmatched':r['matched']=1
+                    if mode=='future-inventory':inv['enumeratedAt']=iso(now+1)
+                    if mode=='stale-inventory':inv['enumeratedAt']=iso(now-900001)
+                    if mode=='duplicate-device':inv['devices'].append(dict(device,label='second'))
+                    if mode=='protocol-boolean':r['measurement']['draftDbVersion']=True
+                    if mode=='challenge':r['measurement']['challengeId']='33333333-3333-4333-8333-333333333333'
+                    with self.assertRaisesRegex(ValueError,'CLIENT_READBACK_MISSING_OR_STALE'):
+                        release.readbacks(publish(inv,r),self.app,guard.capture(self.db),now)
 
 
 if __name__=='__main__':unittest.main()

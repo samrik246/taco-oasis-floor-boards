@@ -29,5 +29,8 @@
   "scripts/quarter_scenarios.py",
   "scripts/test-db-guard.cjs",
   "scripts/test-db-probe.cjs",
-  "scripts/quarter-rehearsal-client.ts"
+  "scripts/quarter-rehearsal-client.ts",
+  "scripts/quarter-rehearsal-browser.ts",
+  "scripts/quarter-rehearsal-browser-client.ts",
+  "scripts/quarter-rehearsal-picker.ts"
 ]

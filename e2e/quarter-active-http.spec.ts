@@ -92,7 +92,7 @@ test("ordinary HTTP failed retention keeps the first in-memory proposal until ex
     Object.assign(window,{restoreDraftAdds:()=>{IDBObjectStore.prototype.add=original;}});
   });
   await page.getByTestId("quarter-palette-family:purple").click();await page.getByTestId(`quarter-cell-${shift}-11`).click();
-  await expect(page.getByTestId("quarter-draft-status")).toContainText(/quota/i);
+  await expect(page.getByTestId("quarter-draft-status")).toContainText(/No retenido|Not retained/);
   const memory=page.getByRole("alert").filter({has:page.locator("details")});
   const before=await memory.locator("pre").textContent();
   await page.getByTestId("quarter-palette-family:green").click();

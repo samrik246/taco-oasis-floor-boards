@@ -16,7 +16,12 @@ export const measurementSchema=z.strictObject({challengeId:z.uuid(),clientInstan
 const issueSchema=z.strictObject({action:z.literal("issue"),inventory:inventorySchema,label:id});
 const answerSchema=z.strictObject({action:z.literal("answer"),measurement:measurementSchema,visible:z.strictObject({label:id,clientInstanceId:z.uuid(),board:z.enum(["caja","cocina"]),view:id,oldTabsClosed:z.literal(true),observedAt:instant})});
 export const clientEvidenceBody=z.discriminatedUnion("action",[issueSchema,answerSchema]);
-function refuse():never{throw new QuarterRefused("CLIENT_READBACK_MISSING_OR_STALE",409);}
+export function clientRequestOrigin(request:Request){
+  const claimed=request.headers.get("origin"),parsed=origin.safeParse(claimed);
+  if(!parsed.success||new URL(parsed.data).host!==request.headers.get("host")||new URL(parsed.data).protocol!==new URL(request.url).protocol)refuse("REQUEST_ORIGIN_MISMATCH");
+  return parsed.data;
+}
+function refuse(reason="MEASUREMENT_MISMATCH"):never{throw new QuarterRefused("CLIENT_READBACK_MISSING_OR_STALE",409,{expected:reason});}
 async function evidenceDirectory(){
   let dir=quarterAppDir();
   try{await mkdir(dir,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=="EEXIST")throw e;}
@@ -34,7 +39,7 @@ export async function clientEvidence(raw:unknown,actorId:string,requestOrigin:st
   const dir=await evidenceDirectory();
   if(input.action==="issue"){
     const inventory=input.inventory,device=inventory.devices.find(d=>d.label===input.label);
-    if(!device||device.disposition!=="retained"||device.origin!==requestOrigin||inventory.operatorId!==actorId||+new Date(inventory.enumeratedAt)>+now||+now-+new Date(inventory.enumeratedAt)>900000||inventory.synthetic!==Boolean(process.env.FLOOR_BOARDS_TEST_ROOT))refuse();
+    if(!device||device.disposition!=="retained"||device.origin!==requestOrigin||inventory.operatorId!==actorId||+new Date(inventory.enumeratedAt)>+now||+now-+new Date(inventory.enumeratedAt)>900000||inventory.synthetic!==Boolean(process.env.FLOOR_BOARDS_TEST_ROOT))refuse(device?.origin!==requestOrigin?"INVENTORY_ORIGIN_MISMATCH":inventory.operatorId!==actorId?"INVENTORY_OPERATOR_MISMATCH":"INVENTORY_MISMATCH_OR_EXPIRED");
     const inventorySha256=digest(inventory),challengeId=randomUUID();
     const challenge={version:1,challengeId,issuedAt:now.toISOString(),operatorId:actorId,device,inventorySha256,synthetic:inventory.synthetic,
       artifactSha256:loadedArtifactSha256,clientBuildSha:manifest.sourceSha,staticSha256:manifest.staticSha256,databaseEpoch:state.databaseEpoch,schemaFingerprint:manifest.schemaSha256};

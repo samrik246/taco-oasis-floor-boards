@@ -20,8 +20,9 @@ test("ordinary HTTP loaded floor and wall bundles produce distinct measured synt
       await panel.getByLabel("Device label").fill(devices[i].label);await panel.locator('input[type="checkbox"]').check();
       await panel.getByRole("button",{name:"Owner sign in"}).click();
       await page.getByTestId("manager-code-input").fill("e2e-second-owner");await page.getByTestId("manager-unlock-submit").click();
+      const issue=page.waitForResponse(r=>r.url().endsWith("/api/v2/maintenance/clients")&&r.request().postDataJSON().action==="issue");
       const reply=page.waitForResponse(r=>r.url().endsWith("/api/v2/maintenance/clients")&&r.request().postDataJSON().action==="answer");
-      await panel.getByRole("button",{name:"Record readback"}).click();const response=await reply;expect(response.status()).toBe(200);
+      await panel.getByRole("button",{name:"Record readback"}).click();const challenge=await issue;expect(challenge.status(),JSON.stringify(await challenge.json())).toBe(200);const response=await reply;expect(response.status()).toBe(200);
       const receipt=await response.json();expect(receipt).toMatchObject({synthetic:true,matched:true,label:devices[i].label,measurement:{clientInstanceId:devices[i].clientInstanceId,isSecureContext:false,idbProbe:"commit-readback-ok",legacyBoardCacheAbsent:true,protocol:2,cacheSchema:2,draftDbVersion:1}});
       expect(receipt.measurement.clientBuildSha).toMatch(/^[a-f0-9]{40}$/);expect(receipt.staticSha256).toMatch(/^[a-f0-9]{64}$/);
       await expect(panel.getByRole("status")).toContainText("Readback saved");

@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from datetime import date as calendar_date, timedelta
 from quarter_artifacts import MANIFEST, atomic_json, copy, verify
 from quarter_guard import capture, canonical, file_hash, preserved, connect
 from quarter_release import cutover, load_packet, record
@@ -43,20 +44,46 @@ def run_scenario(root, manifest_file, scenario):
     service.readback()
     writes = run / 'acknowledged-writes.json'
     before_recovery = None
-    date = '2040-10-' + str(10 + index)
+    date = (calendar_date.fromisoformat(fixture['date']) + timedelta(days=index)).isoformat()
     source = 'quarter-rehearsal-' + str(index)
-    def client(mode, output):
-        command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-client.ts'), 'http://127.0.0.1:3100', date, source, str(output), mode]
+    def client(mode, output, prior=None):
+        command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-client.ts'), 'http://127.0.0.1:3100', date, source, str(output), mode] + ([str(prior)] if prior else [])
         record(run / 'client-commands.jsonl', 'start', argv=command)
         result = subprocess.run(command, cwd=app, capture_output=True, text=True)
         (run / ('client-' + mode + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode:
             raise ValueError('REHEARSAL_CLIENT_FAILED')
+    def picker(label):
+        output = run / ('picker-' + label + '.json')
+        command = ['node',str(app / 'node_modules/tsx/dist/cli.mjs'),str(app / 'scripts/quarter-rehearsal-picker.ts'),date,source,str(output),label]
+        result = subprocess.run(command,cwd=app,capture_output=True,text=True)
+        (run / ('picker-' + label + '.log')).write_text(result.stdout + result.stderr)
+        if result.returncode: raise ValueError('REHEARSAL_PICKER_FAILED:' + label)
+    browser_seed = run / 'browser-seed.json'
+    profile = run / 'browser-profile'
+    def browser(mode, output):
+        command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-browser.ts'), mode, str(profile), date, source, str(output), str(browser_seed)]
+        record(run / 'browser-commands.jsonl', 'start', argv=command)
+        result = subprocess.run(command, cwd=app, capture_output=True, text=True)
+        (run / ('browser-' + mode + '.log')).write_text(result.stdout + result.stderr)
+        if result.returncode:
+            raise ValueError('REHEARSAL_BROWSER_FAILED:' + mode)
+    def replay_preserved(before, after):
+        # Exact replay takes the shared mutex but must add no application mutation.
+        for key in ('database', 'state', 'schemaSha256', 'registrySha256'):
+            if before[key] != after[key]:
+                raise ValueError('REPLAY_CHANGED:' + key)
+        for table in before['tables']:
+            if table != 'StaffBreakLock' and before['tables'][table] != after['tables'][table]:
+                raise ValueError('REPLAY_CHANGED:' + table)
     def checker(phase):
         nonlocal before_recovery
         if phase == 'recovery':
             return 'pass'
         client('write', writes)
+        browser('seed', browser_seed)
+        picker('before')
+        client('read', run / 'post-write-read.json')
         before_recovery = capture(database)
         atomic_json(run / 'post-acknowledgement-guard.json', before_recovery)
         if scenario.endswith('blocked') or scenario == 'recovery-failure-offline':
@@ -92,12 +119,16 @@ def run_scenario(root, manifest_file, scenario):
                 raise ValueError('RECOVERY_OUTCOME_MISMATCH')
             if result != 'recovery-blocked':
                 client('read', run / 'recovered-day.json')
-                original = json.loads(writes.read_text())['day']; recovered = json.loads((run / 'recovered-day.json').read_text())
+                original = json.loads((run / 'post-write-read.json').read_text()); recovered = json.loads((run / 'recovered-day.json').read_text())
                 if original != recovered:
                     raise ValueError('RECOVERED_INTERVAL_READ_CHANGED')
+                picker('after')
+                browser('reconcile', run / 'browser-reconciled.json')
+                client('replay', run / 'replayed.json', writes)
+                replay_preserved(before_recovery, capture(database))
             elif service.state.exists():
                 raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')
         record(root / 'evidence/rehearsal.jsonl', 'scenario-controller-proof', scenario=scenario, outcome='controller-passed', controllerOutcome=result,
-               pending=['browser-store-reload-and-unsent-draft', 'exact-receipt-replay', 'ledger-and-cover-readback', 'controlled-picker'], guard=capture(database))
+               pending=['expanded-picker-mismatch-cross-board-shuffle-races','full-importer-and-activation-proofs'], browserStores=bool(before_recovery and result != 'recovery-blocked'), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
     finally:
         service.stop()
