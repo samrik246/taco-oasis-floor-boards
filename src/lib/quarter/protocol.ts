@@ -27,6 +27,11 @@ export const paintCommandSchema = z.strictObject({ protocol:z.literal(2), reques
   draftSubmission:z.strictObject({ episodeId:id,generationId:id,generationSha256:hash }).optional(),
   sources:z.array(sourceExpectation).min(1).max(500), hours:z.array(hourExpectation).min(1).max(500), intents:z.array(intentSchema).min(1).max(2000) });
 export type PaintCommand = z.infer<typeof paintCommandSchema>;
+export function parsePaintCommand(input:unknown):PaintCommand {
+  const raw=input as Partial<PaintCommand>|null;
+  if(raw && ((Array.isArray(raw.hours)&&raw.hours.length>500)||(Array.isArray(raw.sources)&&raw.sources.length>500)||(Array.isArray(raw.intents)&&raw.intents.length>2000)))throw new QuarterRefused("TOO_MANY_INTENTS",413);
+  return paintCommandSchema.parse(input);
+}
 export type PaintIntent = z.infer<typeof intentSchema>;
 export const QUARTER_MEDIA_TYPE = "application/vnd.floor-boards.paint-v2+json";
 export function quarterInstant(date: string, quarter: string): number {

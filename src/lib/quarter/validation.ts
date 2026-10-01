@@ -43,7 +43,7 @@ export function peerHours(world: PaintWorld, touched: Set<string>, targets: { ho
       }
     }
   }
-  if (touched.size > 500) throw new QuarterRefused("TOO_MANY_HOURS",422);
+  if (touched.size > 500) throw new QuarterRefused("TOO_MANY_HOURS",413);
   return world.hours.filter(h => touched.has(hourKey(h.shiftId,h.hourStartMs)));
 }
 
@@ -62,10 +62,10 @@ export async function validatePaintWorld(db: QuarterDb, world: PaintWorld, touch
       if (!station || station.board !== h.board) throw new QuarterRefused("STATION_BOARD_MISMATCH",422);
       if (levelWhenUnset(levels.get(`${h.employeeId}|${s.stationId}`),defaults.get(s.stationId!)) === "forbidden") throw new QuarterRefused("FORBIDDEN_ABILITY",422);
       const others = intervals.filter(p => p.shiftId !== h.shiftId && overlaps(p,s));
-      if (others.some(p => p.employeeId === h.employeeId)) throw new QuarterRefused("PERSON_ALREADY_ASSIGNED",422);
+      if (others.some(p => p.employeeId === h.employeeId)) throw new QuarterRefused("PERSON_ALREADY_ASSIGNED",409);
       const bounds = [...new Set([s.startMs,...others.filter(p => p.stationId === s.stationId).map(p => Math.max(p.startMs,s.startMs))])];
       if (station.maxConcurrent >= 0 && bounds.some(t => 1 + others.filter(p => p.stationId === s.stationId && p.startMs <= t && p.endMs > t).length > station.maxConcurrent))
-        throw new QuarterRefused("STATION_FULL",422);
+        throw new QuarterRefused("STATION_FULL",409);
     }
   }
 }
@@ -81,6 +81,6 @@ export async function validateObligations(db: QuarterDb, before: PaintWorld, aft
   for (const o of obligations) {
     const representation = (w:PaintWorld) => w.hours.flatMap(h => !o.people.includes(h.employeeId) ? [] : h.segments
       .filter(s => overlaps(s,o)).map(s => [h.shiftId,Math.max(s.startMs,o.startMs),Math.min(s.endMs,o.endMs),s.state,s.stationId]));
-    if (JSON.stringify(representation(before)) !== JSON.stringify(representation(after))) throw new QuarterRefused(o.code,422);
+    if (JSON.stringify(representation(before)) !== JSON.stringify(representation(after))) throw new QuarterRefused(o.code,409);
   }
 }

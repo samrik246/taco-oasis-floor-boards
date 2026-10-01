@@ -1,3 +1,4 @@
+import { projectSeatNumbers } from "./validation";
 import type { QuarterDb } from "./schema";
 import { CAPABILITY_SHA256 } from "./schema";
 import { assignedIntervals, resolvePaintWorld, type PaintWorld } from "./world";
@@ -20,6 +21,7 @@ export async function quarterCoverDisplay(db:QuarterDb, world:PaintWorld, board:
 }
 export async function readQuarterDay(db:QuarterDb, board:string, date:string, now=new Date()) {
   const world=await resolvePaintWorld(db,date);
+  projectSeatNumbers(world);
   const employees=await db.employee.findMany({where:{id:{in:world.sources.map(s=>s.employeeId)}},select:{id:true,firstName:true,lastName:true}});
   return {schemaVersion:2,databaseEpoch:world.state?.databaseEpoch??null,worldRevision:world.revision,phase:world.state?.phase??"legacy",
     capabilitySha256:CAPABILITY_SHA256,board,date,

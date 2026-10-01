@@ -16,7 +16,7 @@ export async function GET(request:Request){
       const state=await quarterState(db);if(state?.phase!=="active")throw new QuarterRefused("QUARTER_NOT_ACTIVE");
       // Explicit manager projection: immutable source/legacy snapshots never leave the server.
       const rows=await db.$queryRawUnsafe<{id:string;actorId:string;requestId:string;shiftId:string;startMs:string;endMs:string;operation:string;reason:string|null;moveNote:string|null;createdAtMs:string}[]>(
-        "SELECT id,actorId,requestId,shiftId,CAST(startMs AS TEXT) AS startMs,CAST(endMs AS TEXT) AS endMs,operation,reason,moveNote,CAST(createdAtMs AS TEXT) AS createdAtMs FROM PaintMutation WHERE date=? AND board=? ORDER BY createdAtMs DESC,id DESC",input.date,input.board);
+        "SELECT id,actorId,requestId,shiftId,CAST(startMs AS TEXT) AS startMs,CAST(endMs AS TEXT) AS endMs,operation,reason,moveNote,CAST(createdAtMs AS TEXT) AS createdAtMs FROM PaintMutation WHERE date=? AND board=? AND reason IS NOT NULL AND reason<>'' ORDER BY createdAtMs DESC,id DESC",input.date,input.board);
       return {protocol:2,databaseEpoch:state.databaseEpoch,mutations:rows.map(({startMs,endMs,createdAtMs,...row})=>({...row,startAt:new Date(Number(startMs)).toISOString(),endAt:new Date(Number(endMs)).toISOString(),createdAt:new Date(Number(createdAtMs)).toISOString()}))};
     });
     return NextResponse.json(result,{headers:{"Cache-Control":"no-store"}});

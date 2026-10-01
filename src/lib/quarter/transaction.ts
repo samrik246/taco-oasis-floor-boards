@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { PAINT_FAMILIES, familyForStation } from "@/lib/assignments/paint-families";
 import { isValidMoveReason } from "@/lib/position-moves";
 import { canonical, digest, CAPABILITY_SHA256, QuarterRefused, quarterState, worldRevision, type QuarterDb } from "./schema";
-import { paintCommandSchema, quarterInstant, type PaintCommand } from "./protocol";
+import { parsePaintCommand, quarterInstant, type PaintCommand } from "./protocol";
 import { HOUR_MS, QUARTER_MS, hourKey, resolvePaintWorld, sourceSnapshot, overlaps, type PaintHour, type PaintWorld } from "./world";
 import { peerHours, projectSeatNumbers, validatePaintWorld, validateObligations } from "./validation";
 
@@ -35,7 +35,7 @@ const writtenHours=new WeakMap<QuarterDb,Map<string,string>>();
 export async function persistHour(db:QuarterDb, h:PaintHour, now:Date):Promise<void> {
   const written=writtenHours.get(db)??new Map<string,string>();
   writtenHours.set(db,written);
-  if(written.size>=500&&(!h.id||!written.has(h.id)))throw new QuarterRefused("TOO_MANY_HOURS",422);
+  if(written.size>=500&&(!h.id||!written.has(h.id)))throw new QuarterRefused("TOO_MANY_HOURS",413);
   if (!h.id) {
     h.id=randomUUID(); h.revision="1";
     await db.$executeRawUnsafe(`INSERT INTO PaintHour (id,shiftId,employeeId,date,board,hourStartMs,revision,sourceJson,sourceSha256,legacyJson,legacySha256,adoptedAtMs,updatedAtMs) VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?)`,
@@ -70,7 +70,7 @@ export async function recordMutation(db:QuarterDb, actorId:string,requestId:stri
 export function checkExpectations(command:Pick<PaintCommand,"expected"|"sources"|"hours">, world:PaintWorld) {
   if (world.state?.phase!=="active") throw new QuarterRefused("QUARTER_NOT_ACTIVE");
   if (world.state.databaseEpoch!==command.expected.databaseEpoch) throw new QuarterRefused("DATABASE_EPOCH_CHANGED");
-  if (world.revision!==command.expected.worldRevision) throw new QuarterRefused("REVISION_CONFLICT");
+  if (world.revision!==command.expected.worldRevision) throw new QuarterRefused("REVISION_CONFLICT",409,{expected:command.expected.worldRevision,actual:world.revision!});
   const seen=new Set<string>();
   for (const s of command.sources) {
     if (seen.has(s.shiftId)) throw new QuarterRefused("DUPLICATE_SOURCE",422);
@@ -119,15 +119,19 @@ export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:
     }
     const selected=h.segments.filter(s=>s.state!=="off" && overlaps(s,{startMs,endMs}));
     if (!selected.length) throw new QuarterRefused("OUT_OF_SHIFT",422);
-    if (intent.granularity==="hour" && new Set(selected.map(s=>`${s.state}|${s.stationId}`)).size>1) throw new QuarterRefused("HOUR_NEEDS_QUARTER");
+    if (intent.granularity==="hour" && new Set(selected.map(s=>`${s.state}|${s.stationId}`)).size>1) throw new QuarterRefused("HOUR_NEEDS_QUARTER",409,{conflicts:selected.map(s=>({shiftId:h.shiftId,startAt:new Date(s.startMs).toISOString(),endAt:new Date(s.endMs).toISOString(),reason:"MIXED_BASE"}))});
     if (+now>=hourStartMs && selected.some(s=>s.state==="assigned" && (intent.action!=="station" || intent.stationId!==s.stationId)) && !isValidMoveReason(intent.reason??"")) throw new QuarterRefused("REASON_REQUIRED",422);
     return {intent,h,key,startMs,endMs,selected};
   });
   const obligations=await db.staffBreak.findMany({where:{date:command.date,status:"booked"}});
   const overlays=await db.boardOverlay.findMany({where:{date:command.date,cancelledAt:null}});
   for (const w of windows.filter(w=>w.intent.granularity==="hour")) {
-    if (obligations.some(b=>[b.employeeId,b.coverEmployeeId,b.shuffleEmployeeId].includes(w.h.employeeId) && +b.startAt<w.endMs && +b.endAt>w.startMs) ||
-      overlays.some(o=>[o.employeeId,o.partnerEmployeeId].includes(w.h.employeeId) && +o.startAt<w.endMs && +o.endAt>w.startMs)) throw new QuarterRefused("HOUR_NEEDS_QUARTER");
+    const conflicts=[
+      ...obligations.filter(b=>[b.employeeId,b.coverEmployeeId,b.shuffleEmployeeId].includes(w.h.employeeId)).map(b=>({...b,reason:"SAVED_BREAK"})),
+      ...overlays.filter(o=>[o.employeeId,o.partnerEmployeeId].includes(w.h.employeeId)).map(o=>({...o,reason:"SAVED_MOVE"})),
+    ].filter(o=>+o.startAt<w.endMs&&+o.endAt>w.startMs).map(o=>({shiftId:w.h.shiftId,
+      startAt:new Date(Math.max(w.startMs,+o.startAt)).toISOString(),endAt:new Date(Math.min(w.endMs,+o.endAt)).toISOString(),reason:o.reason}));
+    if(conflicts.length)throw new QuarterRefused("HOUR_NEEDS_QUARTER",409,{conflicts});
   }
   const touched=new Set(windows.map(w=>w.key));
   const targets=windows.flatMap(w=>(w.intent.action==="station"?[w.intent.stationId]:w.intent.action==="family"?[...PAINT_FAMILIES[w.intent.family]]:[]).map(stationId=>({hourStartMs:w.h.hourStartMs,stationId})));
@@ -180,6 +184,6 @@ export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:
 }
 export async function paintV2(input:unknown,actor:CommandActor,now=new Date(),client=prisma):Promise<PaintReceipt> {
   if (Buffer.byteLength(canonical(input),"utf8")>2*1024*1024) throw new QuarterRefused("REQUEST_TOO_LARGE",413);
-  const command=paintCommandSchema.parse(input);
+  const command=parsePaintCommand(input);
   return quarterWrite(client,db=>applyPaintCommand(db,command,actor,now));
 }

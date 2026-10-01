@@ -56,6 +56,9 @@ describe("quarter foundation, isolated prepared migration and active transaction
   });
   it("prepared mode disables quarter writes but preserves the old hourly world",async()=>{
     const body=await command("shift-a","13:15",{action:"erase"});
+    const publicDay=await db.$transaction(tx=>readQuarterDay(tx,"caja",date,now));
+    expect(publicDay.hours.find(h=>h.shiftId==="shift-b")!.intervals.every(s=>s.seatNumber===2)).toBe(true);
+    expect((await db.assignment.findUnique({where:{id:"legacy-b"}}))!.seatNumber).toBeNull();
     await expect(paintV2(body,actor,now,db)).rejects.toMatchObject({code:"QUARTER_NOT_ACTIVE"});
     expect(assignedIntervals(await db.$transaction(tx=>resolvePaintWorld(tx,date))).filter(s=>s.employeeId==="a").length).toBe(4);
   });
@@ -84,7 +87,7 @@ describe("quarter foundation, isolated prepared migration and active transaction
   it("person/seat conflicts roll back adoption, audit and receipt",async()=>{
     const body=await command("shift-c","13:00",{action:"station",stationId:"green2"});
     const revision=await worldRevision(db);
-    await expect(paintV2(body,actor,now,db)).rejects.toMatchObject({code:"STATION_FULL"});
+    await expect(paintV2(body,actor,now,db)).rejects.toMatchObject({code:"STATION_FULL",status:409});
     expect(await worldRevision(db)).toBe(revision);
     expect((await db.$queryRawUnsafe<{n:bigint}[]>("SELECT COUNT(*) n FROM PaintHour WHERE shiftId='shift-c'"))[0].n).toBe(BigInt(0));
     expect((await db.$queryRawUnsafe<{n:bigint}[]>("SELECT COUNT(*) n FROM PaintCommandReceipt WHERE requestId=?",body.requestId))[0].n).toBe(BigInt(0));
@@ -115,7 +118,7 @@ describe("quarter foundation, isolated prepared migration and active transaction
   });
   it("mixed whole hour refuses; a partial source with uniform paint can use an hour command",async()=>{
     const body=await command("shift-a","13:00",{action:"station",stationId:"purple1"});
-    await expect(paintV2({...body,intents:[{...body.intents[0],granularity:"hour"}]},actor,now,db)).rejects.toMatchObject({code:"HOUR_NEEDS_QUARTER"});
+    await expect(paintV2({...body,intents:[{...body.intents[0],granularity:"hour"}]},actor,now,db)).rejects.toMatchObject({code:"HOUR_NEEDS_QUARTER",status:409,details:{conflicts:expect.arrayContaining([expect.objectContaining({shiftId:"shift-a",reason:"MIXED_BASE"})])}});
     const erase=await command("shift-a","13:00",{action:"erase"});await paintV2(erase,actor,now,db);
     const uniform=await command("shift-a","13:00",{action:"station",stationId:"purple1"});
     await paintV2({...uniform,intents:[{...uniform.intents[0],granularity:"hour"}]},actor,now,db);
@@ -129,6 +132,14 @@ describe("quarter foundation, isolated prepared migration and active transaction
     expect(day.schemaVersion).toBe(2);expect(day.hours.some(h=>h.revision!==null)).toBe(true);
     expect(quarterInstant(date,"13:15")).toBe(hour+900000);
     expect(()=>quarterInstant("2038-02-31","13:15")).toThrow("INVALID_QUARTER");
+  });
+  it("an active foundation needs the synthetic environment and oversized commands do not write",async()=>{
+    const saved=process.env.FLOOR_BOARDS_TEST_ROOT;
+    try {delete process.env.FLOOR_BOARDS_TEST_ROOT;await expect(assertArtifactCompatibility(db)).rejects.toMatchObject({code:"FOUNDATION_NOT_RECOVERY_ARTIFACT"});}
+    finally {process.env.FLOOR_BOARDS_TEST_ROOT=saved;}
+    const body=await command("shift-a","13:15",{action:"erase"}),revision=await worldRevision(db);
+    await expect(paintV2({...body,intents:Array.from({length:2001},()=>body.intents[0])},actor,now,db)).rejects.toMatchObject({status:413});
+    expect(await worldRevision(db)).toBe(revision);
   });
   it("schema drift refuses an idempotent migration instead of resetting the epoch",async()=>{
     await db.$executeRawUnsafe("DROP TRIGGER qv2_legacy_assignment_delete");

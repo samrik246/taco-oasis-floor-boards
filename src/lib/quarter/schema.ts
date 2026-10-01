@@ -6,7 +6,7 @@ import { QUARTER_MIGRATION } from "./migration-sql";
 
 export type QuarterDb = Prisma.TransactionClient;
 export class QuarterRefused extends Error {
-  constructor(readonly code: string, readonly status = 409) { super(code); }
+  constructor(readonly code: string, readonly status = 409, readonly details?: {expected?:string;actual?:string;conflicts?:{shiftId:string;startAt:string;endAt:string;reason:string}[]}) { super(code); }
 }
 export function canonical(value: unknown): string {
   if(value instanceof Date)return JSON.stringify(value.toISOString());

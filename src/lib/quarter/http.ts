@@ -5,7 +5,7 @@ import { QuarterRefused, requireLegacy } from "./schema";
 import { QUARTER_MEDIA_TYPE } from "./protocol";
 
 export function quarterError(error:unknown) {
-  if (error instanceof QuarterRefused) return NextResponse.json({ok:false,code:error.code,draftRetained:true},{status:error.status,headers:{"Cache-Control":"no-store"}});
+  if (error instanceof QuarterRefused) return NextResponse.json({ok:false,code:error.code,draftRetained:true,...error.details},{status:error.status,headers:{"Cache-Control":"no-store"}});
   if (error instanceof ZodError) return NextResponse.json({ok:false,code:"INVALID_V2_COMMAND",draftRetained:true},{status:422});
   throw error;
 }

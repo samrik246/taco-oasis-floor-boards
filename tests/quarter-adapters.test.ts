@@ -75,6 +75,31 @@ describe("quarter server adapters and data preservation",()=>{
   afterEach(async()=>{await db.$disconnect();});
   afterAll(()=>fs.rmSync(root,{recursive:true,force:true}));
 
+  it("an import cannot write while the release lease is held",async()=>{
+    await activate();
+    let release!:()=>void,entered!:()=>void;
+    const enteredPromise=new Promise<void>(resolve=>{entered=resolve;});
+    const held=withReleaseLease(async()=>{entered();await new Promise<void>(resolve=>{release=resolve;});});
+    await enteredPromise;
+    let completed=false;
+    const queued=importSchedule(schedule([{id:"new-import"}])).then(result=>{completed=true;return result;});
+    try{
+      await new Promise(resolve=>setTimeout(resolve,25));
+      expect(completed).toBe(false);expect(await db.importBatch.count()).toBe(0);expect(await db.shift.count()).toBe(0);
+    }finally{release();await held;}
+    const result=await queued;expect(result.rowCount).toBe(1);expect(await db.importBatch.count()).toBe(1);
+  });
+  it("legacy removal bytes convert only with an exact source and empty unadopted target",async()=>{
+    const source=await shift("legacy");
+    await db.shift.update({where:{id:source.id},data:{boardRemoved:true}});
+    const cellsJson=JSON.stringify([{id:"retained-legacy-cell",stationId:"purple1",hourStart:new Date(hour).toISOString(),hourEnd:new Date(hour+3600000).toISOString()}]);
+    const removal=await db.shiftRemoval.create({data:{shiftId:source.id,externalId:"legacy",date,board:"caja",sourcePosition:source.sourcePosition,startAt:source.startAt,endAt:source.endAt,cellsJson}});
+    await activate();
+    await removeRestoreV2(await removeCommand("legacy","restore","replay"),actor,now,db);
+    expect((await db.shiftRemoval.findUnique({where:{id:removal.id}}))!.cellsJson).toBe(cellsJson);
+    expect(assignedIntervals(await db.$transaction(tx=>resolvePaintWorld(tx,date))).reduce((n,s)=>n+s.endMs-s.startMs,0)).toBe(3600000);
+    expect(await db.assignment.count()).toBe(0);
+  });
   it("task suggestions use the requested interval without leaking ability scores",async()=>{
     await shift("a");await activate();await paint("a","13:00","purple1");await paint("a","13:15","purple2");
     await db.tareaTemplate.create({data:{id:"trash_runs",code:"TRASH",label:"Trash",board:"caja",mode:"anytime",sortOrder:1}});
