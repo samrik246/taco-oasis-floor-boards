@@ -1933,7 +1933,7 @@ export function FloorBoard() {
       )}
 
       {day && ["board", "schedule", "timeline"].includes(mainView) && <div className="px-3 pb-3 sm:px-4 sm:pb-4">
-        {mainView === "board" && <SavedCoverPanel day={day} locale={locale} />}
+        {mainView === "board" && <SavedCoverPanel day={day} locale={locale} includePrimary />}
         <AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} />
       </div>}
 

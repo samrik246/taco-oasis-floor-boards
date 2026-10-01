@@ -12,7 +12,7 @@ export const coverDisplaySchema = z.object({
   version: z.literal(1),
   tracks: z.array(z.object({
     shiftId: z.string(), employeeId: z.string(), firstName: z.string(), lastName: z.string(),
-    board: z.string(), startAt: z.iso.datetime(), endAt: z.iso.datetime(), segments: z.array(segmentSchema),
+    board: z.string(), sourcePosition: z.string(), startAt: z.iso.datetime(), endAt: z.iso.datetime(), segments: z.array(segmentSchema),
   })),
   unavailable: z.array(z.object({ id: z.string(), employeeId: z.string(), firstName: z.string(), lastName: z.string(), startAt: z.iso.datetime(), endAt: z.iso.datetime() })),
 });
@@ -22,7 +22,7 @@ export type CoverSegment = CoverTrack["segments"][number];
 type Station = z.infer<typeof stationSchema>;
 export type CoverDisplayShift = {
   id: string; employeeId: string; date: string; board: string; startAt: Date; endAt: Date;
-  supersededAt: Date | null; boardRemoved: boolean;
+  supersededAt: Date | null; boardRemoved: boolean; sourcePosition?: string;
   employee: { firstName: string; lastName: string };
   assignments: { stationId: string; hourStart: Date; hourEnd: Date }[];
 };
@@ -102,7 +102,7 @@ export function projectCoverDisplay(input: {
       movements.push({ start, end, shiftId: cover.id, station: dest.station, fromStation: origin.station });
       if (shuffle) {
         const second = position(shuffle, start, end);
-        if (!origin.station || origin.station.board !== b.board || origin.station.id === dest.station.id || second.ambiguous || second.overlay) { valid = false; break; }
+        if (!origin.station || origin.station.board !== b.board || origin.station.id === dest.station.id || second.ambiguous) { valid = false; break; }
         movements.push({ start, end, shiftId: shuffle.id, station: origin.station, fromStation: second.station });
       }
     }
@@ -129,7 +129,7 @@ export function projectCoverDisplay(input: {
       else segments.push(segment);
     }
     return { shiftId: s.id, employeeId: s.employeeId, firstName: s.employee.firstName, lastName: s.employee.lastName,
-      board: s.board, startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString(), segments };
+      board: s.board, sourcePosition: s.sourcePosition ?? "", startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString(), segments };
   });
   return coverDisplaySchema.parse({ version: 1, tracks, unavailable: relevant.filter(p => !p.valid).map(p => ({
     id: p.b.id, employeeId: p.b.employeeId, firstName: p.requester?.employee.firstName ?? "", lastName: p.requester?.employee.lastName ?? "",

@@ -1,7 +1,7 @@
 "use client";
 
 import { savedHourSegments } from "./cover-display";
-import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
+import { SavedCoverPanel, SavedCoverRows, SavedShiftHour } from "./SavedCoverDisplay";
 import { useMemo } from "react";
 import { hourGridHours, formatHourLabel, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
@@ -174,11 +174,12 @@ export function TimelinePanel({
                   })}
                 </tr>
               ))}
+              {day && <SavedCoverRows day={day} locale={locale} hours={hours} />}
             </tbody>
           </table>
         </div>
       )}
-      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} />}
+      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} rows={rows.length === 0} />}
     </section>
   );
 }

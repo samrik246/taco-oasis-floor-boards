@@ -1,4 +1,5 @@
 import { formatInTimeZone } from "date-fns-tz";
+import { isAuxiliaryPosition } from "@/lib/board/auxiliary";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoHourStart, formatCompactHour, hourGridHours } from "@/lib/hour-grid";
 import { boardDisplayName, displayStationLabel, type Locale } from "@/lib/i18n";
@@ -11,12 +12,12 @@ export const intervalLabel = (start: string, end: string) => `${formatInTimeZone
 const unavailableLabel = (locale: Locale) => locale === "es" ? "Detalle de cobertura no disponible" : "Cover detail unavailable";
 
 /** Geometry uses exact minute bounds, including factual partial shift minutes. */
-export function SavedHour({ day, hour, segments, locale }: { day: DayBoardDto; hour: number; segments: CoverSegment[]; locale: Locale }) {
+export function SavedHour({ day, hour, segments, locale, emptyLabel = "·" }: { day: DayBoardDto; hour: number; segments: CoverSegment[]; locale: Locale; emptyLabel?: string }) {
   const start = +chicagoHourStart(day.date, hour);
   return <span className="relative block h-14 w-full min-w-0 bg-white text-neutral-950" data-testid="saved-hour" data-hour={hour}>
     {segments.map((s, index) => {
       const away = s.kind === "cover" && s.station?.board !== day.board;
-      const station = s.station ? displayStationLabel(locale, s.station) : "·";
+      const station = s.station ? displayStationLabel(locale, s.station) : emptyLabel;
       const destination = s.station && s.station.board !== day.board ? `${boardDisplayName(locale, s.station.board === "caja" ? "caja" : "cocina")} · ${station}` : station;
       const label = s.kind === "break" ? "BREAK" : away ? `${locale === "es" ? "Fuera" : "Away"} → ${destination}` : s.kind === "cover" ? `${locale === "es" ? "Cubre" : "Cover"} · ${destination}` : destination;
       const time = intervalLabel(s.startAt, s.endAt);
@@ -46,10 +47,35 @@ export function SavedStationOccupants({ rows, locale, date, hour }: { rows: Stat
   </span>;
 }
 
-/** Separate read-only rows; never inserted into day.shifts, editable paint or headcounts. */
-export function SavedCoverPanel({ day, locale, hours = hourGridHours() }: { day: DayBoardDto; locale: Locale; hours?: number[] }) {
-  const tracks = (day.coverDisplay?.tracks ?? []).filter(t => !day.shifts.some(s => s.id === t.shiftId)
+/** Rendering a row never adds a primary shift or changes headcounts. */
+function coverTracks(day: DayBoardDto, includePrimary: boolean) {
+  return (day.coverDisplay?.tracks ?? []).filter(t => (includePrimary || !day.shifts.some(s => s.id === t.shiftId))
     && t.segments.some(s => s.kind === "cover" && (s.station?.board === day.board || s.fromStation?.board === day.board || t.board === day.board)));
+}
+
+/** Insert into the existing time table, so its hour boundaries remain aligned. */
+export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false }: {
+  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean;
+}) {
+  return <>{coverTracks(day, includePrimary).map(track => <tr key={track.shiftId} data-testid={`cover-row-${track.shiftId}`}>
+    <th className="sticky left-0 z-10 border-y border-neutral-300 bg-white px-2 py-1 text-left text-sm font-bold text-neutral-950" scope="row">
+      {track.firstName} {track.lastName}<span className="block text-[10px] font-normal">{locale === "es" ? "Cobertura guardada" : "Saved cover"}</span>
+    </th>
+    {leadingColumns === 2 && <td className="border-y border-neutral-300 bg-white px-1 text-center text-[10px] text-neutral-950">{intervalLabel(track.startAt, track.endAt)}</td>}
+    {hours.map(hour => {
+      const start = +chicagoHourStart(day.date, hour);
+      const segments = track.segments.flatMap(s => { const clip = clipSegment(s, start, start + 3600000); return clip ? [clip] : []; });
+      const auxiliary = isAuxiliaryPosition(track.sourcePosition) || (track.board !== "caja" && track.board !== "cocina");
+      return <td key={hour} className="border border-neutral-300 p-0.5"><SavedHour day={day} hour={hour} segments={segments} locale={locale} emptyLabel={auxiliary ? locale === "es" ? "REFUERZO" : "BACKUP" : "·"} /></td>;
+    })}
+  </tr>)}</>;
+}
+
+/** Notices plus a stand-alone grid where no primary time table is mounted. */
+export function SavedCoverPanel({ day, locale, hours = hourGridHours(), rows = true, includePrimary = false }: {
+  day: DayBoardDto; locale: Locale; hours?: number[]; rows?: boolean; includePrimary?: boolean;
+}) {
+  const tracks = rows ? coverTracks(day, includePrimary) : [];
   const missing = day.coverDisplay?.unavailable ?? [];
   const old = !day.coverDisplay && (day.breaks ?? []).some(b => b.coverEmployeeId);
   if (!tracks.length && !missing.length && !old) return null;
@@ -58,10 +84,6 @@ export function SavedCoverPanel({ day, locale, hours = hourGridHours() }: { day:
     {old && <p role="status">{unavailableLabel(locale)}</p>}
     {missing.map(b => <p role="status" key={b.id}>{`${b.firstName} ${b.lastName}`.trim()} · {intervalLabel(b.startAt, b.endAt)} · {unavailableLabel(locale)}</p>)}
     {tracks.length > 0 && <div className="overflow-x-auto"><table className="min-w-full border-collapse text-xs"><thead><tr><th className="sticky left-0 z-10 min-w-36 bg-white text-left">{locale === "es" ? "Persona" : "Person"}</th>{hours.map(h => <th key={h} className="min-w-[9rem]">{formatCompactHour(h)}</th>)}</tr></thead>
-      <tbody>{tracks.map(track => <tr key={track.shiftId} data-testid={`cover-row-${track.shiftId}`}><th className="sticky left-0 z-10 border-t bg-white text-left">{track.firstName} {track.lastName}</th>{hours.map(hour => {
-        const start = +chicagoHourStart(day.date, hour);
-        const segments = track.segments.flatMap(s => { const clip = clipSegment(s, start, start + 3600000); return clip ? [clip] : []; });
-        return <td key={hour} className="border p-0"><SavedHour day={day} hour={hour} segments={segments} locale={locale} /></td>;
-      })}</tr>)}</tbody></table></div>}
+      <tbody><SavedCoverRows day={day} locale={locale} hours={hours} includePrimary={includePrimary} /></tbody></table></div>}
   </section>;
 }

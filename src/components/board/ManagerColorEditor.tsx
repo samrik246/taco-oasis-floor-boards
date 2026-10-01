@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { formatCompactHour, formatHourLabel, hourGridHours, chicagoHourEnd, chicagoHourStart } from "@/lib/hour-grid";
 import { breakStripeLabel } from "@/lib/breaks/stripe-label";
 import { savedHourSegments } from "./cover-display";
-import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
+import { SavedCoverPanel, SavedCoverRows, SavedShiftHour } from "./SavedCoverDisplay";
 import { BreakStripe } from "@/components/breaks/BreakStripe";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 import { showDescansoButton } from "@/lib/breaks/picker-steps";
@@ -608,12 +608,12 @@ export function ManagerColorEditor({
                   {saved && edit && day && <span className="mt-1 block border-t text-[10px]">{locale === "es" ? "Guardado" : "Saved"}<SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /></span>}
                 </td>;
               })}
-            </tr>)}</tbody>
+            </tr>)}{day && <SavedCoverRows day={day} locale={locale} hours={hours} />}</tbody>
           </table>
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
       </div>
-      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} />}
+      {day && <SavedCoverPanel day={day} locale={locale} hours={hours} rows={rows.length === 0} />}
       {day && (
         <OverlayDayList
           day={day}

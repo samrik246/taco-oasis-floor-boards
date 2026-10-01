@@ -6,7 +6,7 @@ export async function loadCoverDisplay(board: string, date: string, now = new Da
   return prisma.$transaction(async db => {
     const [shifts, stations, bookings, overlays] = await Promise.all([
       db.shift.findMany({ where: { date }, select: {
-        id: true, employeeId: true, date: true, board: true, startAt: true, endAt: true, supersededAt: true, boardRemoved: true,
+        id: true, employeeId: true, date: true, board: true, sourcePosition: true, startAt: true, endAt: true, supersededAt: true, boardRemoved: true,
         employee: { select: { firstName: true, lastName: true } },
         assignments: { select: { stationId: true, hourStart: true, hourEnd: true } },
       } }),

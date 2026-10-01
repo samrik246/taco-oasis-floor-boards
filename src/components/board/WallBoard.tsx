@@ -211,7 +211,7 @@ export function WallBoard() {
         })}
       </div>
 
-      {day && <div className="px-6 pb-4"><SavedCoverPanel day={day} locale={locale} /><AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} /></div>}
+      {day && <div className="px-6 pb-4"><SavedCoverPanel day={day} locale={locale} includePrimary /><AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} /></div>}
 
       <footer className="px-6 pb-4 text-sm text-neutral-500">
         <Link href={`/?board=${board}`} data-testid="wall-exit" className="underline">

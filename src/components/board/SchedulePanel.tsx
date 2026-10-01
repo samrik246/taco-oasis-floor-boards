@@ -1,7 +1,7 @@
 "use client";
 
 import { savedHourSegments } from "./cover-display";
-import { SavedCoverPanel, SavedShiftHour } from "./SavedCoverDisplay";
+import { SavedCoverPanel, SavedCoverRows, SavedShiftHour } from "./SavedCoverDisplay";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import {
   buildScheduleGrid,
@@ -310,6 +310,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
                   ))}
                 </Fragment>
               ))}
+              {day && <SavedCoverRows day={day} locale={locale} hours={grid.hours} leadingColumns={2} />}
               <tr data-testid="schedule-manhours-row">
                 <th
                   colSpan={2}
@@ -331,7 +332,7 @@ export function SchedulePanel({ day, date, locale, t, now }: Props) {
           </table>
         </div>
       )}
-      {day && <SavedCoverPanel day={day} locale={locale} hours={grid?.hours} />}
+      {day && <SavedCoverPanel day={day} locale={locale} hours={grid?.hours} rows={peopleCount === 0} />}
     </section>
   );
 }

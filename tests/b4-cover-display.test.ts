@@ -151,3 +151,18 @@ describe("public cache and proportional consumers", () => {
     expect(slicesForDay(day, at("12:00 pm")).slices[24].seats).not.toContainEqual(expect.objectContaining({ employeeId: "Dan" }));
   });
 });
+
+it("keeps the origin away/return row on station and wall layouts even for a primary mover", () => {
+  const input = fixture(); input.shifts[1] = shift("Dan", "cocina", "pdf_tq1r");
+  const day = dayFrom(input, "cocina");
+  const host = document.createElement("div"); host.innerHTML = renderToStaticMarkup(createElement(SavedCoverPanel, { day, locale: "en", includePrimary: true }));
+  const row = host.querySelector('[data-testid="cover-row-Dan-shift"]'); expect(row?.textContent).toContain("Dan Example");
+  expect(row?.querySelector('[data-hour="13"] [data-away="1"]')?.textContent).toContain("Away");
+  expect(row?.querySelector('[data-hour="13"] [data-kind="work"]')).not.toBeNull();
+});
+it("projects the recorded Shuffle second mover from its effective saved overlay", () => {
+  const input = fixture(); input.shifts[1] = shift("Dan", "caja", "green1"); input.shifts.push(shift("Robin", "caja", "green2"));
+  Object.assign(input.bookings[0], { shuffleEmployeeId: "Robin", shuffleShiftId: "Robin-shift" });
+  input.overlays.push({ board: "caja", kind: "switch", employeeId: "Robin", partnerEmployeeId: null, stationId: "blue", fromStationId: "green2", startAt: at("1:00 pm"), endAt: at("2:00 pm"), cancelledAt: null });
+  expect(moves(input).find(m => m.employeeId === "Robin")).toMatchObject({ station: { id: "green1" }, fromStation: { id: "blue" } });
+});
