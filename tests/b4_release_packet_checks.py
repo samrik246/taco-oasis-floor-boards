@@ -37,12 +37,15 @@ def packet(root):
     root.mkdir(); (root / 'tools').mkdir()
     for name in a.TOOLS:
         shutil.copy2(SCRIPTS / name, root / 'tools' / name)
-    manifest = {'version': 1, 'tools': {n: a.digest(root / 'tools' / n) for n in a.TOOLS}, 'releases': {}}
+    manifest = {'version': 2, 'tools': {n: a.digest(root / 'tools' / n) for n in a.TOOLS}, 'releases': {}}
     for label, sha in [('old', 'a'*40), ('new', 'b'*40)]:
         runtime(root / label, sha)
         (root / (label + '.tgz')).write_bytes(b'synthetic archive; never extracted in these tests')
         a.write_json(root / (label + '-files.json'), a.inventory(root / label))
         manifest['releases'][label] = {'sha': sha, 'archiveSha256': a.digest(root / (label + '.tgz')), 'inventorySha256': a.digest(root / (label + '-files.json'))}
+    old_files = json.loads((root / 'old-files.json').read_text())
+    a.write_json(root / 'prior-installed-modes.json', {'oldSha': 'a'*40, 'files': {p: state['mode'] for p, state in old_files.items() if not p.startswith('node_modules/')}})
+    manifest['priorModesSha256'] = a.digest(root / 'prior-installed-modes.json')
     a.write_json(root / 'manifest.json', manifest)
     return root
 
@@ -86,7 +89,7 @@ class PacketTests(unittest.TestCase):
         with self.assertRaises(ValueError): a.inventory(self.root / 'linked')
     def test_tamper_is_rejected(self):
         p = packet(self.root / 'packet'); a.verify(p)
-        for name in ['tools/b4_release.py', 'old.tgz', 'new-files.json', 'new/public/example.txt']:
+        for name in ['tools/b4_release.py', 'old.tgz', 'new-files.json', 'new/public/example.txt', 'prior-installed-modes.json']:
             target = p / name; before = target.read_bytes(); target.write_bytes(before + b'tampered')
             with self.assertRaises((ValueError, json.JSONDecodeError)): a.verify(p)
             target.write_bytes(before)
@@ -127,6 +130,31 @@ class PacketTests(unittest.TestCase):
         with self.assertRaises(ValueError): a.promote(stage, app, self.root / 'retired')
         self.assertEqual((app / 'public/example.txt').read_bytes(), before)
         self.assertEqual(list(outside.iterdir()), [])
+    def test_prior_modes_are_explicit_and_do_not_relax_artifacts_or_promotion(self):
+        p = packet(self.root / 'packet'); app = self.root / 'app'; a.copy_runtime(p / 'old', app)
+        baseline = json.loads((p / 'prior-installed-modes.json').read_text())
+        for rel in baseline['files']:
+            baseline['files'][rel] = 0o700 if rel in ('scripts/home-base.sh','scripts/release-lock.sh') else 0o600
+            (app / rel).chmod(baseline['files'][rel])
+        a.write_json(p / 'prior-installed-modes.json', baseline)
+        manifest = json.loads((p / 'manifest.json').read_text()); manifest['priorModesSha256'] = a.digest(p / 'prior-installed-modes.json'); a.write_json(p / 'manifest.json',manifest)
+        a.verify(p)
+        with self.assertRaises(ValueError): r.verify_live_runtime(app,p,'old',dependencies=False)
+        r.verify_live_runtime(app,p,'old',dependencies=False,prior_installed=True)
+        target = app / 'public/example.txt'; original = target.read_bytes()
+        self.assertEqual(target.stat().st_mode & 0o777,0o600)
+        target.chmod(0o644)
+        with self.assertRaises(ValueError): r.verify_live_runtime(app,p,'old',dependencies=False,prior_installed=True)
+        target.chmod(0o600); target.write_bytes(b'changed')
+        with self.assertRaises(ValueError): r.verify_live_runtime(app,p,'old',dependencies=False,prior_installed=True)
+        target.write_bytes(original)
+        with self.assertRaises(ValueError): r.verify_live_runtime(app,p,'new',dependencies=False,prior_installed=True)
+        incoming = self.root / 'incoming'; a.copy_runtime(p / 'new',incoming); a.promote(incoming,app,self.root / 'retired')
+        r.verify_live_runtime(app,p,'new')
+        target.chmod(0o600)
+        with self.assertRaises(ValueError): r.verify_live_runtime(app,p,'new')
+        (p / 'old/public/example.txt').chmod(0o600)
+        with self.assertRaises(ValueError): a.verify(p)
     def test_guard_detects_protected_changes(self):
         db = self.root / 'data/state.db'; database(db); before = r.guard(db)
         with sqlite3.connect(db) as conn: conn.execute("UPDATE StaffBreak SET status='booked'")

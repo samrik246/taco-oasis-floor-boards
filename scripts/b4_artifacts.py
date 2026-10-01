@@ -184,14 +184,15 @@ def pack(repo, receipt, output):
     return {'sha': head, 'archive': str(output), 'sha256': digest(output)}
 
 
-def prepare(packet, old_archive, new_archive, source):
+def prepare(packet, old_archive, new_archive, source, prior_modes):
     packet = Path(packet).resolve()
     packet.mkdir()
     tools = packet / 'tools'
     tools.mkdir()
     for name in TOOLS:
         shutil.copy2(Path(source) / 'scripts' / name, tools / name)
-    manifest = {'version': 1, 'cacheExclusions': ['.next/cache/**'], 'releases': {},
+    shutil.copy2(prior_modes, packet / 'prior-installed-modes.json')
+    manifest = {'version': 2, 'priorModesSha256': digest(packet / 'prior-installed-modes.json'), 'cacheExclusions': ['.next/cache/**'], 'releases': {},
                 'tools': {name: digest(tools / name) for name in TOOLS}}
     with heavy(), (packet / 'prepare.log').open('x') as log:
         for label, origin in [('old', old_archive), ('new', new_archive)]:
@@ -215,15 +216,32 @@ def prepare(packet, old_archive, new_archive, source):
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
     if head != manifest['releases']['new']['sha'] or subprocess.check_output(['git', 'status', '--porcelain'], cwd=source, text=True).strip():
         raise ValueError('Prepared tools must come from the exact clean candidate')
+    prior_permissions(packet, manifest)
     write_json(packet / 'manifest.json', manifest)
     return manifest
+
+
+def prior_permissions(packet, manifest):
+    """Pinned installed permission baseline, only for the old non-dependency preflight."""
+    path = packet / 'prior-installed-modes.json'
+    if digest(path) != manifest['priorModesSha256']:
+        raise ValueError('Prior installed permission baseline changed')
+    baseline = json.loads(path.read_text())
+    expected = json.loads((packet / 'old-files.json').read_text())
+    paths = {rel for rel in expected if not rel.startswith('node_modules/')}
+    if baseline['oldSha'] != manifest['releases']['old']['sha'] or set(baseline['files']) != paths:
+        raise ValueError('Prior permission baseline does not match the pinned old release/files')
+    if any(type(mode) is not int or mode < 0 or mode > 0o777 for mode in baseline['files'].values()):
+        raise ValueError('Invalid prior permission mode')
+    return baseline['files']
 
 
 def verify(packet):
     packet = Path(packet).resolve(strict=True)
     manifest = json.loads((packet / 'manifest.json').read_text())
-    if manifest['version'] != 1 or set(manifest['tools']) != set(TOOLS):
+    if manifest['version'] != 2 or set(manifest['tools']) != set(TOOLS):
         raise ValueError('Unsupported packet')
+    prior_permissions(packet, manifest)
     for name, expected in manifest['tools'].items():
         if digest(packet / 'tools' / name) != expected:
             raise ValueError('Packet tool changed: ' + name)

@@ -22,7 +22,7 @@ sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
 if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
     raise ValueError('Packet bytecode prefix must remain absent')
 from b4_artifacts import (NEST, RUNTIME, clean_env, copy_runtime, digest,
-                          pack, prepare, promote, verify, write_json)
+                          pack, prepare, prior_permissions, promote, verify, write_json)
 
 APP = NEST / 'COLOR_BOARDS_APP'
 DATABASE = APP / 'var/data/floor-boards.db'
@@ -79,8 +79,11 @@ def require_preserved(before, after):
         raise ValueError('Database identity or protected state changed')
 
 
-def verify_live_runtime(app, packet, label, dependencies=True):
+def verify_live_runtime(app, packet, label, dependencies=True, prior_installed=False):
     """Compare managed files only; never walk live var or inspect .env."""
+    if prior_installed and (label != 'old' or dependencies):
+        raise ValueError('Installed baseline is only valid for the old non-dependency preflight')
+    modes = prior_permissions(packet, json.loads((packet / 'manifest.json').read_text())) if prior_installed else {}
     expected = json.loads((packet / (label + '-files.json')).read_text())
     for rel, state in expected.items():
         if not dependencies and rel.startswith("node_modules/"):
@@ -89,7 +92,7 @@ def verify_live_runtime(app, packet, label, dependencies=True):
         if 'link' in state:
             if not path.is_symlink() or os.readlink(path) != state['link'] or not path.resolve().is_relative_to(app):
                 raise ValueError('Installed dependency link mismatch: ' + rel)
-        elif not path.is_file() or path.is_symlink() or digest(path) != state['sha256'] or (path.stat().st_mode & 0o7777) != state['mode']:
+        elif not path.is_file() or path.is_symlink() or digest(path) != state['sha256'] or (path.stat().st_mode & 0o7777) != modes.get(rel, state['mode']):
             raise ValueError('Installed asset mismatch: ' + rel)
     return len(expected)
 
@@ -192,7 +195,7 @@ def cutover(packet, operation):
     run.mkdir()
     record(run, 'starting', operation=operation, packet=str(packet), prior=live_sha, pid=os.getpid(), lockParent=os.getppid())
     if operation == 'install':
-        verify_live_runtime(APP, packet, 'old', dependencies=False)
+        verify_live_runtime(APP, packet, 'old', dependencies=False, prior_installed=True)
     if DATABASE.resolve() != DATABASE:
         raise ValueError('Database path must match the reviewed fixed installation path')
     env_before = metadata(APP / '.env')
@@ -268,13 +271,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('pack'); p.add_argument('--source', required=True); p.add_argument('--build-receipt', required=True); p.add_argument('--output', required=True)
-    p = sub.add_parser('prepare'); p.add_argument('--packet', required=True); p.add_argument('--old', required=True); p.add_argument('--new', required=True); p.add_argument('--source', required=True)
+    p = sub.add_parser('prepare'); p.add_argument('--packet', required=True); p.add_argument('--old', required=True); p.add_argument('--new', required=True); p.add_argument('--source', required=True); p.add_argument('--prior-modes', required=True)
     p = sub.add_parser('verify'); p.add_argument('--packet', required=True)
     p = sub.add_parser('cutover'); p.add_argument('--packet', required=True); p.add_argument('--operation', choices=['install', 'rollback'], required=True)
     p = sub.add_parser('attest'); p.add_argument('--run', required=True); p.add_argument('--verdict', choices=['pass', 'fail'], required=True); p.add_argument('--evidence', required=True)
     args = parser.parse_args()
     if args.command == 'pack': result = pack(args.source, args.build_receipt, args.output)
-    elif args.command == 'prepare': result = prepare(args.packet, args.old, args.new, args.source)
+    elif args.command == 'prepare': result = prepare(args.packet, args.old, args.new, args.source, args.prior_modes)
     elif args.command == 'verify': result = verify(args.packet)
     elif args.command == 'cutover': result = cutover(args.packet, args.operation)
     else: result = attest(args.run, args.verdict, args.evidence)
