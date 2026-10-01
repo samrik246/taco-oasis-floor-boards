@@ -130,7 +130,8 @@ export class ReceiptWorkerSupervisor {
       await this.record({ adapter_worker: "unavailable", generation, pid: child.pid, owned_worker: 1 });
       if (epoch !== this.epoch) throw new HistoryUnavailable();
       const startBytes = line({ schema: "receipt-adapter-start/v1", generation, config_sha256: configHash }, LIMITS.header);
-      const [raw] = await bounded(Promise.all([ready, child.write(startBytes)]), 10000);
+      const startupWrite = new Promise<void>((resolve) => resolve(child.write(startBytes)));
+      const [raw] = await bounded(Promise.all([ready, startupWrite]), 10000);
       const checked = raw as ReturnType<ReadyCollector["push"]>;
       if (!checked || checked.generation !== generation || checked.pid !== child.pid || checked.config_sha256 !== configHash || checked.engine_sha !== config.engine_sha || checked.application_inventory_sha256 !== config.application_inventory_sha256 || epoch !== this.epoch) throw new Error("ready identity");
       this.startup = null;
@@ -180,7 +181,10 @@ export class ReceiptWorkerSupervisor {
         try {
           const bytes = entry.prepared.dispatch(this.dependencies.utcNow());
           const checkedReply = reply.then(async (frame) => { await entry.prepared.validate(frame); return frame; });
-          const [frame] = await bounded(Promise.all([checkedReply, child.write(bytes)]), 10000);
+          // Promise construction captures synchronous write throws so both failure
+          // branches are observed by the aggregate before retirement can run.
+          const write = new Promise<void>((resolve) => resolve(child.write(bytes)));
+          const [frame] = await bounded(Promise.all([checkedReply, write]), 10000);
           if (epoch !== this.epoch || this.state.adapter_worker !== "ok" || frame.header.status === "unknown") throw new UnknownCompletion();
           this.active = null;
           entry.resolve(frame);
