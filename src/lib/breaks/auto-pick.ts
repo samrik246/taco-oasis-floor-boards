@@ -254,7 +254,8 @@ function namedCoverFirst(
   if (binding.state === "lost") return null;
   const handoff = binding.state === "live" ? binding.overlay : null;
   if (handoff && !overlayCoversWindow(handoff, startAt, endAt)) return null;
-  const shift = shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
+  const shift = world.canonical?world.shifts.find(s=>s.id===row.coverShiftId&&s.employeeId===row.coverEmployeeId&&!s.superseded&&!s.boardRemoved&&s.startAt<=startAt&&s.endAt>=endAt)
+    :shiftCovering(world.shifts, row.coverEmployeeId, startAt, endAt, board);
   if (!shift) return null;
   const star = assessStarGate({
     canonical:world.canonical,requesterShiftId:row.shiftId,

@@ -6,6 +6,8 @@ import { chicagoDateTime } from "../src/lib/time";
 import type { DayBoardDto, ShiftDto } from "../src/components/board/types";
 const date=formatInTimeZone(new Date(),"America/Chicago","yyyy-MM-dd");
 const at=(time:string)=>chicagoDateTime(date,time).toISOString();
+// Drain successful in-flight fixture responses before Playwright closes the page.
+test.afterEach(async({page})=>{await page.unrouteAll({behavior:"wait"});});
 for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] as const){
  test(`${board} ${locale}: backup, Pintar counts, page palette and press feedback`,async({page})=>{
   await page.setViewportSize({width:1280,height:800});
@@ -61,7 +63,8 @@ for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] a
   const refresh=page.getByTestId("refresh-day");await refresh.scrollIntoViewIfNeeded();
   const box=await refresh.boundingBox();await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);await page.mouse.down();
   expect(await refresh.evaluate(element=>getComputedStyle(element).filter)).toBe("brightness(0.78)");
-  await page.mouse.up();
+  const refreshed=page.waitForResponse(response=>response.url().includes(`/api/boards/${board}/days/`)&&response.ok());
+  await page.mouse.up();await refreshed;
   await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:path.join(screens,`${board}_${locale}_pintar.png`),fullPage:true});
   expect(writes).toBe(0);
  });

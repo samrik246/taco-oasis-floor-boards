@@ -14,7 +14,7 @@ const reason={reason:z.string().max(200).optional(),moveNote:z.string().max(2000
 export const operationSchema=z.discriminatedUnion("operation",[
   envelope.extend({operation:z.literal("whole-shift"),shiftId:z.string().min(1),stationId:z.string().min(1).nullable(),...reason}),
   envelope.extend({operation:z.literal("swap"),leftShiftId:z.string().min(1),rightShiftId:z.string().min(1),quarter:z.string(),granularity:z.enum(["hour","quarter"]),...reason}),
-  envelope.extend({operation:z.literal("copy"),sourceDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),sourceSources:z.array(sourceExpectation),sourceHours:z.array(hourExpectation),
+  envelope.extend({operation:z.literal("copy"),sourceDate:z.iso.date(),sourceSources:z.array(sourceExpectation),sourceHours:z.array(hourExpectation),
     mode:z.enum(["preview","commit"]),previewSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
     mapping:z.array(z.strictObject({fromShiftId:z.string().min(1),toShiftId:z.string().min(1)})).min(1).max(500)}),
 ]);
@@ -29,6 +29,7 @@ export async function operateV2(input:unknown,actor:CommandActor,now=new Date(),
     if(prior){if(prior.requestSha256!==hash||prior.databaseEpoch!==op.expected.databaseEpoch)throw new QuarterRefused("REQUEST_ID_REUSE");return JSON.parse(prior.responseJson) as PaintReceipt;}
     if(op.capabilitySha256!==CAPABILITY_SHA256)throw new QuarterRefused("CAPABILITY_CHANGED");
     const before=await resolvePaintWorld(db,op.date);checkExpectations(op,before);
+    projectSeatNumbers(before);
     const base={protocol:op.protocol,requestId:op.requestId,capabilitySha256:op.capabilitySha256,board:op.board,date:op.date,expected:op.expected,
       sources:op.sources,hours:op.hours,...(op.draftSubmission?{draftSubmission:op.draftSubmission}:{})};
     if(op.operation!=="copy") {

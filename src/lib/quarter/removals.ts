@@ -6,7 +6,7 @@ import { reconcileSource } from "./reconcile";
 import { quarterWrite,receiptFor,persistHour,replaceHourSegments,recordMutation,type CommandActor } from "./transaction";
 import { validatePaintWorld,validateObligations,projectSeatNumbers,peerHours } from "./validation";
 
-export const removalCommandSchema=z.strictObject({protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.string(),board:z.enum(["caja","cocina"]),
+export const removalCommandSchema=z.strictObject({protocol:z.literal(2),requestId:z.string().min(1).max(160),capabilitySha256:z.string(),date:z.iso.date(),board:z.enum(["caja","cocina"]),
   expected:z.strictObject({databaseEpoch:z.string(),worldRevision:z.string(),sourceSha256:z.string(),removalRevision:z.number().int().nonnegative()}),
   shiftId:z.string().min(1),operation:z.enum(["remove","restore"]),positions:z.enum(["replay","none"]).optional(),reason:z.string().trim().min(1).max(2000)});
 type Snapshot={version:2;source:ReturnType<typeof sourceSnapshot>;hours:{before:PaintHour;postRevision:string|null}[]};

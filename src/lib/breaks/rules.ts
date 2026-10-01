@@ -440,8 +440,11 @@ async function writeBreak(
         throw new BreakRefused("BAD_COVER");
       }
     }
+    const selectedCover=requestedCover?listedCover(covers,requestedCover,requestedShuffle):null;
     const star = assessStarGate({
-      canonical:world.canonical,
+      canonical:world.canonical,requesterShiftId:decision.shiftId,
+      coverShiftId:selectedCover?.kind==="simple"?selectedCover.shiftId:selectedCover?.moves[0].shiftId,
+      shuffleShiftId:selectedCover?.kind==="shuffle"?selectedCover.moves[1].shiftId:null,
       date: input.date,
       board: decision.board as SliceBoard,
       employeeId: input.employeeId,

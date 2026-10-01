@@ -75,6 +75,19 @@ describe("quarter server adapters and data preservation",()=>{
   afterEach(async()=>{await db.$disconnect();});
   afterAll(()=>fs.rmSync(root,{recursive:true,force:true}));
 
+  it("500 source hours expand to 2000 quarter intents and commit as one receipt",async()=>{
+    const ids=Array.from({length:500},(_,n)=>`bulk-${String(n).padStart(3,"0")}`);
+    await db.station.create({data:{id:"bulk-station",board:"caja",label:"Synthetic capacity",color:"green",sortOrder:50,maxConcurrent:-1}});
+    await db.employee.createMany({data:ids.map(id=>({id,externalId:id,firstName:id,lastName:"Synthetic"}))});
+    await db.shift.createMany({data:ids.map(id=>({id:`source-${id}`,employeeId:id,date,board:"caja",sourcePosition:"Synthetic",startAt:new Date(hour),endAt:new Date(hour+3600000)}))});
+    await activate();
+    const command={...await envelope(),intents:ids.flatMap(id=>["13:00","13:15","13:30","13:45"].map(quarter=>({shiftId:`source-${id}`,quarter,action:"station",stationId:"bulk-station"})))};
+    const result=await paintV2(command,actor,now,db);expect(result.hours).toHaveLength(500);
+    const counts=await db.$queryRawUnsafe<{hours:bigint;segments:bigint;receipts:bigint}[]>("SELECT (SELECT COUNT(*) FROM PaintHour) hours,(SELECT COUNT(*) FROM PaintSegment) segments,(SELECT COUNT(*) FROM PaintCommandReceipt) receipts");
+    expect(counts[0]).toEqual({hours:BigInt(500),segments:BigInt(2000),receipts:BigInt(1)});
+    expect(await paintV2(command,actor,now,db)).toEqual(result);
+    expect(await db.assignment.count()).toBe(0);
+  },60000);
   it("an import cannot write while the release lease is held",async()=>{
     await activate();
     let release!:()=>void,entered!:()=>void;
@@ -124,6 +137,21 @@ describe("quarter server adapters and data preservation",()=>{
     const later=await paint("a","13:30","purple2");
     expect(await paintV2(winner,actor,now,db)).toEqual(replay);
     expect(later.committedRevision).not.toBe(replay.committedRevision);
+  });
+  it("copy reserves an untouched legacy peer's displayed number before assigning its newcomer",async()=>{
+    await shift("origin");const tomorrow=+chicagoHourStart(nextDate,13);
+    await shift("destination",{date:nextDate,start:tomorrow,end:tomorrow+3600000});
+    const peer=await shift("peer",{date:nextDate,start:tomorrow,end:tomorrow+3600000});
+    await db.assignment.create({data:{id:"legacy-peer",shiftId:peer.id,employeeId:peer.employeeId,stationId:"green2",hourStart:new Date(tomorrow),hourEnd:new Date(tomorrow+3600000)}});
+    await activate();await paint("origin","13:00","green1");
+    const source=await envelope(),destination=await envelope(nextDate);
+    const op={...destination,operation:"copy",sourceDate:date,sourceSources:source.sources,sourceHours:source.hours,mapping:[{fromShiftId:"source-origin",toShiftId:"source-destination"}],mode:"preview"};
+    const preview=await operateV2(op,actor,now,db);
+    await operateV2({...op,mode:"commit",previewSha256:"previewSha256" in preview?preview.previewSha256:undefined},actor,now,db);
+    const after=await db.$transaction(tx=>resolvePaintWorld(tx,nextDate));
+    expect(after.hours.find(h=>h.shiftId===peer.id)!.segments.every(s=>s.seatNumber===1)).toBe(true);
+    expect(assignedIntervals(after).filter(s=>s.shiftId==="source-destination").every(s=>s.seatNumber===2)).toBe(true);
+    expect((await db.assignment.findUnique({where:{id:"legacy-peer"}}))!.seatNumber).toBeNull();
   });
   it("copy requires its exact preview, clips factual minutes and never overwrites an adopted target",async()=>{
     await shift("a");const target=+chicagoHourStart(nextDate,13);await shift("b",{date:nextDate,start:target,end:target+1200000});await activate();

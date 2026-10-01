@@ -19,7 +19,7 @@ export function describeBreakCover(
   const resting = input.breaks.filter(row => row.employeeId !== input.employeeId);
   const base = { ...input, now: input.startAt, stations: input.starStationIds.map(id => ({ id })), breaks: resting, overlays: input.overlays ?? [] };
   const before = buildDaySlices(base);
-  const other = buildDaySlices({ ...base, board: input.board === "caja" ? "cocina" : "caja", overlays: otherBoardOverlays });
+  const other = buildDaySlices({ ...base, board: input.board === "caja" ? "cocina" : "caja", overlays: input.canonical?base.overlays:otherBoardOverlays });
   const shift = input.shifts.find(row => row.employeeId === input.employeeId && row.board === input.board
     && !row.superseded && !row.boardRemoved && row.startAt <= input.startAt && row.endAt >= input.endAt);
   if (!shift) return { ...cover, positions: [] };

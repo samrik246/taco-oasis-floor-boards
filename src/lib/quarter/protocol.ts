@@ -22,7 +22,7 @@ export const intentSchema = z.discriminatedUnion("action",[
   z.strictObject({ ...intentBase, action:z.literal("family"), family:z.custom<PaintFamily>(isPaintFamily) }),
 ]);
 export const paintCommandSchema = z.strictObject({ protocol:z.literal(2), requestId:id, capabilitySha256:hash,
-  board:z.enum(["caja","cocina"]), date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  board:z.enum(["caja","cocina"]), date:z.iso.date(),
   expected:z.strictObject({ databaseEpoch:id, worldRevision:revision }),
   draftSubmission:z.strictObject({ episodeId:id,generationId:id,generationSha256:hash }).optional(),
   sources:z.array(sourceExpectation).min(1).max(500), hours:z.array(hourExpectation).min(1).max(500), intents:z.array(intentSchema).min(1).max(2000) });
