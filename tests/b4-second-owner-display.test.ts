@@ -41,10 +41,10 @@ describe("second owner cover explanations", () => {
     expect(positions[1]).toMatchObject({ startAt: at("2:15 pm").toISOString(), vacatedStationId: stars[1], moves: [{ fromStationId: "pdf_tf2r", toStationId: stars[1] }] });
   });
   it("uses the other board's effective seat and saved label", () => {
-    const input = { ...base, shifts: [shift("Mara"), shift("Luz"), shift("Sol", "caja")], paints: [...base.paints, paint("Sol", "green2")],
+    const input = { ...base, shifts: [shift("Mara"), shift("Luz"), shift("Sol", "caja"), shift("Rio", "caja")], paints: [...base.paints, paint("Sol", "green2"), paint("Rio", "purple2")],
       overlays: [] };
     const cover = listBreakCovers(input).find(c => c.kind === "simple")!;
-    const positions = describeBreakCover(input, cover, [{ id: "other-add", kind: "add", employeeId: "Sol", stationId: "purple2", startAt: at("2:15 pm"), endAt: at("2:30 pm") }]).positions;
+    const positions = describeBreakCover(input, cover, [{ id: "other-switch", kind: "switch", employeeId: "Sol", partnerEmployeeId: "Rio", fromStationId: "green2", stationId: "purple2", startAt: at("2:15 pm"), endAt: at("2:30 pm") }]).positions;
     expect(positions[0].moves[0]).toMatchObject({ fromStationId: "green2", toStationId: stars[0] });
     expect(positions[1].moves[0]).toMatchObject({ fromStationId: "purple2", toStationId: stars[0] });
     expect(boardStationLabel("en", stars[0], [{ id: stars[0], label: "Custom station" }])).toBe("Custom station");
