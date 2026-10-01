@@ -2,6 +2,8 @@
 import contextlib
 import io
 import json
+import importlib.util
+import py_compile
 import os
 from pathlib import Path
 import shutil
@@ -90,6 +92,23 @@ class PacketTests(unittest.TestCase):
             with self.assertRaises((ValueError, json.JSONDecodeError)): a.verify(p)
             target.write_bytes(before)
         a.verify(p)
+    def test_stale_matching_bytecode_is_never_loaded(self):
+        p = packet(self.root / 'packet')
+        source = p / 'tools/b4_artifacts.py'; actual = source.read_bytes()
+        cache = Path(importlib.util.cache_from_source(str(source), optimization=''))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        malicious = b"raise RuntimeError('stale packet bytecode executed')\n#"
+        source.write_bytes(malicious + b' ' * (len(actual) - len(malicious)))
+        os.utime(source, (1700000000, 1700000000))
+        py_compile.compile(str(source), cfile=str(cache), doraise=True)
+        source.write_bytes(actual); os.utime(source, (1700000000, 1700000000))
+        result = subprocess.run([sys.executable, '-B', str(p / 'tools/b4_release.py'), 'verify', '--packet', str(p)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(cache.exists())  # retained, never deleted as a workaround
+        (p / 'tools/.no-bytecode-cache').mkdir()
+        refused = subprocess.run([sys.executable, '-B', str(p / 'tools/b4_release.py'), 'verify', '--packet', str(p)], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('prefix must remain absent', refused.stderr)
     def test_promotion_preserves_environment_data_and_unknown_files(self):
         app = self.root / 'app'; runtime(app, 'a'*40)
         (app / '.env').write_text('synthetic sentinel')

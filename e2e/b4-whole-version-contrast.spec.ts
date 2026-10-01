@@ -8,6 +8,7 @@ import type { DayBoardDto } from "../src/components/board/types";
 const date = formatInTimeZone(new Date(), "America/Chicago", "yyyy-MM-dd");
 for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en"] as const) for (const scheme of ["light", "dark"] as const) {
   test(`${board} ${locale} ${scheme}: occupied names contrast on light and dark tiles`, async ({ page }) => {
+    page.setDefaultTimeout(15_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.emulateMedia({ colorScheme: scheme });
     await page.clock.install({ time: chicagoDateTime(date, "9:30 am") });
@@ -28,6 +29,7 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
       await route.fulfill({ response, json: { ...original, stations, shifts, auxiliaryShifts: [], overlays: [], breaks: [], returnPrompts: [] } });
     });
     await page.goto(`/?board=${board}`);
+    await page.getByTestId("toolbar-more").click();
     await page.getByTestId("view-toggle-board").click();
     await expect(page.getByTestId("station-grid")).toBeVisible();
     const observations = [];

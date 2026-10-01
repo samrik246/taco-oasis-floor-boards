@@ -9,8 +9,15 @@ from pathlib import Path
 import socket
 import sqlite3
 import subprocess
+import sys
 import time
 import uuid
+# -B alone prevents writes, not reads of previously cached application bytecode.
+# Use a deliberately absent prefix before importing any packet module.
+sys.dont_write_bytecode = True
+sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
+if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
+    raise ValueError('Packet bytecode prefix must remain absent')
 from b4_artifacts import clean_env, copy_runtime, digest, heavy, promote, verify, write_json
 from b4_release import guard, require_preserved, verify_live_runtime
 

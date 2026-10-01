@@ -10,10 +10,17 @@ import re
 import signal
 import sqlite3
 import subprocess
+import sys
 import time
 import uuid
 import urllib.request
 from zoneinfo import ZoneInfo
+# -B alone prevents writes, not reads of previously cached application bytecode.
+# Use a deliberately absent prefix before importing any packet module.
+sys.dont_write_bytecode = True
+sys.pycache_prefix = str(Path(__file__).resolve().parent / '.no-bytecode-cache')
+if Path(sys.pycache_prefix).exists() or Path(sys.pycache_prefix).is_symlink():
+    raise ValueError('Packet bytecode prefix must remain absent')
 from b4_artifacts import (NEST, RUNTIME, clean_env, copy_runtime, digest,
                           pack, prepare, promote, verify, write_json)
 
@@ -219,7 +226,10 @@ def cutover(packet, operation):
             raise ValueError('Configuration or import timer changed')
         service(packet, 'start', run)
         service(packet, 'status', run)
-        record(run, 'operator-readback', release=manifest['releases'][label]['sha'], public=public_readback(timeline=label == 'new'), data=guard(DATABASE))
+        public = public_readback(timeline=label == 'new')
+        after_start = guard(DATABASE)
+        require_preserved(before, after_start)
+        record(run, 'operator-readback', release=manifest['releases'][label]['sha'], public=public, data=after_start)
         wait_for_checker(run, 'installed' if label == 'new' else 'rolled-back', manifest['releases'][label]['sha'])
         record(run, 'accepted', state='installed; technical read-back passed; physical tablets and owner pairings pending' if label == 'new' else 'prior application restored; same migrated database; independent rollback read-back passed')
     except BaseException as error:
@@ -239,7 +249,10 @@ def cutover(packet, operation):
             if metadata(APP / '.env') != env_before or timer_state() != timer_before:
                 raise ValueError('Configuration or import timer changed during recovery')
             service(packet, 'start', run)
-            record(run, 'rollback-operator-readback', public=public_readback(timeline=False), data=guard(DATABASE))
+            public = public_readback(timeline=False)
+            after_start = guard(DATABASE)
+            require_preserved(retained, after_start)
+            record(run, 'rollback-operator-readback', public=public, data=after_start)
             wait_for_checker(run, 'recovery', old_sha)
             record(run, 'rolled-back', originalError=type(error).__name__)
         except BaseException as recovery_error:
