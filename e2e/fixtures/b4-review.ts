@@ -6,7 +6,7 @@ import { MANDATORY_STATIONS_BY_BOARD } from "../../src/lib/mandatory";
 import { chicagoDateTime } from "../../src/lib/time";
 
 /** Synthetic eight-hour crew. Review options use the production placement/coverage rules. */
-export function reviewScenario(date: string) {
+export function reviewScenario(date: string, durationBoundary = false) {
   const at = (time: string) => chicagoDateTime(date, time);
   const stars = [...MANDATORY_STATIONS_BY_BOARD.cocina];
   const assignments = [
@@ -14,8 +14,13 @@ export function reviewScenario(date: string) {
     ["example-b", "pdf_br1a"], ["a", "pdf_guia"], ["cover-a", null], ["cover-c", null],
   ] as const;
   const shifts = assignments.map(([employeeId]) => ({ id: `shift-${employeeId}`, employeeId, board: "cocina", startAt: at("8:00 am"), endAt: at("4:00 pm"), superseded: false, boardRemoved: false }));
-  const paints = assignments.flatMap(([employeeId, stationId]) => stationId ? Array.from({ length: 8 }, (_, i) => ({ employeeId, shiftId: `shift-${employeeId}`, stationId, hourStart: at(`${(8 + i) % 12 || 12}:00 ${8 + i < 12 ? "am" : "pm"}`) })) : []);
-  const base = { date, board: "cocina" as const, employeeId: "a", shifts, paints, breaks: [], overlays: [], starStationIds: stars,
+  const paints: { employeeId: string; shiftId: string; stationId: string; hourStart: Date }[] = assignments.flatMap(([employeeId, stationId]) => stationId ? Array.from({ length: 8 }, (_, i) => ({ employeeId, shiftId: `shift-${employeeId}`, stationId, hourStart: at(`${(8 + i) % 12 || 12}:00 ${8 + i < 12 ? "am" : "pm"}`) })) : []);
+  if (durationBoundary) {
+    for (const paint of paints) if (paint.employeeId === "a" && paint.hourStart.getTime() === at("2:00 pm").getTime()) paint.stationId = "pdf_tq2r";
+    paints.push({ employeeId: "cover-a", shiftId: "shift-cover-a", stationId: "pdf_guia", hourStart: at("2:00 pm") });
+  }
+  const overlays = durationBoundary ? [{ id: "duration-switch", kind: "switch" as const, employeeId: "a", partnerEmployeeId: "cover-a", fromStationId: "pdf_tq2r", stationId: "pdf_guia", startAt: at("2:15 pm"), endAt: at("3:00 pm") }] : [];
+  const base = { date, board: "cocina" as const, employeeId: "a", shifts, paints, breaks: [], overlays, starStationIds: stars,
     abilities: [
       { employeeId: "cover-a", stationId: "pdf_guia", level: "ok" },
       { employeeId: "cover-b", stationId: "pdf_guia", level: "ok" },

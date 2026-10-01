@@ -40,6 +40,7 @@ beforeAll(async () => {
   }
 });
 beforeEach(async () => {
+  await db.boardOverlay.deleteMany({ where: { date } });
   await db.manager.update({ where: { id: manager.id }, data: { active: true } });
   await db.shift.update({ where: { id: coverShift }, data: { boardRemoved: false } });
   await db.employeeStationAbility.deleteMany({ where: { employeeId: cover } });
@@ -48,6 +49,7 @@ beforeEach(async () => {
   expect(pending.status).toBe("pending");
 });
 afterAll(async () => {
+  await db.boardOverlay.deleteMany({ where: { date } });
   await db.staffBreak.deleteMany({ where: { date } });
   await db.employeeStationAbility.deleteMany({ where: { employeeId: { in: ids } } });
   await db.assignment.deleteMany({ where: { employeeId: { in: ids } } });
@@ -99,6 +101,31 @@ describe("resolve a pending BREAK at another time", () => {
     await db.shift.update({ where: { id: coverShift }, data: { boardRemoved: false } });
     await db.employeeStationAbility.create({ data: { employeeId: cover, stationId: "pdf_guia", level: "forbidden" } });
     await expect(act(data.pendingRevision!)).rejects.toMatchObject({ code: "BAD_COVER" }); expect(await row()).toEqual(before);
+  });
+  it("rechecks capacity added after preview without losing the pending request", async () => {
+    const revision = (await read()).pendingRevision!; const before = await row();
+    for (const id of ids.filter(id => id !== asker && id !== cover).slice(0, 2)) {
+      const shift = await db.shift.findFirstOrThrow({ where: { employeeId: id, date } });
+      await db.staffBreak.create({ data: { employeeId: id, shiftId: shift.id, date, board: "cocina", actor: id, status: "booked", startAt: at("3:00 pm"), endAt: at("3:30 pm") } });
+    }
+    await expect(act(revision)).rejects.toMatchObject({ code: "CEILING" });
+    expect(await row()).toEqual(before);
+  });
+  it("rechecks a post-preview Switch that invalidates the named cover", async () => {
+    const revision = (await read()).pendingRevision!; const before = await row();
+    const seat = await db.assignment.findFirstOrThrow({ where: { stationId: "pdf_tq1r", employeeId: { in: ids } } });
+    if (!seat.employeeId) throw new Error("Fixture station must have a person");
+    await db.boardOverlay.create({ data: { date, board: "cocina", kind: "switch", employeeId: seat.employeeId, partnerEmployeeId: cover,
+      fromStationId: "pdf_tq1r", stationId: "pdf_tq2r", startAt: at("3:00 pm"), endAt: at("3:30 pm"), managerId: manager.id, managerName: manager.name } });
+    await expect(act(revision)).rejects.toMatchObject({ code: "BAD_COVER" });
+    expect(await row()).toEqual(before);
+  });
+  it("rejects an old revision after the worker changes their pending request", async () => {
+    const revision = (await read()).pendingRevision!;
+    await saveBreak({ employeeId: asker, date, startAt: at("2:15 pm"), endAt: at("2:45 pm") });
+    const changed = await row();
+    await expect(act(revision)).rejects.toMatchObject({ code: "LOCK_CONFLICT" });
+    expect(await row()).toEqual(changed);
   });
   it("never calls an uncovered alternative approved, never shortens or moves to past/other day", async () => {
     const revision = (await read()).pendingRevision!; const before = await row();

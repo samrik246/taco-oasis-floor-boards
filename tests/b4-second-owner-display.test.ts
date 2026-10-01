@@ -41,11 +41,12 @@ describe("second owner cover explanations", () => {
     expect(positions[1]).toMatchObject({ startAt: at("2:15 pm").toISOString(), vacatedStationId: stars[1], moves: [{ fromStationId: "pdf_tf2r", toStationId: stars[1] }] });
   });
   it("uses the other board's effective seat and saved label", () => {
-    const input = { ...base, shifts: [shift("Mara"), shift("Luz"), shift("Sol", "caja")], paints: [...base.paints, paint("Sol", "caja1")],
+    const input = { ...base, shifts: [shift("Mara"), shift("Luz"), shift("Sol", "caja")], paints: [...base.paints, paint("Sol", "green2")],
       overlays: [] };
     const cover = listBreakCovers(input).find(c => c.kind === "simple")!;
-    const positions = describeBreakCover(input, cover).positions;
-    expect(positions[0].moves[0]).toMatchObject({ fromStationId: "caja1", toStationId: stars[0] });
+    const positions = describeBreakCover(input, cover, [{ id: "other-add", kind: "add", employeeId: "Sol", stationId: "purple2", startAt: at("2:15 pm"), endAt: at("2:30 pm") }]).positions;
+    expect(positions[0].moves[0]).toMatchObject({ fromStationId: "green2", toStationId: stars[0] });
+    expect(positions[1].moves[0]).toMatchObject({ fromStationId: "purple2", toStationId: stars[0] });
     expect(boardStationLabel("en", stars[0], [{ id: stars[0], label: "Custom station" }])).toBe("Custom station");
   });
 });
@@ -69,4 +70,20 @@ describe("truthful start colors", () => {
     const blocked = blockedBreakQuarters({ date: "2046-06-04", board: "cocina", shifts: [{ ...shifts[0], startAt: chicagoDateTime("2046-06-04", "8:00 am"), endAt: chicagoDateTime("2046-06-04", "4:00 pm") }], otherBreaks: [row, row] });
     expect(blocked.filter(r => r.reason === "blackout").length).toBeGreaterThan(0);
   });
+});
+
+it("keeps blackout and overlapping-board ambiguity grey even when bookings fill capacity", () => {
+  const day = "2046-06-04";
+  const time = (s: string) => chicagoDateTime(day, s);
+  const shifts = [{ ...shift("Mara"), startAt: time("8:00 am"), endAt: time("4:00 pm") }];
+  const row = { board: "cocina", startAt: time("11:00 am"), endAt: time("12:00 pm"), status: "booked" };
+  const blocked = blockedBreakQuarters({ date: day, board: "cocina", shifts, otherBreaks: [row, row] });
+  expect(blocked.find(b => b.startAt === time("11:00 am").toISOString())?.reason).toBe("blackout");
+  const overlapping = [...shifts, { ...shifts[0], id: "other", board: "caja" }];
+  for (const board of ["caja", "cocina"] as const) {
+    const blocked = blockedBreakQuarters({ date: day, board, shifts: overlapping, otherBreaks: [row, row] });
+    expect(blocked).toEqual([]);
+    const faces = breakQuarterFaces({ shifts: overlapping.map(s => ({ startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString() })), slots: [], blocked });
+    expect(faces.every(f => breakChoiceTone(f.reason, null) === "unavailable")).toBe(true);
+  }
 });

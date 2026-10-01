@@ -22,7 +22,8 @@ async function shot(page: Page, name: string) {
 for (const locale of ["es", "en"] as const) {
   test(`${locale}: colored starts, per-duration approval and pending copy`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    const scenario = reviewScenario(date);
+    await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
+    const scenario = reviewScenario(date, true);
     const shifts = scenario.shifts.map((s,i) => ({ id: String(i), board: s.board, startAt: new Date(s.startAt), endAt: new Date(s.endAt) }));
     const otherBreaks = [1,2].map(() => ({ board: "cocina", status: "booked", startAt: at("3:00 pm"), endAt: at("3:30 pm") }));
     const allowed = new Set(offeredBreakSlots({ date, board: "cocina", shifts, otherBreaks }).map(s => `${s.startAt}/${s.endAt}`));
@@ -38,11 +39,17 @@ for (const locale of ["es", "en"] as const) {
     await expect(start("2:00 pm")).toHaveAttribute("data-tone", "gerente");
     await expect(start("3:00 pm")).toHaveAttribute("data-tone", "capacity"); await expect(start("3:00 pm")).toBeDisabled();
     // 11:00 is a policy blackout only on weekdays; unavailable colors are also asserted in unit cases.
-    if (start("11:00 am") && new Date(`${date}T12:00:00Z`).getUTCDay() % 6 !== 0) await expect(start("11:00 am")).toHaveAttribute("data-tone", "unavailable");
+    if (new Date(`${date}T12:00:00Z`).getUTCDay() % 6 !== 0) await expect(start("11:00 am")).toHaveAttribute("data-tone", "unavailable");
     await expect(start("2:00 pm")).toContainText("60 min");
     await shot(page, `${locale}_04_COLORED_STARTS`);
     await start("2:00 pm").click();
-    for (const slot of await page.getByTestId("break-slot").all()) await expect(slot).toHaveAttribute("data-tone", "gerente");
+    const short = page.locator(`[data-testid="break-slot"][data-end="${iso("2:15 pm")}"]`);
+    await expect(short).toHaveAttribute("data-tone", "automatic");
+    await expect(page.locator(`[data-testid="break-slot"][data-end="${iso("3:00 pm")}"]`)).toHaveAttribute("data-tone", "gerente");
+    await short.click();
+    await expect(short).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("break-save")).toHaveAttribute("data-end", iso("2:15 pm"));
+    await shot(page, `${locale}_06_DURATION_APPROVAL`);
     await page.getByTestId("break-close").click();
     data.saved = { ...data.saved, state: "pending", status: "pending" };
     await page.getByTestId("break-code-input").fill("4545"); await page.getByTestId("break-sign-in").click();
@@ -72,12 +79,14 @@ for (const locale of ["es", "en"] as const) {
     const paintBefore = await db.assignment.findMany({ where: { shiftId: { in: members.map(p => p.shiftId) } }, orderBy: { id: "asc" } });
     const boardPages = await Promise.all([context.newPage(), context.newPage()]);
     for (const [i, board] of ["caja", "cocina"].entries()) {
+      await boardPages[i].addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
       await boardPages[i].setViewportSize({ width: 1280, height: 800 });
       await boardPages[i].goto(`/?board=${board}&kiosk=1&lang=${locale}`);
       await expect(boardPages[i].getByTestId("break-strip")).toContainText("Mara");
       await expect(boardPages[i].getByTestId("break-sheet")).toHaveCount(0);
     }
     await page.setViewportSize({ width: 1280, height: 800 });
+    await page.addInitScript(value => localStorage.setItem("taco-oasis-locale-v1", value), locale);
     await page.goto(`/descansos?board=cocina&lang=${locale}`);
     await page.getByTestId("break-code-input").fill(`${tag}-credential`); await page.getByTestId("break-sign-in").click();
     await page.getByTestId("break-review").click();

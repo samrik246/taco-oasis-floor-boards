@@ -113,6 +113,11 @@ export async function POST(request: Request) {
       shuffleEmployeeId: parsed.data.shuffleEmployeeId,
       resolvePending: parsed.data.resolvePending,
     });
+    // The write already committed. A failed suggestions read must not turn it
+    // into a reported refusal; the dialog keeps the request and offers Recheck.
+    const managed = saved.status === "pending"
+      ? await loadManagedBreak({ board: parsed.data.board, employeeId: parsed.data.employeeId }).catch(() => null)
+      : null;
     return NextResponse.json({
       id: saved.id,
       replaced: saved.replaced,
@@ -121,7 +126,7 @@ export async function POST(request: Request) {
       waiting: saved.status === "pending",
       ...(saved.status === "pending"
         ? { message: MANAGER_BREAK_TEXT.NEEDS_COVER, covers: saved.covers,
-          managed: await loadManagedBreak({ board: parsed.data.board, employeeId: parsed.data.employeeId }) }
+          ...(managed ? { managed } : {}) }
         : {}),
     }, { headers: NO_STORE });
   } catch (error) {

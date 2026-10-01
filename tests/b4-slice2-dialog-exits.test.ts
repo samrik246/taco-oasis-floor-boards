@@ -149,3 +149,44 @@ it("marks the chosen cover during a pending save and keeps ended distinct from r
   expect(ended.host.querySelector('[data-testid="descanso-status"]')?.textContent).toContain("Solicitud finalizada sin BREAK");
   expect(ended.host.textContent).not.toMatch(/Rechazad|Completado/);
 });
+
+const alternativePending = { ...pending, covers: [], pendingRevision: { id: "pending-example", updatedAt: startAt },
+  alternatives: [{ startAt: "2026-09-30T20:00:00.000Z", endAt: "2026-09-30T20:30:00.000Z", board: "caja", approval: "automatic", cover: null }] };
+describe("alternative and recheck lifetime", () => {
+  for (const action of ["alternative", "recheck"] as const) {
+    for (const exit of ["back", "close"] as const) {
+      it(`${action}: delayed response after ${exit} cannot restore state or run callbacks`, async () => {
+        const held = deferred<Response>(); let calls = 0;
+        const fetcher = vi.fn(async () => ++calls === 1 ? Response.json(alternativePending) : held.promise);
+        vi.stubGlobal("fetch", fetcher);
+        const dialog = await mount("en");
+        await dialog.click(`descanso-${action}`);
+        if (action === "alternative") {
+          const payload = JSON.parse((fetcher.mock.calls[1] as unknown as [string, RequestInit])[1].body as string);
+          expect(payload.resolvePending).toEqual(alternativePending.pendingRevision);
+          expect(payload.endAt).toBe(alternativePending.alternatives[0].endAt);
+        }
+        await dialog.click(`descanso-${exit}`);
+        await act(async () => held.resolve(Response.json(action === "alternative" ? { waiting: false } : pending)));
+        expect(dialog.onSaved).not.toHaveBeenCalled(); expect(dialog.onDenied).not.toHaveBeenCalled();
+        expect(dialog.onClose).toHaveBeenCalledTimes(exit === "back" ? 1 : 0);
+        expect(dialog.onExit).toHaveBeenCalledTimes(exit === "close" ? 1 : 0);
+        expect(dialog.host.querySelectorAll('[data-testid="descanso-cover"]')).toHaveLength(0);
+      });
+    }
+  }
+  it("keeps a refused alternative pending and Recheck replaces the stale suggestions", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => init?.method
+      ? Response.json({ error: "Changed since preview" }, { status: 400 })
+      : Response.json(++reads === 1 ? alternativePending : { ...alternativePending, alternatives: [] })));
+    const dialog = await mount("en");
+    await dialog.click("descanso-alternative");
+    expect(dialog.host.querySelector('[data-testid="descanso-status"]')?.textContent).toContain("Pending");
+    expect(dialog.host.querySelector<HTMLButtonElement>('[data-testid="descanso-clear"]')?.disabled).toBe(false);
+    expect(dialog.onSaved).not.toHaveBeenCalled();
+    await dialog.click("descanso-recheck");
+    expect(dialog.host.querySelector('[data-testid="descanso-alternative"]')).toBeNull();
+    expect(dialog.host.textContent).toContain("The request remains pending");
+  });
+});
