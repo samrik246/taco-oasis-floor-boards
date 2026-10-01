@@ -8,7 +8,7 @@ import { activeGeneration, conflictBranches, DraftDatabase } from "@/lib/quarter
 import { generation,newEnvelope,type DraftGeneration,type DraftScope,type DraftSnapshot } from "@/lib/quarter/client/draft-types";
 import { hourEditRefusal,proposeHour } from "@/lib/quarter/client/edit";
 import { capabilities, matchCapabilities, sendSubmission } from "@/lib/quarter/client/transport";
-import { observeV1 } from "@/lib/quarter/client/v1-conversion";
+import { observeV1,v1Key } from "@/lib/quarter/client/v1-conversion";
 import { canonicalJson } from "@/lib/quarter/client/primitives";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 import { OverlayMenu } from "./OverlayMenu";
@@ -32,12 +32,20 @@ export function QuarterHourEditor(props:ColorEditorProps){
   const [pendingPreview,setPendingPreview]=useState<DraftGeneration|null>(null);
   const [unretained,setUnretained]=useState(false),[cleanupPending,setCleanupPending]=useState(false);
   const [snapshot,setSnapshot]=useState(empty),[feedback,setFeedback]=useState(""),[busy,setBusy]=useState(false),[ready,setReady]=useState(false);
+  const [legacyOriginal,setLegacyOriginal]=useState<string|null>(null);
   const [choice,setChoice]=useState<string|null>(null),[breakTarget,setBreakTarget]=useState<{employeeId:string;name:string}|null>(null);
   const current=activeGeneration(snapshot),branches=conflictBranches(snapshot),intents=(current?.envelope.intents??[]).filter(i=>!confirmedIntentIds.includes(i.intentId));
   const refresh=useCallback(async()=>{
     if(!db.current)return;
-    const observed=latest.current?await observeV1(db.current,{managerId,board,date},latest.current):{changed:false,snapshot:await db.current.read({managerId,board,date})};
+    const scope={managerId,board,date},before=await db.current.read(scope);
+    setSnapshot(before);setReady(!db.current.readOnly&&!before.warnings.length);
+    try{setLegacyOriginal(localStorage.getItem(v1Key(scope)));}
+    catch{setReady(false);setFeedback(es?"No se pudo leer el borrador anterior. Los datos retenidos siguen disponibles para revisión.":"The old draft could not be read. Retained data remains available for review.");return;}
+    if(db.current.readOnly||before.warnings.length)return;
+    const observed=latest.current?await observeV1(db.current,scope,latest.current):{changed:false,snapshot:before};
     setSnapshot(observed.snapshot);
+    setReady(!observed.snapshot.warnings.length);
+    if(observed.snapshot.warnings.length)return;
     if(observed.changed)setFeedback(es?"Otra pestaña cambió el borrador anterior; revisa las dos copias.":"Another tab changed the old draft; review both retained copies.");
     const requestId=observed.snapshot.head?.pendingRequestId;
     const submission=observed.snapshot.submissions.find(s=>s.requestId===requestId);
@@ -55,7 +63,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
   useEffect(()=>{
     let live=true,connection:DraftDatabase|null=null;
     void DraftDatabase.open(code=>{if(live){setFeedback(code);setReady(false);}}).then(async store=>{
-      if(!live){store.close();return;}connection=store;db.current=store;await refresh();if(live)setReady(true);
+      if(!live){store.close();return;}connection=store;db.current=store;await refresh();
     }).catch(error=>{if(live)setFeedback(`${es?"No retenido":"Not retained"}: ${error.message}`);});
     const focus=()=>{if(!pendingMemory.current)void refresh().catch(error=>setFeedback(error.message));};
     window.addEventListener("focus",focus);
@@ -75,7 +83,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
       setFeedback(result.status==="conflict"?(es?"Conflicto: ambas versiones están retenidas.":"Conflict: both versions are retained."):(es?"Retenido localmente; aún sin guardar.":"Locally retained; not yet saved."));
     });
   }
-  async function save(){if(!db.current||!publicDay||readonly||pendingMemory.current)return;await run(async()=>{
+  async function save(){if(!db.current||!publicDay||readonly||!ready||pendingMemory.current)return;await run(async()=>{
     const reconciled=await refresh();
     if(reconciled?.receipt){await onSaved();return;}
     const fresh=await db.current!.read(scope);
@@ -92,13 +100,22 @@ export function QuarterHourEditor(props:ColorEditorProps){
     setFeedback(result.status==="saved"?(es?"Guardado.":"Saved."):result.status==="cleanup-pending"?(es?"Guardado; limpieza local pendiente.":"Saved; local cleanup pending."):result.status==="rejected"?`${es?"Rechazado; borrador conservado":"Rejected; draft retained"}: ${result.code}`:(es?"Guardado sin confirmar. Reintentar usa la misma solicitud.":"Save unconfirmed. Retry uses the same request."));
     if(result.receipt)await onSaved();
   });}
-  async function resolveBranch(branch:DraftGeneration,useBranch:boolean){if(!db.current||!snapshot.head||snapshot.head.pendingRequestId)return;await run(async()=>{
+  async function resolveBranch(branch:DraftGeneration,useBranch:boolean){if(!db.current||!ready||readonly||!snapshot.head||snapshot.head.pendingRequestId)return;await run(async()=>{
     const selected=useBranch?branch:current;if(!selected)throw new Error("DRAFT_REQUIRES_REVIEW");
     const envelope=newEnvelope({...selected.envelope,parentGenerationId:snapshot.head!.generationId,parentRevision:snapshot.head!.localRevision,pendingRequestId:null});
     const result=await db.current!.retain(scope,snapshot.head!,generation(scope,envelope,[branch.generationId]));setSnapshot(result.snapshot);
     setFeedback(es?"Selección retenida; las versiones originales se conservan.":"Selection retained; original versions are preserved.");
   });}
-  if(!day||!publicDay)return <section><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{snapshot.generations.map(g=><details key={g.generationId}><summary>{es?"Ver borrador retenido":"View retained draft"}</summary><pre>{canonicalJson(g.envelope)}</pre></details>)}</section>;
+  const reviewOnly=Boolean(snapshot.warnings.length||!publicDay);
+  const preservedReview=reviewOnly?<div data-testid="quarter-retained-review" className="space-y-2 rounded border-2 border-amber-700 p-3">
+    <p role="alert">{es?"Solo revisión. Los originales están conservados; no se harán cambios ni reintentos.":"Review only. Originals are preserved; changes and retries are disabled."}</p>
+    {snapshot.warnings.map(w=><p key={w}>{w}</p>)}
+    {snapshot.generations.map(g=><details key={g.generationId}><summary>{es?"Ver borrador retenido":"View retained draft"}: {g.generationId}</summary><pre className="overflow-auto text-xs">{canonicalJson(g.envelope)}</pre></details>)}
+    {snapshot.submissions.map(s=><details key={s.requestId}><summary>{es?"Ver solicitud original":"View original request"}: {s.requestId}</summary><pre className="overflow-auto text-xs">{s.requestBytes}</pre></details>)}
+    {snapshot.archives.map(a=><details key={a.v1Sha256}><summary>{es?"Ver archivo anterior":"View earlier archive"}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
+    {legacyOriginal!==null&&<details><summary>{es?"Ver borrador anterior sin convertir":"View unconverted old draft"}</summary><pre className="overflow-auto text-xs">{legacyOriginal}</pre></details>}
+  </div>:null;
+  if(!day||!publicDay)return <section data-testid="quarter-hour-editor"><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{preservedReview}</section>;
   return <section className="space-y-3" data-testid="quarter-hour-editor">
     <p className="text-sm">{es?"Esta versión permite pintar horas uniformes. Los intervalos guardados se muestran completos.":"This version edits uniform hours. All saved intervals are shown."}</p>
     <div className="flex flex-wrap gap-2">{paletteSlots(day.stations).map(slot=>{
@@ -115,10 +132,10 @@ export function QuarterHourEditor(props:ColorEditorProps){
       setSnapshot(result.snapshot);pendingMemory.current=null;setPendingPreview(null);setUnretained(false);setFeedback(result.status==="conflict"?"DRAFT_HEAD_CHANGED":es?"Retenido localmente.":"Locally retained.");
     })}>{es?"Reintentar retención":"Retry retention"}</button><button type="button" className="min-h-11 border p-2" disabled={busy} onClick={()=>{pendingMemory.current=null;setPendingPreview(null);setUnretained(false);void run(refresh);}}>{es?"Descartar copia en memoria y revisar almacenamiento":"Discard memory copy and review retained storage"}</button></div>}
     {current?.envelope.reviewReasons.length?<p role="alert">{es?"Revisión necesaria; las expectativas originales no se han cambiado.":"Review required; original expectations have not been changed."} {current.envelope.reviewReasons.join(" · ")}</p>:null}
-    {snapshot.warnings.map(w=><p key={w} role="alert">{w}</p>)}
+    {preservedReview}
     {intents.length>0&&<p>{intents.length} {es?"cambios privados retenidos":"retained private changes"}</p>}
-    {branches.map(branch=><div key={branch.generationId} className="rounded border-2 border-amber-700 p-3"><p>{es?"Otra versión retenida":"Another retained version"}: {branch.envelope.intents.length} {es?"cambios":"changes"}</p><details><summary>{es?"Ver versión original":"View original version"}</summary><pre className="overflow-auto text-xs">{canonicalJson(branch.envelope)}</pre></details><button type="button" className="min-h-11 border p-2" disabled={busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,true)}>{es?"Elegir esta versión":"Choose this version"}</button><button type="button" className="min-h-11 border p-2" disabled={busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,false)}>{es?"Conservar versión actual":"Keep current version"}</button></div>)}
-    {snapshot.archives.filter(a=>a.result==="review").map(a=><details key={a.v1Sha256}><summary>{es?"Borrador anterior requiere revisión":"Earlier draft requires review"}: {a.staleReason}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
+    {branches.map(branch=><div key={branch.generationId} className="rounded border-2 border-amber-700 p-3"><p>{es?"Otra versión retenida":"Another retained version"}: {branch.envelope.intents.length} {es?"cambios":"changes"}</p><details><summary>{es?"Ver versión original":"View original version"}</summary><pre className="overflow-auto text-xs">{canonicalJson(branch.envelope)}</pre></details><button type="button" className="min-h-11 border p-2" disabled={readonly||!ready||busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,true)}>{es?"Elegir esta versión":"Choose this version"}</button><button type="button" className="min-h-11 border p-2" disabled={readonly||!ready||busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,false)}>{es?"Conservar versión actual":"Keep current version"}</button></div>)}
+    {!reviewOnly&&snapshot.archives.filter(a=>a.result==="review").map(a=><details key={a.v1Sha256}><summary>{es?"Borrador anterior requiere revisión":"Earlier draft requires review"}: {a.staleReason}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
     <div className="overflow-x-auto"><table className="border-collapse text-xs"><thead><tr><th className="min-w-40">{es?"Persona":"Person"}</th>{hourGridHours().map(h=><th className="min-w-36" key={h}><button type="button" className="min-h-11 w-full" aria-pressed={selectedHour===h} onClick={()=>onSelectHour(h)}>{formatCompactHour(h)}</button></th>)}</tr></thead><tbody>
       {day.shifts.map(shift=><tr key={shift.id}><th className="sticky left-0 z-10 bg-white text-left"><span>{displayName(shift)}</span>{showDescansoButton({readonly,openDate:date,today:chicagoYmd(new Date()),superseded:Boolean(shift.supersededAt),laterShiftOfPerson:day.shifts.some(s=>s.employee.id===shift.employee.id&&s.id!==shift.id&&Date.parse(s.startAt)<Date.parse(shift.startAt))})&&<button type="button" className="block min-h-11" disabled={busy} onClick={()=>setBreakTarget({employeeId:shift.employee.id,name:displayName(shift)})}>BREAK</button>}<OverlayMenu day={day} shift={shift} board={board} date={date} locale={locale} managerToken={managerToken} readonly={readonly} busy={busy} onSaved={onSaved}/></th>{hourGridHours().map(h=>{
         const refusal=hourEditRefusal(publicDay,shift.id,h),pending=intents.filter(i=>i.intent.shiftId===shift.id&&Number(i.intent.quarter.slice(0,2))===h);

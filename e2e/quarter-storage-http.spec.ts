@@ -1,6 +1,7 @@
 import {test,expect,type Page} from "@playwright/test";
 import {createRequire} from "node:module";
 import type {} from "./fixtures/quarter-storage";
+import {faultDraftIndexes} from "./fixtures/draft-storage-fault";
 const requireBundle=createRequire(process.cwd()+"/package.json");
 const {buildSync}=createRequire(requireBundle.resolve("tsx/package.json"))("esbuild") as {buildSync(options:Record<string,unknown>):{outputFiles:{text:string}[]}};
 const bundle=buildSync({entryPoints:["e2e/fixtures/quarter-storage.ts"],bundle:true,write:false,platform:"browser",define:{"process.env.NODE_ENV":'"production"'}}).outputFiles[0].text;
@@ -155,7 +156,10 @@ for(const mode of ["heads-key","generations-key","v1Archives-key","submissions-k
    };r.onsuccess=()=>{r.result.close();resolve();};
   }),mode);
   const before=await rawDatabase(page);
-  expect(await page.evaluate(()=>window.quarterProof.open().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_SCHEMA_REQUIRES_REVIEW");
+  if(["missing-index","index-key","index-unique","index-multiEntry"].includes(mode)){
+   await page.evaluate(()=>window.quarterProof.open());expect(await page.evaluate(()=>window.quarterProof.readOnly)).toBe(true);
+   expect(await page.evaluate(()=>window.quarterProof.probe().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_READ_ONLY_REVIEW");
+  }else expect(await page.evaluate(()=>window.quarterProof.open().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_SCHEMA_REQUIRES_REVIEW");
   expect(await rawDatabase(page)).toEqual(before);
  });
 }
@@ -165,6 +169,63 @@ for(const mode of ["wrapper","metadata","body","scope"])test(`HTTP incompatible 
  expect(await page.evaluate(()=>window.quarterProof.retainCommand().then(()=>"unexpected",e=>e.message))).toBe("COMMAND_REQUIRES_REVIEW");
  expect(await page.evaluate(()=>window.quarterProof.pendingCommands().then(()=>"unexpected",e=>e.message))).toBe("COMMAND_REQUIRES_REVIEW");
  expect(await rawDatabase(page)).toEqual(before);
+});
+
+for(const mode of ["missing","wrong","unique","multiEntry","extra"] as const)test(`HTTP ${mode} indexes expose cursor review without writes, retries or activation`,async({page})=>{
+ await load(page);await page.evaluate(()=>window.quarterProof.prepareProposal("purple1"));await page.evaluate(()=>window.quarterProof.retain());
+ const submission=await page.evaluate(()=>window.quarterProof.submit()),command=await page.evaluate(()=>window.quarterProof.retainCommand());
+ const raw=' {"version":1,"retained":"untouched original"} ';
+ await page.evaluate(raw=>window.quarterProof.archive(raw),raw);
+ const before=await page.evaluate(()=>window.quarterProof.read());expect(before.generations).toHaveLength(1);
+ await page.evaluate(()=>window.quarterProof.close());await faultDraftIndexes(page,mode);
+ const original=await rawDatabase(page);await page.evaluate(()=>window.quarterProof.open());
+ const apiRequests:string[]=[];page.on("request",request=>{if(request.url().includes("/api/"))apiRequests.push(request.url());});
+ await page.evaluate(()=>{
+  const getAll=IDBObjectStore.prototype.getAll,transaction=IDBDatabase.prototype.transaction;
+  const proof={writes:0,cursors:[] as string[]},cursor=IDBObjectStore.prototype.openCursor;
+  IDBObjectStore.prototype.openCursor=function(...args:Parameters<IDBObjectStore["openCursor"]>){proof.cursors.push(this.name);return cursor.apply(this,args);};
+  IDBObjectStore.prototype.getAll=function(...args:Parameters<IDBObjectStore["getAll"]>){if(this.name!=="clientMeta")throw new Error("review must enumerate cursors");return getAll.apply(this,args);};
+  IDBDatabase.prototype.transaction=function(...args:Parameters<IDBDatabase["transaction"]>){if(args[1]==="readwrite")proof.writes++;return transaction.apply(this,args);};
+  Object.assign(window,{reviewProof:proof,restoreReviewProof:()=>{IDBObjectStore.prototype.getAll=getAll;IDBObjectStore.prototype.openCursor=cursor;IDBDatabase.prototype.transaction=transaction;}});
+ });
+ const review=await page.evaluate(()=>window.quarterProof.read());expect(review.warnings.join()).toContain("DRAFT_INDEX_REQUIRES_REVIEW");
+ expect({...review,warnings:[]}).toEqual(before);expect(await page.evaluate(()=>window.quarterProof.dates())).toEqual(["2038-10-12"]);
+ expect((await page.evaluate(()=>window.quarterProof.pendingCommands()))[0].value.requestBytes).toBe(command.requestBytes);
+ const refused=await page.evaluate(async({submission,bytes,raw})=>{
+  const api=window.quarterProof,errors:string[]=[];
+  const attempts=[()=>api.retain(),()=>api.submit(),()=>api.receipt(submission),()=>api.reject(submission),()=>api.discard(),()=>api.retainCommand(),()=>api.finishCommand(bytes,"confirmed",{ok:true}),()=>api.instance(),()=>api.probe(),()=>api.resume(),()=>api.send(submission),()=>api.measure()];
+  for(const attempt of attempts)try{await attempt();errors.push("unexpected");}catch(e){errors.push((e as Error).message);}
+  const observed=await api.v1(raw,{} as Parameters<typeof api.v1>[1]);
+  return {errors,observed,legacy:localStorage.getItem("taco-oasis-paint-draft-v1:synthetic-manager:caja:2038-10-12")};
+ },{submission,bytes:command.requestBytes,raw});
+ expect(refused.errors).toHaveLength(12);for(const error of refused.errors)expect(error).toMatch(/DRAFT_(READ_ONLY_REVIEW|REQUIRES_REVIEW)/);
+ expect(refused.observed.snapshot).toEqual(review);expect(refused.legacy).toBe(raw);
+ const proof=await page.evaluate(()=>{const w=window as unknown as {reviewProof:{writes:number;cursors:string[]};restoreReviewProof:()=>void};w.restoreReviewProof();return w.reviewProof;});
+ expect(proof.writes).toBe(0);expect(new Set(proof.cursors)).toEqual(new Set(["heads","generations","submissions","v1Archives","clientMeta"]));
+ expect(apiRequests).toEqual([]);
+ expect(await rawDatabase(page)).toEqual(original);
+ await page.evaluate(()=>window.quarterProof.close());await load(page);expect(await page.evaluate(()=>window.quarterProof.read())).toEqual(review);
+ expect(await rawDatabase(page)).toEqual(original);
+});
+
+for(const mode of ["generation","submission","archive","broken"] as const)test(`HTTP ${mode} orphan scope stays discoverable without reconstructing a head`,async({page})=>{
+ await load(page);await page.evaluate(()=>window.quarterProof.prepareProposal("purple1"));await page.evaluate(()=>window.quarterProof.retain());await page.evaluate(()=>window.quarterProof.submit());
+ await page.evaluate(mode=>window.quarterProof.orphan(mode),mode);
+ const before=await rawDatabase(page),snapshot=await page.evaluate(()=>window.quarterProof.read());
+ expect(snapshot.head).toBeNull();expect(snapshot.warnings).toContain("DRAFT_HEAD_MISSING_REQUIRES_REVIEW");
+ expect(await page.evaluate(()=>window.quarterProof.dates())).toEqual(["2038-10-12"]);
+ await page.evaluate(()=>window.quarterProof.prepareProposal("green1"));
+ expect(await page.evaluate(()=>window.quarterProof.retain().then(()=>"unexpected",e=>e.message))).toBe("DRAFT_REQUIRES_REVIEW");
+ await page.evaluate(()=>window.quarterProof.close());await load(page);
+ expect(await page.evaluate(()=>window.quarterProof.read())).toEqual(snapshot);expect(await rawDatabase(page)).toEqual(before);
+});
+
+test("HTTP closed head keeps retained ordinary history out of outstanding dates",async({page})=>{
+ await load(page);await page.evaluate(()=>window.quarterProof.prepareProposal("purple1"));await page.evaluate(()=>window.quarterProof.retain());await page.evaluate(()=>window.quarterProof.discard());
+ expect((await page.evaluate(()=>window.quarterProof.read())).generations).toHaveLength(2);
+ expect(await page.evaluate(()=>window.quarterProof.dates())).toEqual([]);
+ await page.evaluate(()=>window.quarterProof.close());await faultDraftIndexes(page,"missing");await page.evaluate(()=>window.quarterProof.open());
+ expect(await page.evaluate(()=>window.quarterProof.dates())).toEqual([]);
 });
 test("HTTP terminal command outcome is immutable across a delayed conflicting completion",async({page})=>{
  await load(page);const command=await page.evaluate(()=>window.quarterProof.retainCommand());

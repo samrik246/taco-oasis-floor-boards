@@ -36,24 +36,32 @@ function commandValue(row:unknown,key:string,scopeKey=key):RetainedCommand {
 /** An unexpected schema must be read by its own version, never normalized by writes. */
 function checkDatabaseSchema(db:IDBDatabase) {
   if(canonicalJson([...db.objectStoreNames].sort())!==canonicalJson([...DRAFT_STORES].sort()))throw new Error("stores");
-  const tx=db.transaction([...DRAFT_STORES],"readonly");
+  const tx=db.transaction([...DRAFT_STORES],"readonly"),warnings:string[]=[];
   for(const name of DRAFT_STORES){
     const store=tx.objectStore(name);
     const key=name==="clientMeta"?"key":name==="submissions"?["managerId","requestId"]:["managerId","board","date",...(name==="heads"?[]:[name==="generations"?"generationId":"v1Sha256"])];
     const indices=name==="clientMeta"?[]:[name==="heads"?"manager":"scope"];
-    if(store.autoIncrement||canonicalJson(store.keyPath)!==canonicalJson(key)||canonicalJson([...store.indexNames])!==canonicalJson(indices))throw new Error("store schema");
-    for(const name of indices){
-      const index=store.index(name),key=name==="manager"?"managerId":["managerId","board","date"];
-      if(index.unique||index.multiEntry||canonicalJson(index.keyPath)!==canonicalJson(key))throw new Error("index schema");
+    if(store.autoIncrement||canonicalJson(store.keyPath)!==canonicalJson(key))throw new Error("store schema");
+    let mismatch=canonicalJson([...store.indexNames])!==canonicalJson(indices);
+    for(const indexName of indices){
+      if(!store.indexNames.contains(indexName)){mismatch=true;continue;}
+      const index=store.index(indexName),key=indexName==="manager"?"managerId":["managerId","board","date"];
+      if(index.unique||index.multiEntry||canonicalJson(index.keyPath)!==canonicalJson(key))mismatch=true;
     }
+    if(mismatch)warnings.push(`DRAFT_INDEX_REQUIRES_REVIEW:${name}`);
   }
+  return warnings;
+}
+function scan<T>(store:IDBObjectStore,visit:(value:T)=>void) {
+  const request=store.openCursor();
+  request.onsuccess=()=>{const cursor=request.result;if(cursor){visit(cursor.value);cursor.continue();}};
 }
 
 /** IDB callbacks are synchronous. Completion, never request success, is the commit boundary. */
 export class DraftDatabase {
   private changing = false;
   durability: "strict" | "default" = "default";
-  private constructor(private db: IDBDatabase, private onState: (state:string)=>void) {
+  private constructor(private db: IDBDatabase, private onState: (state:string)=>void, readonly schemaWarnings:readonly string[]) {
     db.onversionchange = () => { this.changing=true; onState("DRAFT_UPGRADE_REQUIRES_REVIEW"); db.close(); };
     db.onclose = () => { this.changing=true; onState("DRAFT_CONNECTION_CLOSED"); };
   }
@@ -80,15 +88,22 @@ export class DraftDatabase {
       };
       request.onsuccess=()=>{
         if(settled){request.result.close();return;}
-        try{checkDatabaseSchema(request.result);}catch{request.result.close();fail("DRAFT_SCHEMA_REQUIRES_REVIEW");return;}
-        settled=true;resolve(new DraftDatabase(request.result,onState));
+        let warnings:string[];
+        try{warnings=checkDatabaseSchema(request.result);}catch{request.result.close();fail("DRAFT_SCHEMA_REQUIRES_REVIEW");return;}
+        settled=true;resolve(new DraftDatabase(request.result,onState,Object.freeze(warnings)));
       };
     });
   }
   close() { this.changing=true; this.db.close(); }
+  get readOnly() { return this.schemaWarnings.length>0; }
+  assertWritable() {
+    if(this.changing)throw new DraftError("DRAFT_CONNECTION_CLOSED");
+    if(this.readOnly)throw new DraftError("DRAFT_READ_ONLY_REVIEW");
+  }
   private transaction<T>(names: readonly Store[], mode: IDBTransactionMode,
     run:(tx:IDBTransaction, finish:(value:T)=>void, fail:(error:Error)=>void)=>void):Promise<T> {
     if(this.changing)return Promise.reject(new DraftError("DRAFT_CONNECTION_CLOSED"));
+    if(mode==="readwrite"){try{this.assertWritable();}catch(error){return Promise.reject(error);}}
     return new Promise((resolve,reject)=>{
       let tx:IDBTransaction, value:T, hasValue=false, error:Error|null=null;
       try {
@@ -106,13 +121,12 @@ export class DraftDatabase {
   }
   async read(scope:DraftScope):Promise<DraftSnapshot> {
     const snapshot=await this.transaction<DraftSnapshot>(["heads","generations","submissions","v1Archives"],"readonly",(tx,finish)=>{
-      const result:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],warnings:[]};
+      const result:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],warnings:[...this.schemaWarnings]};
       const head=tx.objectStore("heads").get(scopeKey(scope));head.onsuccess=()=>{result.head=head.result??null;};
       for(const [name,key] of [["generations","generations"],["submissions","submissions"],["v1Archives","archives"]] as const){
-        const store=tx.objectStore(name), indexed=store.indexNames.contains("scope")&&canonicalJson(store.index("scope").keyPath)===canonicalJson(["managerId","board","date"]);
-        if(!indexed)result.warnings.push(`DRAFT_INDEX_REQUIRES_REVIEW:${name}`);
-        const request=indexed?store.index("scope").getAll(scopeKey(scope)):store.getAll();
-        request.onsuccess=()=>{result[key]=request.result.filter(r=>r&&sameScope(r,scope));};
+        const store=tx.objectStore(name);
+        if(this.readOnly)scan<DraftGeneration & DraftSubmission & V1Archive>(store,row=>{if(row&&sameScope(row,scope))result[key].push(row);});
+        else {const request=store.index("scope").getAll(scopeKey(scope));request.onsuccess=()=>{result[key]=request.result.filter(r=>r&&sameScope(r,scope));};}
       }
       finish(result);
     });
@@ -121,6 +135,7 @@ export class DraftDatabase {
     if(snapshot.head?.generationId&&!snapshot.generations.some(g=>g.generationId===snapshot.head!.generationId))snapshot.warnings.push("DRAFT_HEAD_MISSING_GENERATION");
     snapshot.submissions=snapshot.submissions.filter(s=>{try{assertSubmission(s,scope);return true;}catch{snapshot.warnings.push(`DRAFT_SUBMISSION_REQUIRES_REVIEW:${s?.requestId??"unknown"}`);return false;}});
     for(const a of snapshot.archives){if(sha256(a.original)!==a.v1Sha256)snapshot.warnings.push("V1_ARCHIVE_REQUIRES_REVIEW");}
+    if(!snapshot.head&&(snapshot.generations.length||snapshot.submissions.length||snapshot.archives.length))snapshot.warnings.push("DRAFT_HEAD_MISSING_REQUIRES_REVIEW");
     return snapshot;
   }
   private addGeneration(tx:IDBTransaction,g:DraftGeneration,done:()=>void,fail:(e:Error)=>void) {
@@ -207,6 +222,7 @@ export class DraftDatabase {
     return result;
   }
   async applyReceipt(scope:DraftScope,submission:DraftSubmission,receipt:PaintReceipt):Promise<{saved:true;cleanupPending:boolean;snapshot:DraftSnapshot|null}> {
+    this.assertWritable();
     assertReceipt(submission,receipt);
     for(let attempt=0;attempt<8;attempt++){
       try {
@@ -264,15 +280,31 @@ export class DraftDatabase {
     return this.retain(scope,base,generation(scope,e));
   }
   async dates(managerId:string,board:DraftScope["board"]):Promise<string[]> {
-    const dates=await this.transaction<Set<string>>(["heads","generations","clientMeta"],"readonly",(tx,finish)=>{
-      const dates=new Set<string>();finish(dates);
-      const request=tx.objectStore("heads").getAll();
-      request.onsuccess=()=>{for(const h of request.result)if(h?.managerId===managerId&&h.board===board&&typeof h.date==="string"&&(h.state!=="closed"||h.pendingRequestId))dates.add(h.date);};
-      const branches=tx.objectStore("generations").getAll();
-      branches.onsuccess=()=>{const all=branches.result.filter(g=>g?.managerId===managerId&&g.board===board),resolved=new Set(all.flatMap(g=>Array.isArray(g.resolves)?g.resolves:[]));for(const g of all)if(typeof g.date==="string"&&g.disposition==="conflict-branch"&&!resolved.has(g.generationId))dates.add(g.date);};
-      const commands=tx.objectStore("clientMeta").getAll(),prefix=`command:${managerId}:${board}:`;
-      commands.onsuccess=()=>{for(const row of commands.result)if(typeof row.key==="string"&&row.key.startsWith(prefix)&&row.value?.state!=="confirmed"&&row.value?.state!=="rejected"){const date=row.key.slice(prefix.length).split(":")[0];if(/^\d{4}-\d{2}-\d{2}$/.test(date))dates.add(date);}};
-    });return [...dates].sort();
+    type Rows={heads:DraftHead[];generations:DraftGeneration[];submissions:DraftSubmission[];v1Archives:V1Archive[]};
+    const {scopes,commands}=await this.transaction<{scopes:Map<string,Rows>;commands:Set<string>}>(["heads","generations","submissions","v1Archives","clientMeta"],"readonly",(tx,finish)=>{
+      const scopes=new Map<string,Rows>(),commands=new Set<string>();
+      finish({scopes,commands});
+      for(const name of ["heads","generations","submissions","v1Archives"] as const)scan<DraftScope>(tx.objectStore(name),row=>{
+        if(!row||row.managerId!==managerId||row.board!==board||typeof row.date!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(row.date))return;
+        if(!scopes.has(row.date))scopes.set(row.date,{heads:[],generations:[],submissions:[],v1Archives:[]});
+        (scopes.get(row.date)![name] as DraftScope[]).push(row);
+      });
+      const prefix=`command:${managerId}:${board}:`;
+      scan<{key:string;value?:{state?:string}}>(tx.objectStore("clientMeta"),row=>{
+        if(typeof row?.key==="string"&&row.key.startsWith(prefix)&&row.value?.state!=="confirmed"&&row.value?.state!=="rejected"){
+          const date=row.key.slice(prefix.length).split(":")[0];if(/^\d{4}-\d{2}-\d{2}$/.test(date))commands.add(date);
+        }
+      });
+    });
+    for(const [date,rows] of scopes){
+      const scope={managerId,board,date},head=rows.heads[0];
+      try{assertHead(head,scope);}catch{commands.add(date);continue;}
+      const valid=rows.generations.filter(g=>{try{assertGeneration(g,scope);return true;}catch{return false;}});
+      const resolved=new Set(valid.flatMap(g=>g.resolves));
+      if(head.state!=="closed"||head.pendingRequestId||(head.generationId&&!valid.some(g=>g.generationId===head.generationId))||valid.some(g=>g.disposition==="conflict-branch"&&!resolved.has(g.generationId)))commands.add(date);
+      // A valid closed head owns its historical generations/archives; do not resurrect them.
+    }
+    return [...commands].sort();
   }
   /** Other V2 controls retain exact requests and outcomes in the preserved metadata store. */
   async retainCommand(key:string,command:{actionSha256:string;requestBytes:string;requestSha256:string}):Promise<typeof command>{

@@ -140,7 +140,7 @@ export function ManagerColorEditor(props:ColorEditorProps){
   useEffect(()=>{
     let live=true;
     void DraftDatabase.open().then(async db=>{try{const snapshot=await db.read({managerId,board,date});
-      if(live)setStorage({key,quarter:Boolean(snapshot.head||snapshot.archives.length||snapshot.generations.length)});
+      if(live)setStorage({key,quarter:Boolean(db.readOnly||snapshot.warnings.length||snapshot.head||snapshot.archives.length||snapshot.generations.length||snapshot.submissions.length)});
     }finally{db.close();}}).catch(error=>{if(live)setStorage({key,quarter:true,error:error.message});});
     return ()=>{live=false;};
   },[key,managerId,board,date]);

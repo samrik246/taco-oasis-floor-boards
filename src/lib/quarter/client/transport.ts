@@ -55,6 +55,7 @@ export function compatibleCachedBoard(board:"caja"|"cocina",now=new Date()) {
 export type SaveOutcome={status:"saved"|"cleanup-pending"|"unconfirmed"|"rejected";code?:string;receipt?:PaintReceipt};
 /** Exact retained bytes only. A missing response never grants permission to create another ID. */
 export async function sendSubmission(db:DraftDatabase,scope:DraftScope,submission:DraftSubmission,token:string,replay=false):Promise<SaveOutcome>{
+  db.assertWritable();
   const snapshot=await db.read(scope), retained=snapshot.submissions.find(s=>s.requestId===submission.requestId);
   if(snapshot.warnings.length||!retained||retained.requestBytes!==submission.requestBytes)throw new DraftError("DRAFT_NOT_RETAINED");
   let response:Response;

@@ -1,9 +1,12 @@
 import {DraftDatabase,activeGeneration,emptyBase} from "@/lib/quarter/client/draft-db";
-import {generation,newEnvelope,type DraftGeneration,type DraftScope,type DraftSubmission} from "@/lib/quarter/client/draft-types";
+import {generation,newEnvelope,scopeKey,type DraftGeneration,type DraftScope,type DraftSubmission} from "@/lib/quarter/client/draft-types";
 import {randomId,contentHash,canonicalJson,sha256} from "@/lib/quarter/client/primitives";
 import type {PaintReceipt} from "@/lib/quarter/transaction";
 import {observeV1,v1Key} from "@/lib/quarter/client/v1-conversion";
 import type {PublicDayV2} from "@/lib/quarter/client/day";
+import {resumeAction} from "@/lib/quarter/client/controls";
+import {sendSubmission} from "@/lib/quarter/client/transport";
+import {measureClient} from "@/lib/quarter/client/readback";
 const scope:DraftScope={managerId:"synthetic-manager",board:"caja",date:"2038-10-12"};
 const at="2038-10-12T16:00:00.000Z";
 const commandKey=`command:${scope.managerId}:${scope.board}:${scope.date}:tareas`;
@@ -21,14 +24,42 @@ const api={
   return proposal;
  },
  async retain(){return db!.retain(scope,{generationId:proposal!.envelope.parentGenerationId,localRevision:proposal!.envelope.parentRevision},proposal!);},
- read(){return db!.read(scope);},
+ read(){return db!.read(scope);},dates(){return db!.dates(scope.managerId,scope.board);},
+ get readOnly(){return db!.readOnly;},
+ resume(){return resumeAction(scope,commandKey,"synthetic-review-token");},
+ send(submission:DraftSubmission){return sendSubmission(db!,scope,submission,"synthetic-review-token");},
+ reject(submission:DraftSubmission){return db!.reject(scope,submission,"SYNTHETIC");},
+ measure(){return measureClient({challengeId:"synthetic",databaseEpoch:"synthetic-epoch",schemaFingerprint:"synthetic"},"editor","caja");},
  async submit(){const s=await db!.read(scope);return db!.prepare(scope,s.head!,"b".repeat(64));},
  async receipt(submission:DraftSubmission){const receipt:PaintReceipt={ok:true,requestId:submission.requestId,requestSha256:submission.requestSha256,databaseEpoch:submission.databaseEpoch,
   draftSubmission:{episodeId:submission.episodeId,generationId:submission.generationId,generationSha256:submission.generationSha256},dates:[scope.date],committedRevision:"12",hours:[],refreshRequired:true};
   return db!.applyReceipt(scope,submission,receipt);
  },
  async discard(){const s=await db!.read(scope);return db!.discard(scope,s.head!);},
+ async orphan(mode:"generation"|"submission"|"archive"|"broken"){
+  const s=await db!.read(scope),raw='{"retained":"exact old bytes"}';
+  await new Promise<void>((resolve,reject)=>{
+   const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{
+    const tx=r.result.transaction(["heads","generations","submissions","v1Archives"],"readwrite");
+    if(mode==="broken")tx.objectStore("heads").put({...s.head,localRevision:"broken"});else tx.objectStore("heads").clear();
+    if(mode==="submission"||mode==="archive")tx.objectStore("generations").clear();
+    if(mode==="archive"){
+     tx.objectStore("submissions").clear();tx.objectStore("v1Archives").add({...scope,v1Sha256:sha256(raw),original:raw,observedAt:new Date().toISOString(),generationId:null,result:"review",staleReason:"SYNTHETIC"});
+    }
+    tx.oncomplete=()=>{r.result.close();resolve();};tx.onabort=()=>{r.result.close();reject(tx.error);};
+   };
+  });
+ },
  async v1(raw:string,day:PublicDayV2){localStorage.setItem(v1Key(scope),raw);return observeV1(db!,scope,day);},
+ async archive(raw:string){
+  await new Promise<void>((resolve,reject)=>{const r=indexedDB.open("taco-oasis-paint-drafts");r.onerror=()=>reject(r.error);r.onsuccess=()=>{
+   const tx=r.result.transaction(["v1Archives","generations"],"readwrite");
+   tx.objectStore("v1Archives").add({...scope,v1Sha256:sha256(raw),original:raw,observedAt:new Date().toISOString(),generationId:null,result:"review",staleReason:"SYNTHETIC"});
+   const g=tx.objectStore("generations").get([...scopeKey(scope),proposal!.generationId]);
+   g.onsuccess=()=>{if(g.result)tx.objectStore("generations").add({...g.result,managerId:"other-manager"});};
+   tx.oncomplete=()=>{r.result.close();resolve();};tx.onabort=()=>{r.result.close();reject(tx.error);};
+  };});
+ },
  async corrupt(field:string){
   const s=await db!.read(scope),g=structuredClone(s.generations[0]);
   if(field==="intent")g.envelope.intents[0].intent.quarter="25:00";

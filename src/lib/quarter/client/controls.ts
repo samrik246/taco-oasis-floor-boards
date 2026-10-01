@@ -32,6 +32,8 @@ export async function resumeAction(scope:DraftScope,key:string,token:string|null
   if(!token&&(scope.managerId!=="system:staff-status"||kind!=="tareas"))throw new DraftError("MANAGER_REQUIRED");
   const db=await DraftDatabase.open();
   try{
+    db.assertWritable();
+    if((await db.read(scope)).warnings.length)throw new DraftError("DRAFT_REQUIRES_REVIEW");
     const retained=(await db.pendingCommands(scope)).find(r=>r.key===key)?.value;
     if(!retained)throw new DraftError("COMMAND_NOT_PENDING");
     const original=JSON.parse(retained.requestBytes),cap=await capabilities();

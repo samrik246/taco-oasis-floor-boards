@@ -51,8 +51,11 @@ export function convertV1(scope:DraftScope,raw:string,day:PublicDayV2,observedAt
 }
 
 /** Never remove or rewrite localStorage. Re-observe old-tab writes after the IDB commit. */
-export async function observeV1(db:DraftDatabase,scope:DraftScope,day:PublicDayV2,storage:Storage=window.localStorage) {
-  const raw=storage.getItem(v1Key(scope));if(raw===null)return {changed:false,snapshot:await db.read(scope)};
+export async function observeV1(db:DraftDatabase,scope:DraftScope,day:PublicDayV2,storage?:Storage) {
+  const snapshot=await db.read(scope);
+  if(db.readOnly||snapshot.warnings.length)return {changed:false,snapshot};
+  storage??=window.localStorage;
+  const raw=storage.getItem(v1Key(scope));if(raw===null)return {changed:false,snapshot};
   const conversion=convertV1(scope,raw,day);
   const result=await db.retain(scope,emptyBase,conversion.proposal,conversion.archive);
   const latest=storage.getItem(v1Key(scope));
