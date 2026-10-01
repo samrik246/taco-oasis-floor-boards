@@ -47,3 +47,10 @@ prisma/dev.db-journal
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Generated, externally pinned quarter runtime inventory
+/QUARTER_ARTIFACT.json
+/QUARTER_ARTIFACT.json.tmp-*
+__pycache__/
+
+/RELEASE_SHA

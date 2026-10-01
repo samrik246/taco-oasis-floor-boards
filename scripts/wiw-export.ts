@@ -1,3 +1,4 @@
+import { importerIdentity } from "../src/lib/quarter/importer-identity";
 import { withClaimedReleaseLease, quarterLeaseAppDir } from "../src/lib/quarter/lease";
 import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
 /**
@@ -162,11 +163,14 @@ async function main() {
   // import start only once this run holds the lock, so they cannot overlap
   // an install. The hourly 06:00-21:00 slots still run, as soon as the lock can be taken.
   const leaseAppDir = await quarterLeaseAppDir(prisma);
+  const identity=await importerIdentity("hourly");
+  try{
   await acquireReleaseLockForPull(leaseAppDir, process.pid, {
     onError: (err) => console.error(`wiw-export lock error=${err instanceof Error ? err.message : "LOCK"} retrying`),
   });
   try {
     await withClaimedReleaseLease(leaseAppDir, async () => {
+    identity.check();await identity.state("running");
     await assertArtifactCompatibility(prisma);
     const result = await runWiwExport(settings, {
       exporter: playwrightExporter({ profileDir: settings.profileDir, nextWeek: nextWeekDialog() }),
@@ -180,6 +184,7 @@ async function main() {
   } finally {
     await releaseReleaseLock(leaseAppDir, process.pid);
   }
+  }finally{await identity.close();}
 }
 
 main()

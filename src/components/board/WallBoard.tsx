@@ -24,6 +24,7 @@ import { formatHourLabel } from "@/lib/hour-grid";
 import { cn } from "@/lib/utils";
 import { savedStationOccupantsNow } from "./cover-display";
 import { SavedCoverPanel, SavedStationOccupants } from "./SavedCoverDisplay";
+import { ClientReadbackPanel } from "./ClientReadbackPanel";
 import { AuxiliaryPanel } from "./AuxiliaryPanel";
 
 const WALL_REFRESH_MS = 15_000;
@@ -214,6 +215,7 @@ export function WallBoard() {
 
       {day && <div className="px-6 pb-4"><SavedCoverPanel day={day} locale={locale} includePrimary hours={onGrid ? [hour] : []} /><AuxiliaryPanel key={`${board}|${date}`} shifts={day.auxiliaryShifts ?? []} locale={locale} /></div>}
 
+      {searchParams.get("readback")==="1"&&<ClientReadbackPanel board={board} role="wall" view="wall" locale={locale} />}
       <footer className="px-6 pb-4 text-sm text-neutral-500">
         <Link href={`/?board=${board}`} data-testid="wall-exit" className="underline">
           {board === "cocina" ? "Salir" : "Exit wall"}

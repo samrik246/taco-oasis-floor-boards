@@ -1,9 +1,9 @@
 import { test,expect } from "@playwright/test";
 
-test("prepared foundation advertises its exact limits and keeps the hourly board available",async({page,request})=>{
+test("prepared R0 source artifact advertises its exact limits and keeps the hourly board available",async({page,request})=>{
   const response=await request.get("/api/paint/capabilities");expect(response.status()).toBe(200);
   const capabilities=await response.json();
-  expect(capabilities).toMatchObject({phase:"prepared",artifactRole:"foundation",activation:false,recovery:false,quarterUi:false,features:{quarterPaint:false,blockNotes:false}});
+  expect(capabilities).toMatchObject({phase:"prepared",artifactRole:"QP_COMPAT_R0",activation:false,recovery:false,quarterUi:false,features:{quarterPaint:false,blockNotes:false}});
   expect(capabilities.databaseEpoch).toMatch(/^[a-f0-9-]{36}$/);
   await page.goto("/");await expect(page.getByTestId("floor-board")).toBeVisible();
   const unauthenticated=await request.put("/api/v2/assignments/paint",{data:{protocol:2}});

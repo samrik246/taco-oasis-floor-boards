@@ -67,6 +67,7 @@ export default defineConfig({
       "pnpm exec tsx scripts/quarter-migrate.ts",
       // Never serve a stale .next from an earlier source edit.
       "pnpm build",
+      "pnpm exec tsx scripts/quarter-seal.ts",
       `pnpm exec next start -H 127.0.0.1 -p ${PORT}`,
     ].join(" && "),
     url: baseURL,

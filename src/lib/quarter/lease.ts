@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { artifactAppDir } from "./artifact-root";
+export { artifactAppDir } from "./artifact-root";
 import { prisma } from "@/lib/db";
 import { assertSyntheticDatabase, syntheticDatabasePath } from "./test-boundary";
 import { acquireReleaseLock, releaseReleaseLock, releaseLockPathFor } from "@/lib/release-lock";
@@ -10,18 +11,6 @@ import { QuarterRefused, type QuarterDb } from "./schema";
 type Lease = { path:string; claim:string; pid:number };
 const context = new AsyncLocalStorage<Lease>();
 let tail:Promise<void>=Promise.resolve();
-/** Walk from the loaded module (source or .next server bundle), never the launch cwd. */
-export function artifactAppDir():string {
-  let dir=realpathSync(__dirname);
-  for (;;) {
-    const manifest=path.join(dir,"package.json");
-    if(existsSync(manifest) && JSON.parse(readFileSync(manifest,"utf8")).name==="taco-oasis-floor-boards"
-      && existsSync(path.join(dir,"prisma/schema.prisma")))return dir;
-    const parent=path.dirname(dir);
-    if(parent===dir)throw new QuarterRefused("ARTIFACT_ROOT_NOT_FOUND",503);
-    dir=parent;
-  }
-}
 export function quarterAppDir() {
   if(process.env.FLOOR_BOARDS_TEST_ROOT){
     syntheticDatabasePath();

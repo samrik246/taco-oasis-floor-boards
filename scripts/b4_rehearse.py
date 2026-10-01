@@ -174,6 +174,12 @@ const hash=code=>createHash('sha256').update('taco-oasis-manager-v1:'+code).dige
 
 
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv)>1 and sys.argv[1]=='quarter':
+        import runpy
+        sys.argv.pop(1)
+        runpy.run_path(str(Path(__file__).with_name('quarter-rehearse.py')),run_name='__main__')
+        raise SystemExit(0)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--packet', required=True); parser.add_argument('--evidence', required=True)
     args = parser.parse_args()

@@ -1,0 +1,88 @@
+"""Owned local runtime process and external checker handshake for QP rehearsal/release."""
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+import urllib.request
+from quarter_artifacts import atomic_json
+from quarter_guard import canonical, file_hash
+
+
+def process_start(pid):
+    result = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], text=True, capture_output=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+class Service:
+    def __init__(self, app, database, port, run):
+        self.app = Path(app).absolute(); self.database = Path(database).absolute(); self.port = port
+        self.run = Path(run).absolute(); self.run.mkdir(parents=True, exist_ok=True)
+        self.state = self.app.parent / ('quarter-service-' + str(port) + '.json')
+
+    def stop(self):
+        if not self.state.exists():
+            return
+        state = json.loads(self.state.read_text())
+        if state['app'] != str(self.app) or state['database'] != str(self.database):
+            raise ValueError('SERVICE_IDENTITY_MISMATCH')
+        pid = state['pid']; current = process_start(pid)
+        if current is None:
+            self.state.unlink(); return
+        if current != state['started'] or os.getpgid(pid) != pid:
+            raise ValueError('SERVICE_PROCESS_CHANGED')
+        os.killpg(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 15
+        while process_start(pid) is not None and time.monotonic() < deadline:
+            if getattr(self,"child",None) and self.child.pid==pid: self.child.poll()
+            time.sleep(0.1)
+        if process_start(pid) is not None:
+            os.killpg(pid, signal.SIGKILL)
+            deadline = time.monotonic() + 5
+            while process_start(pid) is not None and time.monotonic() < deadline:
+                time.sleep(0.1)
+        if process_start(pid) is not None:
+            raise ValueError('SERVICE_DID_NOT_EXIT')
+        self.state.unlink()
+
+    def start(self):
+        if self.state.exists():
+            raise ValueError('SERVICE_STATE_EXISTS')
+        env = dict(os.environ, DATABASE_URL='file:' + str(self.database), NEXT_TELEMETRY_DISABLED='1')
+        with (self.run / ('server-' + str(time.time_ns()) + '.log')).open('wb') as output:
+            child = subprocess.Popen(['node', str(self.app / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1', '-p', str(self.port)], cwd=self.app, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        started = process_start(child.pid)
+        if not started:
+            raise ValueError('SERVICE_START_FAILED')
+        atomic_json(self.state, {'pid': child.pid, 'started': started, 'app': str(self.app), 'database': str(self.database), 'manifestSha256': file_hash(self.app / 'QUARTER_ARTIFACT.json')})
+        self.child = child
+
+    def readback(self):
+        manifest = json.loads((self.app / 'QUARTER_ARTIFACT.json').read_text())
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen('http://127.0.0.1:' + str(self.port) + '/api/paint/capabilities', timeout=2) as response:
+                    body = json.load(response)
+                if body.get('artifactSha256') != file_hash(self.app / 'QUARTER_ARTIFACT.json') or body.get('schemaFingerprint') != manifest['schemaSha256'] or body.get('artifactRole') != manifest['role']:
+                    raise ValueError('SERVICE_READBACK_MISMATCH')
+                return body
+            except (OSError, TimeoutError):
+                time.sleep(0.2)
+        raise ValueError('SERVICE_READBACK_TIMEOUT')
+
+
+def checker_wait(run, phase, seconds=600):
+    run = Path(run); challenge = {'phase': phase, 'issuedAtMs': int(time.time() * 1000), 'nonce': os.urandom(16).hex()}
+    atomic_json(run / 'checker-wait.json', challenge)
+    answer = run / ('checker-' + challenge['nonce'] + '.json')
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if answer.exists():
+            value = json.loads(answer.read_text())
+            if value.get('nonce') != challenge['nonce'] or value.get('phase') != phase or not value.get('reviewer') or value.get('reviewer') == value.get('builder') or file_hash(value['evidencePath']) != value.get('evidenceSha256'):
+                return 'reject'
+            return 'pass' if value.get('verdict') == 'pass' else 'reject'
+        time.sleep(0.2)
+    return 'timeout'

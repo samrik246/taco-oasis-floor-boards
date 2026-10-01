@@ -42,6 +42,8 @@ import { MoveReasonModal, type PendingMove } from "./MoveReasonModal";
 import { PerformanceSurveyPanel } from "./PerformanceSurveyPanel";
 import { EmployeesPanel } from "./EmployeesPanel";
 import { TimelinePanel } from "./TimelinePanel";
+import { ClientReadbackPanel } from "./ClientReadbackPanel";
+import { PendingQuarterActions } from "./PendingQuarterActions";
 import { QuarterRow } from "./QuarterRow";
 import { slicesForDay } from "./day-slice-input";
 import { ManagerColorEditor } from "./ManagerColorEditor";
@@ -70,8 +72,9 @@ import { DateBar } from "./DateBar";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import { DraftDatabase } from "@/lib/quarter/client/draft-db";
 import { savedAction,saveHourControl } from "@/lib/quarter/client/controls";
-import { hourEditRefusal,type HourChange } from "@/lib/quarter/client/edit";
+import { proposeHours,hourEditRefusal,type HourChange } from "@/lib/quarter/client/edit";
 import { uniformHour } from "@/lib/quarter/client/intervals";
+import { commandFor } from "@/lib/quarter/client/draft-types";
 import type { PublicDayV2 } from "@/lib/quarter/client/day";
 import { fetchCompatibleBoard, compatibleCachedBoard } from "@/lib/quarter/client/transport";
 import { saveLastBoard, stripSharedTabletDay } from "@/lib/offline-board";
@@ -218,6 +221,7 @@ export function FloorBoard() {
   const [chipSuggestions, setChipSuggestions] = useState<
     Record<string, { shiftId: string; firstName: string; lastName: string } | null>
   >({});
+  const [chipSnapshot,setChipSnapshot]=useState<PublicDayV2|null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [isLargeUi, setIsLargeUi] = useState(true);
   const knownPromptIds = useRef<Set<string>>(new Set());
@@ -532,7 +536,7 @@ export function FloorBoard() {
       return;
     }
     const res = await fetch(
-      `/api/assignments/suggest?board=${encodeURIComponent(board)}&date=${encodeURIComponent(date)}&hour=${hour}`,
+      day.quarter?`/api/v2/assignments/suggest?board=${board}&date=${date}&quarter=${hour.toString().padStart(2,"0")}:00&granularity=hour`:`/api/assignments/suggest?board=${encodeURIComponent(board)}&date=${encodeURIComponent(date)}&hour=${hour}`,
       { headers: managerAuthHeaders(manager.token) },
     );
     if (!res.ok) {
@@ -540,7 +544,10 @@ export function FloorBoard() {
       return;
     }
     const data = await res.json();
-    setChipSuggestions(data.candidates ?? {});
+    if(day.quarter){
+      if(data.expected?.databaseEpoch!==day.quarter.databaseEpoch||data.expected?.worldRevision!==day.quarter.worldRevision||data.capabilitySha256!==day.quarter.capabilitySha256){setChipSuggestions({});setChipSnapshot(null);return;}
+      setChipSnapshot(day.quarter);setChipSuggestions(Object.fromEntries(data.candidates.map((row:{stationId:string;candidate:unknown})=>[row.stationId,row.candidate])));
+    }else{setChipSnapshot(null);setChipSuggestions(data.candidates??{});}
   }, [isManager, manager, day, date, hour, board, readonly, offline]);
 
   useEffect(() => {
@@ -696,7 +703,17 @@ export function FloorBoard() {
     if(!left||!right)return;
     const a=uniformHour(left,date,hour),b=uniformHour(right,date,hour);
     if(a.kind!=="uniform"||b.kind!=="uniform"||!a.stationId||!b.stationId){showToast("err",t.toastSwapRejected);return;}
-    await quarterControl([{shiftId:left.id,hour,action:{action:"station",stationId:b.stationId}},{shiftId:right.id,hour,action:{action:"station",stationId:a.stationId}}],first.day);
+    const start=+chicagoHourStart(date,hour),end=start+3600000;
+    if([left,right].some(source=>Date.parse(source.startAt)>start||Date.parse(source.endAt)<end)){showToast("err",t.toastSwapRejected);return;}
+    const scope={managerId:manager!.id,board,date},db=await DraftDatabase.open();
+    try{
+      const snapshot=await db.read(scope);
+      if(snapshot.head?.state==="outstanding"||snapshot.warnings.length)throw new Error("OPEN_DRAFT_IN_COLOR_EDITOR");
+      const proposal=proposeHours(scope,snapshot,first.day,[{shiftId:left.id,hour,action:{action:"station",stationId:b.stationId}},{shiftId:right.id,hour,action:{action:"station",stationId:a.stationId}}]).proposal;
+      const command=commandFor(proposal,first.day.capabilitySha256);
+      const result=await savedAction(scope,first.day,"assignments/operations",{board,date,sources:command.sources,hours:command.hours,operation:"swap",leftShiftId:left.id,rightShiftId:right.id,quarter:`${hour.toString().padStart(2,"0")}:00`,granularity:"hour"},manager!.token);
+      showToast(result.body?.ok?"ok":"err",result.body?.ok?t.toastAssigned:result.status);if(result.body?.ok){await refreshBoard();bumpLedger();}
+    }catch(e){showToast("err",e instanceof Error?e.message:t.toastSwapRejected);}finally{db.close();}
   }
   function requestQuarterClear(shift:ShiftDto,stationId:string){
     if(!day?.quarter||readonly||offline||!isManager)return;
@@ -708,7 +725,10 @@ export function FloorBoard() {
     if (readonly || offline || !isManager || !manager?.token || !date) return;
     setSavingStationId(stationId);
     try {
-      if(day?.quarter){await assignWholeShift(shiftId,stationId);return;}
+      if(day?.quarter){
+        if(!chipSnapshot||chipSnapshot.worldRevision!==day.quarter.worldRevision||chipSnapshot.databaseEpoch!==day.quarter.databaseEpoch){showCardFeedback(stationId,"err",t.toastAssignRejected);return;}
+        await quarterControl([{shiftId,hour,action:{action:"station",stationId}}],chipSnapshot,stationId);return;
+      }
       const res = await fetch("/api/assignments/suggest", {
         method: "PUT",
         headers: {
@@ -1561,6 +1581,8 @@ export function FloorBoard() {
         />
       )}
 
+      {searchParams.get("readback")==="1"&&<ClientReadbackPanel board={board} role={mainView==="timeline"&&isManager?"editor":"floor"} view={mainView} locale={locale} />}
+      <PendingQuarterActions key={`${manager?.id??"staff"}|${board}|${date}`} managerId={manager?.id??"system:staff-status"} board={board} date={date} token={manager?.token??null} locale={locale} readonly={readonly||offline} onSaved={refreshBoard} />
       <ViolationsBanner
         violations={violations}
         stations={day?.stations ?? []}
@@ -2029,10 +2051,11 @@ export function FloorBoard() {
         open={unlockOpen}
         t={t}
         onCancel={() => setUnlockOpen(false)}
-        onUnlocked={async (session, sessionIdle) => {
+        onUnlocked={(session, sessionIdle) => {
           unlock(session, sessionIdle);
           setUnlockOpen(false);
-          await refreshBoard();
+          // The session effect refreshes with the new token. Select the initial view
+          // synchronously so a delayed old-token refresh cannot overwrite a later choice.
           setMainView("timeline");
           showToast(
             "ok",

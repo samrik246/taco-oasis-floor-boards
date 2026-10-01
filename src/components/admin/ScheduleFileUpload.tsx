@@ -12,6 +12,7 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [details,setDetails]=useState<string[]>([]);
   const [preview, setPreview] = useState<{ file: File; data: ImportPreviewData } | null>(null);
 
   async function postImport(file: File, fields: Record<string, string>) {
@@ -24,7 +25,12 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
       headers: {...managerAuthHeaders(token),...(cap.phase==="active"?{"X-Floor-Boards-Protocol":"2","X-Floor-Boards-Capability":cap.capabilitySha256}:{})},
       body: form,
     });
-    return { ok: res.ok, data: (await res.json()) as Record<string, unknown> & { error?: string } };
+    const data=(await res.json()) as Record<string,unknown>&{error?:string};
+    const details:string[]=[];
+    if(Array.isArray(data.fixedSkipped))for(const row of data.fixedSkipped)if(row&&typeof row.shiftId==="string")details.push(`${locale==="es"?"Posición fija omitida":"Fixed placement skipped"}: ${row.shiftId} · ${row.hour}:00 · ${row.reason}`);
+    const original=data.originalImport as {filename?:string;importedAt?:string;rowCount?:number}|undefined;
+    if(original)details.push(`${locale==="es"?"Importación original":"Original import"}: ${original.filename??""} · ${original.importedAt??""} · ${original.rowCount??0}`);
+    setDetails(details);return {ok:res.ok,data};
   }
 
   async function commit(file: File, data: ImportPreviewData, updated: boolean) {
@@ -89,6 +95,7 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
         />
       </label>
       {notice && <p className="text-sm font-semibold text-emerald-900" data-testid="back-office-upload-notice">{notice}</p>}
+      {details.map((detail,index)=><p key={index} data-testid="import-result-detail" className="text-sm">{detail}</p>)}
       {error && <p className="text-sm font-semibold text-red-900">{error}</p>}
       <ImportPreviewModal
         preview={preview?.data ?? null}

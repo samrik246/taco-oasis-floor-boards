@@ -90,13 +90,8 @@ export function checkExpectations(command:Pick<PaintCommand,"expected"|"sources"
   }
 }
 
-export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:CommandActor,now:Date, identity:unknown=command):Promise<PaintReceipt> {
-  const requestSha256=digest(identity);
-  const prior=await receiptFor(db,actor.id,command.requestId);
-  if (prior) {
-    if (prior.requestSha256!==requestSha256 || prior.databaseEpoch!==command.expected.databaseEpoch) throw new QuarterRefused("REQUEST_ID_REUSE");
-    return JSON.parse(prior.responseJson) as PaintReceipt;
-  }
+/** Pure proposal validation in one read snapshot; no writes or receipt are produced. */
+async function preparePaintCommand(db:QuarterDb,command:PaintCommand,now:Date){
   if (command.capabilitySha256!==CAPABILITY_SHA256) throw new QuarterRefused("CAPABILITY_CHANGED");
   const before=await resolvePaintWorld(db,command.date);
   checkExpectations(command,before);
@@ -166,12 +161,27 @@ export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:
   await validatePaintWorld(db,after,touched);
   await validateObligations(db,before,after,now);
   const changed=after.hours.filter(h=>touched.has(hourKey(h.shiftId,h.hourStartMs)));
+  return {before,changed,windows};
+}
+export async function previewPaintV2(input:unknown,now=new Date(),client=prisma){
+  const command=parsePaintCommand(input);
+  return client.$transaction(async db=>{const proposal=await preparePaintCommand(db,command,now);return {validated:true,command,intervals:proposal.changed.map(h=>({shiftId:h.shiftId,hourStart:new Date(h.hourStartMs).toISOString(),segments:h.segments.map(s=>({startAt:new Date(s.startMs).toISOString(),endAt:new Date(s.endMs).toISOString(),state:s.state,stationId:s.stationId,seatNumber:s.seatNumber}))}))};});
+}
+
+export async function applyPaintCommand(db:QuarterDb,command:PaintCommand,actor:CommandActor,now:Date, identity:unknown=command):Promise<PaintReceipt> {
+  const requestSha256=digest(identity);
+  const prior=await receiptFor(db,actor.id,command.requestId);
+  if (prior) {
+    if (prior.requestSha256!==requestSha256 || prior.databaseEpoch!==command.expected.databaseEpoch) throw new QuarterRefused("REQUEST_ID_REUSE");
+    return JSON.parse(prior.responseJson) as PaintReceipt;
+  }
+  const {before,changed,windows}=await preparePaintCommand(db,command,now);
   for (const h of changed) {
     const original=before.hours.find(old=>hourKey(old.shiftId,old.hourStartMs)===hourKey(h.shiftId,h.hourStartMs))!;
     await persistHour(db,h,now);
     const edits=windows.filter(w=>w.h===h);
     if (!edits.length) await recordMutation(db,actor.id,command.requestId,original,h,now,{operation:"adopt-peer"});
-    for (const w of edits) await recordMutation(db,actor.id,command.requestId,original,h,now,{operation:w.intent.action,reason:w.intent.reason,moveNote:w.intent.moveNote,startMs:w.startMs,endMs:w.endMs});
+    for (const w of edits) await recordMutation(db,actor.id,command.requestId,original,h,now,{operation:typeof identity==="object"&&identity!==null&&"operation" in identity&&identity.operation==="swap"?"swap":w.intent.action,reason:w.intent.reason,moveNote:w.intent.moveNote,startMs:w.startMs,endMs:w.endMs});
   }
   // Read back the entire canonical world before allowing the transaction to commit.
   await resolvePaintWorld(db,command.date);

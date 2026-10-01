@@ -1,5 +1,6 @@
 "use client";
 
+import { PendingQuarterActions } from "./PendingQuarterActions";
 import { capabilities } from "@/lib/quarter/client/transport";
 import { savedAction } from "@/lib/quarter/client/controls";
 import type { PublicDayV2 } from "@/lib/quarter/client/day";
@@ -129,6 +130,7 @@ export function ShiftRemovalPanel({ day, board, date, managerToken, readonly, on
     : "Quitar o restaurar turno";
 
   return <section className="rounded-xl border border-neutral-300 p-4" data-testid="shift-removal-panel">
+    {review&&<PendingQuarterActions key={`${review.actorId}|${board}|${date}`} managerId={review.actorId} board={board} date={date} token={managerToken} locale="es" readonly={readonly||busy} onSaved={async()=>{await onSaved();await refresh();}} />}
     <button type="button" className="w-full text-left text-lg font-bold" aria-expanded={open}
       onClick={() => setOpen((value) => !value)} data-testid="shift-removal-toggle">
       {foldLabel}

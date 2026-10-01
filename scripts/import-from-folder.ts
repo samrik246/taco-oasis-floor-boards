@@ -1,3 +1,4 @@
+import { importerIdentity } from "../src/lib/quarter/importer-identity";
 import { withReleaseLease } from "../src/lib/quarter/lease";
 import { assertArtifactCompatibility } from "../src/lib/quarter/compatibility";
 /**
@@ -21,13 +22,17 @@ import {
 
 async function main() {
   const settings = settingsFromEnv();
+  const identity=await importerIdentity("folder");
+  try{
   const result = await withReleaseLease(async () => {
+    identity.check();await identity.state("running");
     await assertArtifactCompatibility(prisma);
     return runFolderImport(settings);
   });
   console.log(`import-from-folder ${new Date().toISOString()}`);
   for (const line of formatSummary(result)) console.log(line);
   process.exitCode = EXIT_CODES[result.outcome];
+  }finally{await identity.close();}
 }
 
 main()

@@ -16,7 +16,7 @@ test.beforeAll(async()=>{
   await db.employee.create({data:{id:person,externalId:person,firstName:"R0",lastName:"Synthetic"}});
   await db.shift.create({data:{id:shift,employeeId:person,board:"caja",date,sourcePosition:"Caja",startAt:fromZonedTime(`${date}T11:00:00`,"America/Chicago"),endAt:fromZonedTime(`${date}T13:00:00`,"America/Chicago")}});
   // This is the already-guarded, disposable browser fixture only; no activation claim.
-  await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2 WHERE id=1");activated=true;
+  await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2,activatedAtMs=1 WHERE id=1");activated=true;
 });
 test.afterAll(async()=>{
   if(activated){
@@ -26,7 +26,7 @@ test.afterAll(async()=>{
       await tx.$executeRawUnsafe("DELETE FROM PaintHour WHERE date=?",date);
       for(const id of requests)await tx.$executeRawUnsafe("DELETE FROM PaintCommandReceipt WHERE requestId=?",id);
       const remaining=await tx.$queryRawUnsafe<{n:number}[]>("SELECT COUNT(*) n FROM PaintHour");expect(Number(remaining[0].n)).toBe(0);
-      await tx.$executeRawUnsafe("UPDATE QuarterSchema SET phase='prepared',minReader=1,minWriter=1 WHERE id=1");
+      await tx.$executeRawUnsafe("UPDATE QuarterSchema SET phase='prepared',minReader=1,minWriter=1,activatedAtMs=NULL WHERE id=1");
     });
     await db.shift.delete({where:{id:shift}});await db.employee.delete({where:{id:person}});
   }

@@ -30,6 +30,8 @@ function shift(id: string, name: string, stationId: string, hour: number) {
 }
 
 async function openWall(page: Page, body: unknown) {
+  // This fixture supplies a legacy day; its transport must negotiate that same phase.
+  await page.route("**/api/paint/capabilities", route => route.fulfill({json:{protocol:2,schema:2,artifactRole:"foundation",activation:false,recovery:false,quarterUi:false,blockNotes:false,phase:"legacy",databaseEpoch:null,capabilitySha256:"a".repeat(64)}}));
   await page.route("**/api/boards/caja/days/**", (route) => route.fulfill({ json: body }));
   await page.route("**/api/rush?**", (route) => route.fulfill({ json: { forecast: null } }));
   await page.goto("/?wall=1&board=caja");

@@ -246,7 +246,18 @@ export class DraftDatabase {
       };
     });
     const check=await this.transaction<unknown>(["clientMeta"],"readonly",(tx,finish)=>{const r=tx.objectStore("clientMeta").get(key);r.onsuccess=()=>finish(r.result?.value?.requestBytes);});
-    if(check!==result.requestBytes)throw new DraftError("COMMAND_READBACK_FAILED");return result;
+    if(check!==result.requestBytes)throw new DraftError("COMMAND_READBACK_FAILED");
+    window.dispatchEvent(new Event("quarter-commands-changed"));return result;
+  }
+  async pendingCommands(scope:DraftScope):Promise<{key:string;value:{actionSha256:string;requestBytes:string;requestSha256:string;state:"pending"}}[]> {
+    const prefix=`command:${scope.managerId}:${scope.board}:${scope.date}:`;
+    return this.transaction(["clientMeta"],"readonly",(tx,finish,fail)=>{
+      const r=tx.objectStore("clientMeta").getAll();r.onsuccess=()=>{
+        const rows=r.result.filter(row=>row.key.startsWith(prefix)&&!row.key.slice(prefix.length).includes(":")&&row.value?.state==="pending");
+        if(rows.some(row=>typeof row.value.requestBytes!=="string"||sha256(row.value.requestBytes)!==row.value.requestSha256)){fail(new DraftError("COMMAND_REQUIRES_REVIEW"));return;}
+        finish(rows);
+      };
+    });
   }
   async finishCommand(key:string,bytes:string,state:"confirmed"|"rejected",response:unknown){
     await this.transaction<void>(["clientMeta"],"readwrite",(tx,finish,fail)=>{

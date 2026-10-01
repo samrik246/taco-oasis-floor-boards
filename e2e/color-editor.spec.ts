@@ -258,6 +258,9 @@ test.describe("condensed staff board and manager color editor", () => {
   });
 
   test("navigation, manual lock, idle and reload recover the same manager's draft", async ({ page }) => {
+    // Control the short idle timer; fixture/API work must not consume its budget.
+    await page.clock.install({time:new Date()});
+    await page.clock.pauseAt(new Date(Date.now()+100));
     await page.goto("/");
     await loadSample(page);
     await stageOpenHour(page);
@@ -274,7 +277,7 @@ test.describe("condensed staff board and manager color editor", () => {
     await unlock(page);
     await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
-    await page.waitForTimeout(2200);
+    await page.clock.runFor(2200);
     await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
     await expect(page.getByTestId("manager-color-editor")).toHaveCount(0);
     await unlock(page);

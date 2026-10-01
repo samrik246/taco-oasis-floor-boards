@@ -327,6 +327,11 @@ def cutover(packet, operation):
 
 
 def main():
+    import sys
+    if len(sys.argv)>1 and sys.argv[1]=='quarter':
+        sys.argv.pop(1)
+        from quarter_release import main as quarter_main
+        return quarter_main()
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('pack'); p.add_argument('--source', required=True); p.add_argument('--build-receipt', required=True); p.add_argument('--output', required=True)
