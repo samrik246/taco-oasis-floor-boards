@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { id, OPS, parseCommand, parseJSON, schemas, type Command } from "./protocol";
-import type { HostCommand } from "./host";
+import { translateResult, type HostCommand } from "./host";
 
 export const LIMITS = { call: 8192, header: 1024, result: 65536, resolution: 8192, config: 131072, stderr: 8192 } as const;
 export const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -107,6 +107,25 @@ export function prepareCall(input: CallInput, correlation: Correlation, devices:
   const offset = "now" in args ? template.indexOf(marker) + 7 : -1;
   if ("now" in args && offset < 7) throw new Error("clock slot");
   return { correlation: { generation, call_id, method }, byteLength: template.length,
+    async validate(frame: Frame) {
+      if (frame.header.status !== "ok" || frame.header.kind === "absent") return;
+      if (frame.header.body_kind === "result") {
+        const value = await translateResult(frame.body.toString("utf8"), args.browser_command as Command, devices);
+        if (method === "lookup_request") {
+          if (frame.header.kind === "conflict" && (value.state !== "refused" || value.reason !== "request_conflict" || value.data !== null)) throw new Error("conflict result");
+          if (frame.header.kind === "unavailable" && (value.state !== "unavailable" || value.reason !== "history_unavailable" || value.data !== null)) throw new Error("history result");
+        }
+      } else {
+        const value = method === "plan"
+          ? z.object({ plan_id: id, plan_sha256: hashSchema }).strict()
+          : z.array(id).length((args.handles as string[]).length).refine((xs) => new Set(xs).size === xs.length);
+        z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("resolved"), value }).strict(),
+          z.object({ kind: z.literal("unavailable"), reason: z.enum(["history_unavailable", "source_unavailable"]) }).strict(),
+          z.object({ kind: z.literal("refused"), reason: z.literal("unauthorized") }).strict(),
+        ]).parse(decodeLine(frame.body, LIMITS.resolution));
+      }
+    },
     dispatch(now: string) {
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(now) || !Number.isFinite(Date.parse(now)) || new Date(now).toISOString() !== now) throw new Error("clock");
       const bytes = Buffer.from(template);

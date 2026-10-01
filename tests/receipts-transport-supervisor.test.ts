@@ -119,6 +119,9 @@ it("TERM then KILL each get two seconds; unresolved reap blocks replacement", as
   expect(h.supervisor.status().owned_worker).toBe("unknown");
   await expect(h.supervisor.start()).rejects.toBeInstanceOf(HistoryUnavailable);
   expect(h.dependencies.spawn).toHaveBeenCalledTimes(1);
+  await h.supervisor.stop();
+  expect(h.child.signalOwnedGroup.mock.calls).toEqual([["TERM"], ["KILL"]]);
+  expect(h.supervisor.status()).toMatchObject({ adapter_worker: "unresolved", owned_worker: "unknown" });
 });
 it("unknown completion closes the generation, while a known constructor failure keeps it usable", async () => {
   for (const status of ["history_unavailable", "unknown"] as const) {
@@ -181,4 +184,57 @@ it("valid execute read uses one exact host/browser context and no diagnostic fal
   expect(JSON.parse(await engine.execute(host, { authenticatedActor: actor, browserCommand: browser })).data).toEqual(fixtures.common_setup.defaults);
   expect(h.inputs[1].args).toMatchObject({ browser_command: browser, host_command: host });
   await h.supervisor.stop();
+});
+it.each(["readLifecycle", "provePriorAbsence"] as const)("bounds stalled startup evidence %s without spawning", async (method) => {
+  const h = workerHarness();
+  h.dependencies[method] = vi.fn(() => new Promise<never>(() => {}));
+  const start = h.supervisor.start().catch((e) => e);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(await start).toBeInstanceOf(HistoryUnavailable);
+  expect(h.dependencies.spawn).not.toHaveBeenCalled();
+});
+it("latches a stalled journal and never trusts its later completion", async () => {
+  const h = workerHarness(); let finish!: () => void;
+  h.dependencies.writeLifecycle = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const start = h.supervisor.start().catch((e) => e);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await start).toBeInstanceOf(HistoryUnavailable);
+  finish(); await vi.advanceTimersByTimeAsync(0);
+  expect(h.supervisor.status().owned_worker).toBe("unknown");
+  await expect(h.supervisor.start()).rejects.toBeInstanceOf(HistoryUnavailable);
+  expect(h.dependencies.spawn).not.toHaveBeenCalled();
+});
+it("a delayed ready journal cannot open dispatch, even after its timeout settles", async () => {
+  const h = workerHarness(); let finish!: () => void;
+  h.dependencies.writeLifecycle = vi.fn(async (record) => {
+    if (record.adapter_worker === "ok") await new Promise<void>((resolve) => { finish = resolve; });
+  });
+  const start = h.supervisor.start().catch((e) => e);
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(h.supervisor.call(lookup())).rejects.toBeInstanceOf(HistoryUnavailable);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await start).toBeInstanceOf(HistoryUnavailable);
+  finish(); await vi.advanceTimersByTimeAsync(0);
+  await expect(h.supervisor.call(lookup())).rejects.toBeInstanceOf(HistoryUnavailable);
+  await expect(h.supervisor.start()).rejects.toBeInstanceOf(HistoryUnavailable);
+  expect(h.child.signalOwnedGroup.mock.calls).toEqual([["TERM"]]);
+});
+it("cleanup bookkeeping has a bound and failed persistence inhibits replacement", async () => {
+  const h = workerHarness(); await h.supervisor.start();
+  h.dependencies.writeLifecycle = vi.fn(() => new Promise<void>(() => {}));
+  const stop = h.supervisor.stop(); await vi.advanceTimersByTimeAsync(2000); await stop;
+  expect(h.supervisor.status()).toMatchObject({ adapter_worker: "unresolved", owned_worker: "unknown" });
+  await expect(h.supervisor.start()).rejects.toBeInstanceOf(HistoryUnavailable);
+  expect(h.dependencies.spawn).toHaveBeenCalledTimes(1);
+});
+it("does not dispatch queued work before full semantic result validation", async () => {
+  const h = workerHarness(); await h.supervisor.start(); h.state.response = () => Buffer.alloc(0);
+  const input = { method: "plan" as const, authenticated_actor: actor, args: { review_handle: "a".repeat(32) } };
+  const active = h.supervisor.call(input).catch((e) => e);
+  const queued = h.supervisor.call(input).catch((e) => e);
+  h.emit(reply(h.inputs[1] as unknown as Correlation, line({ kind: "resolved", value: { plan_id: "bad", plan_sha256: "f".repeat(64) } }, LIMITS.resolution)));
+  expect(await active).toBeInstanceOf(UnknownCompletion);
+  expect(await queued).toBeInstanceOf(HistoryUnavailable);
+  expect(h.inputs).toHaveLength(2);
+  expect(h.supervisor.status().adapter_worker).toBe("unavailable");
 });

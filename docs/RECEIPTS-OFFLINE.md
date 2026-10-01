@@ -133,12 +133,18 @@ of true flags in a fake is not such proof.
 Only an explicit trusted lifecycle call starts/restarts a worker, after proven
 prior absence and retained startup evidence. Calls never start it. The supervisor
 checks actual injected spawn PID/group, generation and pinned READY identities;
-uses one active call, at most32 waiting calls and two-second queue expiry; and
+uses one active call, at most 32 waiting calls and two-second queue expiry; and
 includes writes/backpressure in the ten-second response deadline. TERM and KILL
 each have a two-second closure window. Pipe closure or a PID alone never releases
 ownership; unresolved descendant/reap proof blocks replacement. The injected
 group operations must bind to actual spawn provenance before real integration.
 Lifecycle persistence is separate from the engine request/outcome history.
+Read/proof dependencies at startup each have a ten-second bound; journal writes
+have a two-second bound. A failed or stalled journal permanently inhibits this
+supervisor instance, including after a late write completion. Writes retain
+their actual serial ordering. After one unresolved TERM/KILL sequence, repeated
+stop calls do not signal again; a fresh externally proven lifecycle boundary is
+required. These bookkeeping bounds add no automatic restart or process adoption.
 
 `resident-adapter.ts` maps the four private methods into DurableReceiptAdapter.
 Known pre-dispatch history failures retain their typed unavailable mapping;
@@ -146,6 +152,9 @@ unknown completion preserves original-request uncertainty without retry.
 Authenticated status_refresh returns fixed refused/gate_off with no worker call,
 history write or query. Cached reads do not fall back to a diagnostic action.
 Malformed semantic result/Resolution data also retires the worker generation.
+The active call keeps the serial slot through full semantic validation, before
+another queued call can write. A syntactically valid but contradictory response
+cannot release queued work before the facade notices it.
 
 The production route continues to inject no engine. The Python worker belongs to
 the engine owner; no Python main, socket, sender, second ledger, environment

@@ -62,20 +62,25 @@ export class ReceiptWorkerSupervisor {
   private queue: Queued[] = [];
   private pumping = false;
   private journal = Promise.resolve();
+  private journalFailed = false;
+  private retirementUnresolved = false;
   constructor(private readonly dependencies: SupervisorDependencies) {}
   status(): LifecycleRecord { return { ...this.state }; }
 
   private async record(value: LifecycleRecord) {
+    if (this.journalFailed) throw new HistoryUnavailable();
     const epoch = this.epoch;
     const copy = Object.freeze({ ...value });
     const next = this.journal.then(() => this.dependencies.writeLifecycle(copy));
     this.journal = next.catch(() => {});
-    try { await next; if (epoch === this.epoch) this.state = { ...value }; }
-    catch { this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; throw new HistoryUnavailable(); }
+    // Keep the actual write in the serial chain. A timeout cannot make a later
+    // write overtake it or let its eventual completion reopen this supervisor.
+    try { await bounded(next, 2000); if (epoch === this.epoch) this.state = { ...value }; }
+    catch { this.journalFailed = true; this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; throw new HistoryUnavailable(); }
   }
 
   start(): Promise<void> {
-    if (this.starting || this.cleanup || this.worker) return Promise.reject(new HistoryUnavailable());
+    if (this.starting || this.cleanup || this.worker || this.journalFailed || this.retirementUnresolved) return Promise.reject(new HistoryUnavailable());
     const epoch = ++this.epoch;
     const work = this.startWorker(epoch);
     this.starting = work;
@@ -85,8 +90,8 @@ export class ReceiptWorkerSupervisor {
 
   private async startWorker(epoch: number) {
     try {
-      const prior = await this.dependencies.readLifecycle();
-      if (!await this.dependencies.provePriorAbsence(prior)) { await this.record({ ...(prior ?? unknown()), adapter_worker: "unresolved", owned_worker: "unknown" }); throw new HistoryUnavailable(); }
+      const prior = await bounded(this.dependencies.readLifecycle(), 10000);
+      if (await bounded(this.dependencies.provePriorAbsence(prior), 10000) !== true) { await this.record({ ...(prior ?? unknown()), adapter_worker: "unresolved", owned_worker: "unknown" }); throw new HistoryUnavailable(); }
       await this.record(absent());
       const runtime = await bounded(this.dependencies.verifyRuntime(), 10000);
       runtimeChecks.parse(runtime.checks);
@@ -174,7 +179,8 @@ export class ReceiptWorkerSupervisor {
         void reply.catch(() => {});
         try {
           const bytes = entry.prepared.dispatch(this.dependencies.utcNow());
-          const [frame] = await bounded(Promise.all([reply, child.write(bytes)]), 10000);
+          const checkedReply = reply.then(async (frame) => { await entry.prepared.validate(frame); return frame; });
+          const [frame] = await bounded(Promise.all([checkedReply, child.write(bytes)]), 10000);
           if (epoch !== this.epoch || this.state.adapter_worker !== "ok" || frame.header.status === "unknown") throw new UnknownCompletion();
           this.active = null;
           entry.resolve(frame);
@@ -189,6 +195,7 @@ export class ReceiptWorkerSupervisor {
   stop(): Promise<void> { return this.retire(); }
   private retire(): Promise<void> {
     if (this.cleanup) return this.cleanup;
+    if (this.retirementUnresolved) return Promise.resolve();
     ++this.epoch;
     this.state.adapter_worker = "unavailable";
     this.startup?.reject(new UnknownCompletion()); this.startup = null;
@@ -197,21 +204,21 @@ export class ReceiptWorkerSupervisor {
     const work = Promise.resolve().then(async () => {
       const child = this.worker;
       if (!child) return;
-      if (!this.spawnProvenance) { await this.record({ ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }); return; }
+      if (!this.spawnProvenance) { this.retirementUnresolved = true; await this.record({ ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }); return; }
       let ended = false;
       for (const signal of ["TERM", "KILL"] as const) {
         const started = this.dependencies.monotonic();
         try {
           child.signalOwnedGroup(signal);
           const proof = await bounded(child.proveClosed(), 2000);
-          if (proof.exited && proof.reaped && proof.groupAbsent) { ended = true; break; }
+          if (proof.exited === true && proof.reaped === true && proof.groupAbsent === true) { ended = true; break; }
         } catch { /* Unknown cleanup is retained, never inferred from an exit event. */ }
         const remaining = Math.max(0, 2000 - (this.dependencies.monotonic() - started));
         if (remaining) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
       }
       if (ended) { this.worker = null; this.config = null; await this.record(absent()); }
-      else await this.record({ ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" });
-    }).catch(() => { this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; });
+      else { this.retirementUnresolved = true; await this.record({ ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }); }
+    }).catch(() => { if (this.worker) this.retirementUnresolved = true; this.state = { ...this.state, adapter_worker: "unresolved", owned_worker: "unknown" }; });
     this.cleanup = work;
     void work.finally(() => { if (this.cleanup === work) this.cleanup = null; });
     return work;
