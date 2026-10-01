@@ -143,7 +143,7 @@ test.describe("condensed staff board and manager color editor", () => {
       for (const [id] of members) await expect(page.getByTestId(`paint-palette-${id}`)).toBeVisible();
     }
     await page.getByTestId("paint-palette-green2").click();
-    await expect(page.getByTestId("paint-selected")).toContainText("Green 2 / Jolt");
+    await expect(page.getByTestId("paint-selected")).toContainText("Verde 2 / Jolt");
     const painted = await stageOpenHour(page);
     const draft = await page.evaluate(() => Object.entries(localStorage)
       .filter(([key]) => key.startsWith("taco-oasis-paint-draft-v1:") && !key.includes(":dates:"))
