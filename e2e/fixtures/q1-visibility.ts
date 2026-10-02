@@ -61,18 +61,21 @@ export function expectReadable(proof: Awaited<ReturnType<typeof visibleText>>) {
 /** No locator screenshot: it can reposition an oversized table underneath the toolbar. */
 export async function viewportEvidence(page: Page, path: string, targets: Record<string, Locator>, requireReadable = true) {
   await settledFrame(page);
-  const before = Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, el]) => [name, await visibleText(el)])));
+  const measure = async () => Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, el]) => [name, await visibleText(el)])));
+  const initial = await measure();
+  let before = initial, after = initial;
   const pixels = [];
   for (let attempt = 0; attempt < 5; attempt++) {
     // Sticky layers may lag their DOM rectangles while a scroll is composited.
     // Retain the first frame and require two matching pixels before judging it.
     await settledFrame(page);
+    before = await measure();
     const bytes = await page.screenshot({ path: `${path}${attempt === 0 ? ".first" : ""}.png`, fullPage: false });
+    after = await measure();
     pixels.push(createHash("sha256").update(bytes).digest("hex"));
-    if (attempt > 0 && pixels.at(-1) === pixels.at(-2)) break;
+    if (attempt > 0 && pixels.at(-1) === pixels.at(-2) && JSON.stringify(before) === JSON.stringify(after)) break;
   }
-  const after = Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, el]) => [name, await visibleText(el)])));
-  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), pixels, before, after }, null, 2));
+  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), pixels, initial, before, after }, null, 2));
   expect(pixels.at(-1), JSON.stringify(pixels)).toBe(pixels.at(-2));
   for (const key of Object.keys(before)) {
     expect(after[key]).toEqual(before[key]);
