@@ -543,7 +543,7 @@ function LegacyColorEditor({
           </div>
           <p className="mt-2 text-xs font-semibold" data-testid="paint-selected">{copy.selected}: {(paletteStation ? displayStationLabel(locale, paletteStation) : selectedChoice?.label) ?? (selected === "erase" ? copy.erase : "—")}</p>
         </aside>
-        <div className="min-w-0 overflow-x-auto" data-testid="paint-matrix" data-sort={rowSort}>
+        <div className="isolate min-w-0 overflow-x-auto" data-testid="paint-matrix" data-sort={rowSort}>
           <table className="min-w-full border-collapse text-left text-xs">
             <thead>{gapRow}<tr>
               <th className="sticky left-0 z-20 min-w-[10rem] border-b-2 border-r-2 border-neutral-900 bg-white px-2 py-1 text-sm font-bold" scope="col">{t.person}</th>

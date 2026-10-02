@@ -34,6 +34,55 @@ async function open(page: Page, board: string) {
   await expect(page.getByTestId("floor-board")).toHaveAttribute("data-role", "manager");
   await page.getByTestId("compact-date").selectOption(date); await page.getByTestId("compact-view").selectOption("timeline");
 }
+async function legacyToolbar(page: Page, shots: string, name: string, id: string) {
+  const matrix = page.getByTestId("paint-matrix"), label = page.getByTestId(`source-role-${id}`);
+  const records = [];
+  for (const side of ["left", "right"]) {
+    await belowToolbar(page, label.locator(".."));
+    const box = await matrix.boundingBox();
+    await page.mouse.move(box!.x + box!.width / 2, Math.max(box!.y, 150) + 100);
+    await page.mouse.wheel(side === "right" ? 1800 : -1800, 0);
+    await expect.poll(() => matrix.evaluate(el => el.scrollLeft)).toBe(side === "left" ? 0 : await matrix.evaluate(el => el.scrollWidth - el.clientWidth));
+    const proof = await page.getByTestId("compact-toolbar").evaluate(el => {
+      const rect = (e: Element) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom }; };
+      const controls = [...el.querySelectorAll("button,select")].filter(e => e.getBoundingClientRect().width > 0).map(e => {
+        const r = rect(e);
+        return { id: e.getAttribute("data-testid"), rect: r, points: [0.1, 0.5, 0.9].map(f => {
+          const top = document.elementFromPoint(r.x + (r.right - r.x) * f, (r.y + r.bottom) / 2);
+          return { unobscured: Boolean(top && e.contains(top)), top: top?.tagName };
+        }) };
+      });
+      const header = document.querySelector('[data-testid="paint-matrix"] th[scope="col"]')!;
+      return { controls, toolbar: rect(el), tableHeader: rect(header), scrollY,
+        scrollX: document.querySelector('[data-testid="paint-matrix"]')!.scrollLeft };
+    });
+    expect(proof.controls.length).toBeGreaterThan(3);
+    expect(proof.controls.every(c => c.points.every(p => p.unobscured))).toBe(true);
+    // Retain the failing geometry: the legacy header crosses the toolbar.
+    expect(proof.tableHeader.y).toBeLessThan(proof.toolbar.bottom);
+    const sticky = await label.evaluate(el => {
+      const r = el.getBoundingClientRect(), m = el.closest('[data-testid="paint-matrix"]')!.getBoundingClientRect();
+      return { x: r.x, right: r.right, matrixX: m.x, hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) };
+    });
+    expect(sticky.x).toBeGreaterThanOrEqual(sticky.matrixX); expect(sticky.hit).toBe(true);
+    await page.screenshot({ path: join(shots, `${name}-${side}-toolbar.png`), fullPage: false });
+    // Real pointer hit and keyboard change, not dispatchEvent/selectOption alone.
+    const dateControl = page.getByTestId("compact-date");
+    await dateControl.click(); await page.keyboard.press("Escape"); await expect(dateControl).toBeFocused();
+    const options = await dateControl.locator("option").evaluateAll(els => els.map(e => (e as HTMLOptionElement).value));
+    const index = options.indexOf(date), step = index > 0 ? -1 : 1;
+    expect(options.length).toBeGreaterThan(1);
+    await dateControl.press(step < 0 ? "ArrowUp" : "ArrowDown"); await dateControl.press("Enter");
+    await expect(dateControl).toHaveValue(options[index + step]);
+    await dateControl.press(step < 0 ? "ArrowDown" : "ArrowUp"); await dateControl.press("Enter");
+    await expect(dateControl).toHaveValue(date); await expect(label).toBeVisible();
+    await page.getByTestId("toolbar-more").click(); await expect(page.getByTestId("locale-toggle-en")).toBeVisible();
+    await page.getByTestId("toolbar-more").click();
+    records.push({ side, ...proof, sticky, dateInteraction: { from: date, to: options[index + step], returned: date }, moreInteraction: true });
+  }
+  writeFileSync(join(shots, `${name}-toolbar.json`), JSON.stringify(records, null, 2));
+  await matrix.evaluate(el => { el.scrollLeft = 0; });
+}
 for (const phase of ["prepared", "active"]) test(`${phase}: source roles remain visible for blank, partial, reassigned and split shifts in the working grid`, async ({ page }) => {
   test.setTimeout(120_000); await page.setViewportSize({ width: 1280, height: 900 });
   if (phase === "active") await db.$executeRawUnsafe("UPDATE QuarterSchema SET phase='active',minReader=2,minWriter=2,activatedAtMs=1 WHERE id=1");
@@ -45,6 +94,7 @@ for (const phase of ["prepared", "active"]) test(`${phase}: source roles remain 
     for (const locale of ["en", "es"]) for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
       await page.getByTestId("toolbar-more").click(); await page.getByTestId(`locale-toggle-${locale}`).click(); await page.getByTestId("toolbar-more").click();
+      if (phase === "prepared") await legacyToolbar(page, shots, `${phase}-${board}-${locale}-${theme}`, board === "caja" ? "nieves-empty" : "nieves-kitchen");
       for (const id of board === "caja" ? ids.filter(id => id !== "nieves-kitchen") : ["nieves-kitchen"]) {
         const label = page.getByTestId(`source-role-${id}`);
         await expect(label).toContainText(id === "nieves-split" ? "Caja - Regular" : board === "cocina" ? "Cocina - Guia Abrir" : "Caja - Nieves");

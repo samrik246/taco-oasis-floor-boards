@@ -43,6 +43,7 @@ def run_scenario(root, manifest_file, scenario):
     service = synthetic_service(app, database, 3100, run)
     writes = run / 'acknowledged-writes.json'
     before_recovery = None
+    post_write_read = run / 'post-write-read.json'
     date = (calendar_date.fromisoformat(fixture['date']) + timedelta(days=index)).isoformat()
     source = 'quarter-rehearsal-' + str(index)
     def client(mode, output, prior=None):
@@ -78,6 +79,10 @@ def run_scenario(root, manifest_file, scenario):
         result = subprocess.run(command, cwd=app, capture_output=True, text=True)
         log = run / ('real-bundle-' + mode + '.log'); log.write_text(result.stdout + result.stderr)
         if result.returncode: raise ValueError('ACTUAL_BUNDLE_PROOF_FAILED:' + mode)
+    def nieves(mode):
+        from quarter_rehearsal_nieves import run as run_nieves
+        day = (calendar_date.fromisoformat(fixture["date"]) + timedelta(days=220)).isoformat()
+        run_nieves(root, fixture, mode, day)
     def replay_preserved(before, after):
         # Exact replay takes the shared mutex but must add no application mutation.
         for key in ('database', 'state', 'schemaSha256', 'registrySha256'):
@@ -132,6 +137,12 @@ def run_scenario(root, manifest_file, scenario):
             if fault_phase in ('before-promote', 'after-promote'):
                 acknowledge()  # Fresh expectation includes writes accepted before stopping.
             result = cutover(packet_file, app, database, run / 'cutover', 'install', service, checker, fault)
+            if roundtrip and not self_run:
+                nieves('seed')
+                before_recovery = capture(database)
+                atomic_json(run / 'post-nieves-guard.json', before_recovery)
+                post_write_read = run / 'post-nieves-read.json'
+                client('read', post_write_read)
             if 'rollback' in scenario or roundtrip:
                 packet['currentManifestSha256'] = file_hash(app / MANIFEST); atomic_json(packet_file, packet)
                 result = cutover(packet_file, app, database, run / 'rollback', 'rollback', service, lambda phase: 'pass')
@@ -143,7 +154,7 @@ def run_scenario(root, manifest_file, scenario):
                 raise ValueError('RECOVERY_OUTCOME_MISMATCH')
             if result != 'recovery-blocked':
                 client('read', run / 'recovered-day.json')
-                original = json.loads((run / 'post-write-read.json').read_text()); recovered = json.loads((run / 'recovered-day.json').read_text())
+                original = json.loads(post_write_read.read_text()); recovered = json.loads((run / 'recovered-day.json').read_text())
                 if original != recovered:
                     raise ValueError('RECOVERED_INTERVAL_READ_CHANGED')
                 picker('after')
@@ -157,6 +168,7 @@ def run_scenario(root, manifest_file, scenario):
                 if roundtrip:
                     # R0 has now read/replayed the candidate writes and accepted a fresh
                     # command. Return to the actual candidate against that new expectation.
+                    if not self_run: nieves('recovered')
                     client('read', run / 'r0-post-write-read.json')
                     current = capture(database)
                     packet['currentManifestSha256'] = file_hash(app / MANIFEST); atomic_json(packet_file, packet)
@@ -171,6 +183,7 @@ def run_scenario(root, manifest_file, scenario):
                     client('replay', run / 'returned-original-replay.json', writes)
                     client('replay', run / 'returned-r0-replay.json', run / 'post-recovery-write.json')
                     replay_preserved(current, capture(database)); picker('after-return')
+                    if not self_run: nieves('returned')
             else:
                 if service.state.exists():
                     raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')

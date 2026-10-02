@@ -62,5 +62,64 @@ class Q1AggregateChecks(unittest.TestCase):
             self.run_aggregate()
 
 
+class NievesBindings(unittest.TestCase):
+    def setUp(self):
+        from quarter_rehearsal_nieves import validate
+        self.validate = validate
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        (self.root / 'evidence/nieves').mkdir(parents=True)
+        (self.root / 'q1/scripts').mkdir(parents=True)
+        (self.root / 'q1/scripts/quarter-rehearsal-nieves.ts').write_text('pinned driver')
+        self.fixture = {'r0': {'manifestSha256': 'a'*64}, 'candidate': {'manifestSha256': 'b'*64}, 'database': str(self.root/'db'), 'identity': [1,2]}
+        self.sources = {'r0': '0'*40, 'candidate': '1'*40}
+
+    def tearDown(self): self.temp.cleanup()
+
+    def seed_prepared(self, **changes):
+        from quarter_rehearsal_nieves import BATTERY
+        value = dict(version=1, mode='prepared', role='QP_UI_Q1', sourceSha='1'*40,
+                     loadedArtifactSha256='b'*64, driverSha256=rehearse.file_hash(self.root/'q1/scripts/quarter-rehearsal-nieves.ts'),
+                     checks=sorted(BATTERY), database={'path': self.fixture['database'], 'device':1, 'inode':2},
+                     operations=[{'label':'initial','input':[{'id':'Alma'}], 'result':{'outcome':'imported'}, 'inputSha256':'c'*64, 'rows':[], 'sources':[]}])
+        value.update(changes)
+        (self.root/'evidence/nieves/prepared.json').write_text(json.dumps(value))
+
+    def test_generic_importer_flags_do_not_satisfy_nieves(self):
+        (self.root/'evidence/importers-active').mkdir()
+        (self.root/'evidence/importers-active/completed.json').write_text('{"compatibleDrain":true}')
+        with self.assertRaisesRegex(ValueError,'NIEVES_EVIDENCE_REQUIRED:prepared'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_old_candidate_pin_refuses(self):
+        self.seed_prepared(loadedArtifactSha256='c'*64)
+        with self.assertRaisesRegex(ValueError,'NIEVES_EVIDENCE_PIN_MISMATCH'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_changed_driver_refuses(self):
+        self.seed_prepared(driverSha256='d'*64)
+        with self.assertRaisesRegex(ValueError,'NIEVES_EVIDENCE_PIN_MISMATCH'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_missing_mapping_assertion_refuses(self):
+        self.seed_prepared(checks=['eligible-two-seats'])
+        with self.assertRaisesRegex(ValueError,'NIEVES_ASSERTIONS_INCOMPLETE'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_replaced_database_refuses(self):
+        self.seed_prepared(database={'path':self.fixture['database'],'device':1,'inode':99})
+        with self.assertRaisesRegex(ValueError,'NIEVES_DATABASE_MISMATCH'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_success_labels_without_rows_refuse(self):
+        self.seed_prepared(operations=[{'label':'initial','result':{'outcome':'imported'}}])
+        with self.assertRaisesRegex(ValueError,'NIEVES_IMPORT_ROWS_REQUIRED'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_prepared_only_cannot_complete_crossings(self):
+        self.seed_prepared()
+        with self.assertRaisesRegex(ValueError,'NIEVES_EVIDENCE_REQUIRED:seed'):
+            self.validate(self.root,self.fixture,self.sources)
+
+
 if __name__ == '__main__':
     unittest.main()
