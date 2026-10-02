@@ -112,12 +112,72 @@ class NievesBindings(unittest.TestCase):
 
     def test_success_labels_without_rows_refuse(self):
         self.seed_prepared(operations=[{'label':'initial','result':{'outcome':'imported'}}])
-        with self.assertRaisesRegex(ValueError,'NIEVES_IMPORT_ROWS_REQUIRED'):
+        with self.assertRaisesRegex(ValueError,'NIEVES_OPERATIONS_INCOMPLETE'):
             self.validate(self.root,self.fixture,self.sources)
 
-    def test_prepared_only_cannot_complete_crossings(self):
+    def test_partial_operation_list_cannot_complete_crossings(self):
         self.seed_prepared()
-        with self.assertRaisesRegex(ValueError,'NIEVES_EVIDENCE_REQUIRED:seed'):
+        with self.assertRaisesRegex(ValueError,'NIEVES_OPERATIONS_INCOMPLETE:prepared'):
+            self.validate(self.root,self.fixture,self.sources)
+
+
+    def complete_fixture(self):
+        from quarter_rehearsal_nieves import BATTERY, MODES
+        folder = self.root/'evidence/nieves'; commands = []
+        saved = {'sources':[{'id':'saved'}], 'rows':[{'shiftId':'saved','stationId':'nieves2','seatNumber':2}], 'breaks':[{'id':'booked','coverShiftId':'saved'}], 'hours':[]}
+        seed = {'saved': saved, 'input':[{'id':'Alma'}]}
+        for mode in MODES:
+            role = 'r0' if mode=='recovered' else 'candidate'
+            labels = ['initial','repeat','manager-edit','manager-edit','revision','exact','mapping-0','mapping-1','mapping-2','split','eligibility'] if mode in ('prepared','seed') else ['crossing-repeat','r0-existing-allocator' if mode=='recovered' else 'returned-revision']
+            operations=[]
+            for label in labels:
+                if label=='manager-edit': operations.append({'label':label,'receipt':{'requestId':'paint'},'legacyBefore':{'id':'saved'},'legacyAfter':None}); continue
+                directory=folder/(mode+'-'+label); directory.mkdir()
+                file=directory/'Schedule_for_nieves.csv'; file.write_text('immutable synthetic input')
+                operations.append({'label':label,'input':[{'id':'Alma'}],'inputSha256':rehearse.file_hash(file),'result':{'outcome':'imported'},'sources':[{'id':'saved'}],'rows':[{'shiftId':'saved'}], 'receipts':[{'requestId':'import','responseJson':'{}'}]})
+            required=BATTERY if mode in ('prepared','seed') else {'crossing-preserved','crossing-repeat','r0-single-seat-baseline' if mode=='recovered' else 'returned-revision-preserves'}
+            value={'version':1,'mode':mode,'role':'QP_COMPAT_R0' if role=='r0' else 'QP_UI_Q1','sourceSha':self.sources[role], 'loadedArtifactSha256':self.fixture[role]['manifestSha256'], 'driverSha256':rehearse.file_hash(self.root/'q1/scripts/quarter-rehearsal-nieves.ts'),'checks':sorted(required),'operations':operations,'database':{'path':self.fixture['database'],'device':1,'inode':2},'date':'2040-01-01' if mode=='prepared' else '2040-02-01','state':seed}
+            if mode in ('recovered','returned'): value['before']=saved
+            (folder/(mode+'.json')).write_text(json.dumps(value))
+            log=folder/(mode+'.log'); log.write_text('retained log')
+            commands.extend([{'action':'start','mode':mode,'artifactSha256':self.fixture[role]['manifestSha256'],'sourceSha':self.sources[role],'driverSha256':value['driverSha256']},{'action':'finish','mode':mode,'exit':0,'logSha256':rehearse.file_hash(log)}])
+        (folder/'commands.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in commands))
+
+    def test_complete_pinned_records_bind_every_input(self):
+        self.complete_fixture()
+        evidence=self.validate(self.root,self.fixture,self.sources)
+        self.assertEqual(len([f for f in evidence if f.endswith('.csv')]),22)
+
+    def test_csv_tampering_refuses(self):
+        self.complete_fixture()
+        (self.root/'evidence/nieves/seed-initial/Schedule_for_nieves.csv').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'NIEVES_INPUT_MISMATCH:seed'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_missing_csv_refuses(self):
+        self.complete_fixture()
+        (self.root/'evidence/nieves/returned-crossing-repeat/Schedule_for_nieves.csv').unlink()
+        with self.assertRaisesRegex(ValueError,'NIEVES_INPUT_REQUIRED:returned'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_missing_import_receipt_refuses(self):
+        self.complete_fixture(); file=self.root/'evidence/nieves/seed.json'; data=json.loads(file.read_text()); data['operations'][0]['receipts']=[]; file.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'NIEVES_IMPORT_RECEIPT_REQUIRED:seed'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_changed_saved_number_refuses(self):
+        self.complete_fixture(); file=self.root/'evidence/nieves/recovered.json'; data=json.loads(file.read_text()); data['state']['saved']['rows'][0]['seatNumber']=1; file.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'NIEVES_SAVED_INTENT_CHANGED'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_changed_returned_cover_refuses(self):
+        self.complete_fixture(); file=self.root/'evidence/nieves/returned.json'; data=json.loads(file.read_text()); data['state']['saved']['breaks']=[]; file.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'NIEVES_RETURNED_INTENT_CHANGED'):
+            self.validate(self.root,self.fixture,self.sources)
+
+    def test_failed_child_refuses(self):
+        self.complete_fixture(); file=self.root/'evidence/nieves/commands.jsonl'; data=[json.loads(line) for line in file.read_text().splitlines()]; data[-1]['exit']=1; file.write_text(''.join(json.dumps(row)+'\n' for row in data))
+        with self.assertRaisesRegex(ValueError,'NIEVES_COMMANDS_INCOMPLETE'):
             self.validate(self.root,self.fixture,self.sources)
 
 

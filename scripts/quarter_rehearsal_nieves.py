@@ -55,11 +55,24 @@ def validate(root, fixture, sources):
         identity = proof.get('database', {})
         if identity.get('path') != fixture['database'] or [identity.get('device'), identity.get('inode')] != fixture['identity']:
             raise ValueError('NIEVES_DATABASE_MISMATCH:' + mode)
+        labels = [operation.get('label') for operation in proof['operations']]
+        expected_labels = ['initial', 'repeat', 'manager-edit', 'manager-edit', 'revision', 'exact', 'mapping-0', 'mapping-1', 'mapping-2', 'split', 'eligibility'] if mode in ('prepared', 'seed') else ['crossing-repeat', 'r0-existing-allocator' if mode == 'recovered' else 'returned-revision']
+        if labels != expected_labels: raise ValueError('NIEVES_OPERATIONS_INCOMPLETE:' + mode)
         for operation in proof['operations']:
             if operation.get('label') == 'manager-edit':
-                if not operation.get('receipt'): raise ValueError('NIEVES_PAINT_RECEIPT_REQUIRED')
+                if mode == 'prepared':
+                    if not operation.get('legacyBefore') or 'legacyAfter' not in operation: raise ValueError('NIEVES_LEGACY_EDIT_ROWS_REQUIRED')
+                elif not operation.get('receipt'): raise ValueError('NIEVES_PAINT_RECEIPT_REQUIRED')
             elif not operation.get('input') or operation.get('result', {}).get('outcome') not in ('imported', 'refused', 'replayed') or 'rows' not in operation or 'sources' not in operation or len(operation.get('inputSha256', '')) != 64:
                 raise ValueError('NIEVES_IMPORT_ROWS_REQUIRED:' + mode)
+            if operation.get('label') != 'manager-edit':
+                csv = folder / (mode + '-' + operation['label']) / 'Schedule_for_nieves.csv'
+                try: input_hash = file_hash(csv)
+                except OSError as error: raise ValueError('NIEVES_INPUT_REQUIRED:' + mode) from error
+                if operation['inputSha256'] != input_hash: raise ValueError('NIEVES_INPUT_MISMATCH:' + mode)
+                evidence[str(csv.relative_to(root / 'evidence'))] = input_hash
+                if mode != 'prepared' and (not operation.get('receipts') or any(not r.get('requestId') or not r.get('responseJson') for r in operation['receipts'])):
+                    raise ValueError('NIEVES_IMPORT_RECEIPT_REQUIRED:' + mode)
         proofs[mode] = proof
         evidence[str(path.relative_to(root / 'evidence'))] = file_hash(path)
     seed, recovered, returned = (proofs[m] for m in ('seed', 'recovered', 'returned'))

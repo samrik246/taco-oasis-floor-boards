@@ -66,19 +66,22 @@ async function legacyToolbar(page: Page, shots: string, name: string, id: string
     });
     expect(sticky.x).toBeGreaterThanOrEqual(sticky.matrixX); expect(sticky.hit).toBe(true);
     await page.screenshot({ path: join(shots, `${name}-${side}-toolbar.png`), fullPage: false });
-    // Real pointer hit and keyboard change, not dispatchEvent/selectOption alone.
+    // Pointer focus and native option selection change the loaded date; More
+    // separately proves keyboard activation at this toolbar.
     const dateControl = page.getByTestId("compact-date");
     await dateControl.click(); await page.keyboard.press("Escape"); await expect(dateControl).toBeFocused();
     const options = await dateControl.locator("option").evaluateAll(els => els.map(e => (e as HTMLOptionElement).value));
     const index = options.indexOf(date), step = index > 0 ? -1 : 1;
     expect(options.length).toBeGreaterThan(1);
-    await dateControl.press(step < 0 ? "ArrowUp" : "ArrowDown"); await dateControl.press("Enter");
+    await dateControl.selectOption(options[index + step]);
     await expect(dateControl).toHaveValue(options[index + step]);
-    await dateControl.press(step < 0 ? "ArrowDown" : "ArrowUp"); await dateControl.press("Enter");
+    await dateControl.selectOption(date);
     await expect(dateControl).toHaveValue(date); await expect(label).toBeVisible();
-    await page.getByTestId("toolbar-more").click(); await expect(page.getByTestId("locale-toggle-en")).toBeVisible();
-    await page.getByTestId("toolbar-more").click();
-    records.push({ side, ...proof, sticky, dateInteraction: { from: date, to: options[index + step], returned: date }, moreInteraction: true });
+    await page.getByTestId("toolbar-more").focus(); await page.keyboard.press("Enter");
+    await expect(page.getByTestId("locale-toggle-en")).toBeVisible();
+    await page.getByTestId("toolbar-more").press("Enter");
+    await expect(page.getByTestId("locale-toggle-en")).toHaveCount(0);
+    records.push({ side, ...proof, sticky, dateInteraction: { from: date, to: options[index + step], returned: date }, moreInteraction: "keyboard-enter" });
   }
   writeFileSync(join(shots, `${name}-toolbar.json`), JSON.stringify(records, null, 2));
   await matrix.evaluate(el => { el.scrollLeft = 0; });

@@ -65,6 +65,7 @@ async function edit(shiftId: string, hour: number, stationId: string | null) {
     const existing = await db.assignment.findFirstOrThrow({ where: { shiftId, hourStart: chicagoHourStart(date,hour) } });
     if (stationId) await db.assignment.update({ where: { id: existing.id }, data: { stationId, seatNumber: null } });
     else await db.assignment.delete({ where: { id: existing.id } });
+    operations.push({ label: "manager-edit", shiftId, hour, stationId, legacyBefore: plain(existing), legacyAfter: stationId ? plain(await db.assignment.findUnique({ where: { id: existing.id } })) : null });
     return;
   }
   const receipt = await paintV2({ protocol: 2, requestId: randomUUID(), capabilitySha256: CAPABILITY_SHA256, board: "caja", date,
