@@ -223,12 +223,20 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
           expect(bottom.cover.scrollX).toBeCloseTo(geometry.left, 0);
           positions.push({ position, geometry, top, bottom });
         }
+        await page.getByTestId("q1-hour-header-11").getByRole("button").click();
+        for (let first = 0; first < colors.length; first += 6) {
+          const row = page.getByTestId(`q1-row-q1-${board}-color-${first}`);
+          await belowToolbar(page, row);
+          const targets: Record<string, ReturnType<Page["locator"]>> = {};
+          for (let i = first; i < Math.min(first + 6, colors.length); i++) targets[`name-${i}`] = page.getByTestId(`q1-row-q1-${board}-color-${i}`).locator("th");
+          await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-colors-${first}`), targets);
+        }
         // After vertical and horizontal scrolling, a local refusal is visible beside its cell.
         if (surface === "editor") {
           await belowToolbar(page, page.getByTestId(`q1-row-${full}`));
           const button = page.getByTestId(`quarter-cell-${full}-11${view === "quarter" ? "-0" : ""}`);
           await button.click();
-          await expect(page.getByTestId("q1-cell-notice")).toContainText(locale === "es" ? "BREAK" : "BREAK");
+          await expect(page.getByTestId("q1-cell-notice")).toContainText(view === "quarter" ? "BREAK" : locale === "es" ? "Hora mixta" : "Mixed hour");
           await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-refusal`), { notice: page.getByTestId("q1-cell-notice") });
           await page.getByTestId("q1-cell-notice").getByRole("button", { name: locale === "es" ? "Cerrar" : "Close", exact: true }).click();
         }

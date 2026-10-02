@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 export async function settledFrame(page: Page) {
@@ -7,10 +8,16 @@ export async function settledFrame(page: Page) {
 
 /** Scroll the document, preserving horizontal grid position and the real toolbar. */
 export async function belowToolbar(page: Page, target: Locator) {
-  await target.evaluate(el => {
+  const scroll = await target.evaluate(el => {
     const toolbar = document.querySelector('[data-testid="floor-board"] > header')!;
-    window.scrollBy(0, el.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom - 16);
+    const wanted = scrollY + el.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom - 16;
+    const y = Math.max(0, Math.min(wanted, document.documentElement.scrollHeight - innerHeight));
+    return { y, delta: y - scrollY };
   });
+  // Real wheel input also exercises the compositor path used by attended scrolling.
+  await page.mouse.move(8, 400);
+  await page.mouse.wheel(0, scroll.delta);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeCloseTo(scroll.y, 0);
   await settledFrame(page);
 }
 
@@ -55,9 +62,18 @@ export function expectReadable(proof: Awaited<ReturnType<typeof visibleText>>) {
 export async function viewportEvidence(page: Page, path: string, targets: Record<string, Locator>, requireReadable = true) {
   await settledFrame(page);
   const before = Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, el]) => [name, await visibleText(el)])));
-  await page.screenshot({ path: `${path}.png`, fullPage: false });
+  const pixels = [];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    // Sticky layers may lag their DOM rectangles while a scroll is composited.
+    // Retain the first frame and require two matching pixels before judging it.
+    await settledFrame(page);
+    const bytes = await page.screenshot({ path: `${path}${attempt === 0 ? ".first" : ""}.png`, fullPage: false });
+    pixels.push(createHash("sha256").update(bytes).digest("hex"));
+    if (attempt > 0 && pixels.at(-1) === pixels.at(-2)) break;
+  }
   const after = Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, el]) => [name, await visibleText(el)])));
-  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), before, after }, null, 2));
+  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), pixels, before, after }, null, 2));
+  expect(pixels.at(-1), JSON.stringify(pixels)).toBe(pixels.at(-2));
   for (const key of Object.keys(before)) {
     expect(after[key]).toEqual(before[key]);
     if (requireReadable) expectReadable(after[key]);
