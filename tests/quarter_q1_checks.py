@@ -1,7 +1,10 @@
 """Actual-Q1 aggregate must refuse self evidence and incomplete cross-artifact records."""
 import importlib.util
+import copy
 import json
+import os
 import shutil
+import sqlite3
 from pathlib import Path
 import sys
 import tempfile
@@ -274,6 +277,176 @@ class NievesSupportPreflight(unittest.TestCase):
     def test_changed_application_module_refuses(self):
         (self.root/'q1/src/lib/import/folder-import.ts').write_text('changed application')
         with self.assertRaisesRegex(ValueError,'NIEVES_PREFLIGHT_DEPENDENCY_REQUIRED:q1'): self.run_preflight()
+
+
+class ActivationTransitionChecks(unittest.TestCase):
+    def setUp(self):
+        import quarter_guard as guard
+        import quarter_rehearsal_measurements as measurements
+        import quarter_release as release
+        self.guard, self.measurements, self.release = guard, measurements, release
+        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('FLOOR_BOARDS_TEST_ROOT'))
+        self.root = Path(self.temp.name).resolve(); self.database = self.root / 'test.db'
+        self.app = self.root / 'app'; self.app.mkdir()
+        self.out = self.root / 'measurements'; self.out.mkdir()
+        columns = json.loads(guard.REGISTRY.read_text())
+        migration_path = Path(rehearse.APP) / 'src/lib/quarter/migration-sql.ts'
+        # Execute the actual source SQL, including the real revision trigger.
+        sql = json.loads(migration_path.read_text().split('= ', 1)[1].split(' as const;', 1)[0])
+        with sqlite3.connect(self.database) as db:
+            for table, names in columns.items():
+                if table in guard.QUARTER_TABLES: continue
+                fields = [guard.quote(name) + (' TEXT PRIMARY KEY' if name == 'id' else ' TEXT') for name in names if name != 'rowid']
+                db.execute('CREATE TABLE ' + guard.quote(table) + '(' + ','.join(fields) + ')')
+            for statement in sql: db.execute(statement)
+            db.execute('INSERT INTO QuarterWorldRevision VALUES(1,664)')
+            db.execute("INSERT INTO QuarterSchema VALUES(1,2,'prepared','synthetic-epoch',1,1,?,NULL)", ('a' * 64,))
+            db.execute("INSERT INTO Manager(id,name) VALUES('m','Synthetic')")
+        self.packet = self.root / 'packet.json'
+        self.packet.write_text(json.dumps({'version': 1, 'controllerSha256': guard.file_hash(release.__file__)}))
+        self.reader = {'retained': 2}
+        identity = self.database.stat()
+        self.fixture = {'database': str(self.database), 'identity': [identity.st_dev, identity.st_ino]}
+
+    def tearDown(self): self.temp.cleanup()
+
+    def activate(self):
+        self.assertTrue((self.out / 'activation-before.json').is_file())
+        self.assertFalse((self.out / 'activation-after.json').exists())
+        with patch.object(self.release, 'target'), patch.object(self.release, 'readbacks', return_value=self.reader), patch('quarter_importers.verify_importers', return_value={}):
+            self.release.activate(self.packet, self.app, self.database, self.out / 'activation.jsonl')
+
+    def collect(self, mutation=None):
+        def action():
+            self.activate()
+            if mutation:
+                with sqlite3.connect(self.database) as db:
+                    db.execute('PRAGMA ignore_check_constraints=ON')
+                    db.executescript(mutation)
+        return self.measurements.retain_activation(self.database, self.out, action)
+
+    def snapshots(self):
+        return [json.loads((self.out / name).read_text()) for name in self.measurements.ACTIVATION_FILES[:2]]
+
+    def evidence(self, binding):
+        return self.measurements.validate_activation_evidence(self.out, {'activationEvidence': binding, 'readerProof': self.reader}, self.fixture)
+
+    def assert_retained(self):
+        before, after = self.snapshots()
+        self.assertEqual(len(before['guard']['tables']), 26)
+        self.assertEqual(len(after['guard']['tables']), 26)
+        self.assertIn('QuarterWorldRevision', after['rows'])
+        self.assertFalse((self.out / 'completed.json').exists())
+
+    def test_actual_controller_and_pinned_trigger_increment_nonzero_once(self):
+        binding = self.collect(); before, after = self.snapshots()
+        self.assertEqual(before['rows']['QuarterWorldRevision']['values'][0][1], ['integer', '665'])
+        self.assertEqual(after['rows']['QuarterWorldRevision']['values'][0][1], ['integer', '666'])
+        self.assertEqual(set(self.evidence(binding)), {'measurements/' + name for name in self.measurements.ACTIVATION_FILES})
+
+    def test_zero_increment_refuses_and_keeps_both_snapshots(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_REVISION_TRANSITION_INVALID'):
+            self.collect('UPDATE QuarterWorldRevision SET revision=revision-1')
+        self.assert_retained()
+
+    def test_extra_increment_refuses_and_keeps_both_snapshots(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_REVISION_TRANSITION_INVALID'):
+            self.collect('UPDATE QuarterWorldRevision SET revision=revision+1')
+        self.assert_retained()
+
+    def test_missing_before_revision_refuses(self):
+        with sqlite3.connect(self.database) as db: db.execute('DELETE FROM QuarterWorldRevision')
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_SINGLETON_INVALID:QuarterWorldRevision'): self.collect()
+        self.assert_retained()
+
+    def test_missing_after_revision_refuses(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_SINGLETON_INVALID:QuarterWorldRevision'):
+            self.collect('DELETE FROM QuarterWorldRevision')
+        self.assert_retained()
+
+    def test_extra_singleton_refuses(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_SINGLETON_INVALID:QuarterWorldRevision'):
+            self.collect('INSERT INTO QuarterWorldRevision VALUES(2,666)')
+        self.assert_retained()
+
+    def test_malformed_revision_refuses(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_REVISION_ROW_INVALID'):
+            self.collect("UPDATE QuarterWorldRevision SET revision='bad'")
+        self.assert_retained()
+
+    def test_unrelated_table_mutation_refuses(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_DATA_CHANGED:Manager'):
+            self.collect("UPDATE Manager SET name='changed'")
+        self.assert_retained()
+
+    def test_epoch_drift_refuses_even_with_exact_increment(self):
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_SCHEMA_TRANSITION_INVALID'):
+            self.collect("UPDATE QuarterSchema SET databaseEpoch='changed'; UPDATE QuarterWorldRevision SET revision=666")
+        self.assert_retained()
+
+    def test_action_exception_still_keeps_immediate_after(self):
+        def fail():
+            self.activate()
+            raise ValueError('INJECTED_AFTER_ACTIVATION')
+        with self.assertRaisesRegex(ValueError, 'INJECTED_AFTER_ACTIVATION'):
+            self.measurements.retain_activation(self.database, self.out, fail)
+        self.assert_retained()
+
+    def test_r0_self_refusal_still_preserves_database(self):
+        packet = json.loads(self.packet.read_text()); packet['syntheticR0SelfRehearsal'] = True
+        self.packet.write_text(json.dumps(packet)); before = self.guard.capture(self.database)
+        with self.assertRaisesRegex(ValueError, 'ACTUAL_Q1_PIN_REQUIRED'): self.collect()
+        self.guard.preserved(before, self.guard.capture(self.database)); self.assert_retained()
+
+    def test_state_identity_schema_registry_and_foreign_key_drift_refuse(self):
+        self.collect(); original = self.snapshots()
+        for key, value in (('database', {'device': 5, 'inode': 6}), ('schemaSha256', '0' * 64),
+                           ('registrySha256', '0' * 64), ('foreignKeys', 0), ('foreignKeyViolations', 1)):
+            with self.subTest(key=key):
+                before, after = copy.deepcopy(original); after['guard'][key] = value
+                with self.assertRaises(ValueError): self.measurements.validate_activation_transition(before, after)
+        for side, index, value in ((0, 2, ['text', 'active']), (1, 0, ['integer', '2']), (1, 1, ['integer', '3']),
+                                    (1, 2, ['text', 'prepared']), (1, 4, ['integer', '1']), (1, 5, ['integer', '1']),
+                                    (1, 6, ['text', 'b' * 64]), (1, 7, ['integer', '1']), (1, 7, ['null', None])):
+            with self.subTest(side=side, index=index, value=value):
+                pair = copy.deepcopy(original); snapshot = pair[side]
+                rows = snapshot['rows']['QuarterSchema']['values']; rows[0][index] = value
+                snapshot['guard']['tables']['QuarterSchema']['sha256'] = self.guard.hash_value(rows)
+                snapshot['guard']['state'] = [int(v) if kind == 'integer' else v for kind, v in rows[0][1:]]
+                with self.assertRaises(ValueError): self.measurements.validate_activation_transition(*pair)
+
+    def test_missing_schema_row_and_inconsistent_guard_refuse(self):
+        self.collect(); before, after = self.snapshots()
+        for rows in ([], after['rows']['QuarterSchema']['values'] * 2):
+            altered = copy.deepcopy(after); altered['rows']['QuarterSchema']['values'] = rows
+            with self.assertRaisesRegex(ValueError, 'ACTIVATION_SINGLETON_INVALID:QuarterSchema'):
+                self.measurements.validate_activation_transition(before, altered)
+        after['guard']['tables']['QuarterWorldRevision']['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_ROW_GUARD_MISMATCH'):
+            self.measurements.validate_activation_transition(before, after)
+
+    def test_aggregate_requires_bound_snapshots_and_journal(self):
+        binding = self.collect()
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_EVIDENCE_REQUIRED'): self.evidence({})
+        for name in binding:
+            changed = dict(binding, **{name: '0' * 64})
+            with self.assertRaisesRegex(ValueError, 'ACTIVATION_EVIDENCE_CHANGED'): self.evidence(changed)
+        self.fixture['identity'][1] += 1
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_DATABASE_MISMATCH'): self.evidence(binding)
+
+    def test_aggregate_revalidates_even_rehashed_invalid_transition(self):
+        binding = self.collect(); before, after = self.snapshots()
+        after['rows']['QuarterWorldRevision']['values'][0][1] = ['integer', '667']
+        after['guard']['tables']['QuarterWorldRevision']['sha256'] = self.guard.hash_value(after['rows']['QuarterWorldRevision']['values'])
+        path = self.out / 'activation-after.json'; path.write_text(json.dumps(after))
+        binding[path.name] = self.guard.file_hash(path)
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_REVISION_TRANSITION_INVALID'): self.evidence(binding)
+
+    def test_aggregate_rejects_journal_guard_drift(self):
+        binding = self.collect(); path = self.out / 'activation.jsonl'
+        event = json.loads(path.read_text()); event['guard']['schemaSha256'] = '0' * 64
+        path.write_text(json.dumps(event) + '\n'); binding[path.name] = self.guard.file_hash(path)
+        with self.assertRaisesRegex(ValueError, 'ACTIVATION_JOURNAL_MISMATCH'): self.evidence(binding)
 
 
 if __name__ == '__main__':

@@ -62,6 +62,15 @@ is rebound to the currently loaded runtime; the request, expectations and receip
 remain unchanged. The final aggregate refuses missing cases, loaded-bundle
 records, pending evidence, inconsistent artifact pins or unresolved cleanup.
 
+Activation qualification retains immediate before/after safe-column guards and
+typed QuarterSchema/QuarterWorldRevision rows before validating them, including
+on failure. It requires prepared→active, reader/writer 1→2, an activation time
+inside the observed boundary and exactly one world-revision increment from the
+actual schema-update trigger. Database identity, schema, epoch, migration,
+registry, foreign-key guarantees and every other table must remain unchanged.
+The completion record binds both snapshots and the activation journal; final
+Q1 aggregation checks their hashes and revalidates the exact transition.
+
 Complete unit/API, fresh production browser, typecheck, packet, static and
 normalized lint checks and source-bound screenshots precede the frozen handoff.
 Actual composed execution needs the independent pin/packet review. Physical

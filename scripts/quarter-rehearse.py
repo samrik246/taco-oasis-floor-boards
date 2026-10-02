@@ -163,6 +163,8 @@ def verify_q1(root, database, value, packet):
         file = root / 'evidence' / name; evidence[name] = file_hash(file)
     measured = json.loads((root / 'evidence/measurements/completed.json').read_text())
     if measured.get('activation') != 'synthetic-actual-q1' or measured.get('realLoadedProfiles') != 2: raise ValueError('Q1_ACTIVATION_PROOF_REQUIRED')
+    from quarter_rehearsal_measurements import validate_activation_evidence
+    evidence.update(validate_activation_evidence(root / 'evidence/measurements', measured, value))
     for phase in ('prepared', 'active'):
         imported = json.loads((root / 'evidence' / ('importers-' + phase) / 'completed.json').read_text())
         pin = value['r0' if phase == 'prepared' else 'candidate']['manifestSha256']
