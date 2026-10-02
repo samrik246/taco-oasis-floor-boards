@@ -158,6 +158,7 @@ async function main() {
   artifact.assertLoadedArtifactIdentity(true);
   const file=boundary.syntheticDatabasePath(),stat=statSync(file);
   writeFileSync(output,JSON.stringify({version:1,mode,date,loadedArtifactSha256:artifact.loadedArtifactSha256,sourceSha:manifest.sourceSha,role:manifest.role,
+    driverPath:realpathSync(__filename),applicationPath:app,
     database:{path:file,device:stat.dev,inode:stat.ino},driverSha256:createHash("sha256").update(readFileSync(__filename)).digest("hex"),checks,operations,before,state},null,2)+"\n",{flag:"wx"});
 }
 main().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>db.$disconnect());

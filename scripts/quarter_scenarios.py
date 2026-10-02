@@ -82,7 +82,7 @@ def run_scenario(root, manifest_file, scenario):
     def nieves(mode):
         from quarter_rehearsal_nieves import run as run_nieves
         day = (calendar_date.fromisoformat(fixture["date"]) + timedelta(days=220)).isoformat()
-        run_nieves(root, fixture, mode, day)
+        run_nieves(root, fixture, mode, day, base.get('qualificationSupport'))
     def replay_preserved(before, after):
         # Exact replay takes the shared mutex but must add no application mutation.
         for key in ('database', 'state', 'schemaSha256', 'registrySha256'):

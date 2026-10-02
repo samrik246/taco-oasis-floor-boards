@@ -176,7 +176,7 @@ def verify_q1(root, database, value, packet):
         matching = [r for r in records if r.get('action') == 'picker-matrix-proof' and r.get('mode') == mode]
         if len(matching) != 1 or matching[0].get('artifactSha256') != value[role]['manifestSha256']: raise ValueError('Q1_PICKER_ARTIFACT_REQUIRED')
     from quarter_rehearsal_nieves import validate as validate_nieves
-    evidence.update(validate_nieves(root, value, {'r0': r0['sourceSha'], 'candidate': q1['sourceSha']}))
+    evidence.update(validate_nieves(root, value, {'r0': r0['sourceSha'], 'candidate': q1['sourceSha']}, packet.get('qualificationSupport')))
     guard = capture(database)
     if [guard['database']['device'], guard['database']['inode']] != value['identity']: raise ValueError('REHEARSAL_DATABASE_REPLACED')
     report = {'outcome': 'actual-q1-composed-passed', 'synthetic': True, 'independentAcceptance': False, 'r0': value['r0'], 'candidate': value['candidate'], 'scenarios': SCENARIOS[:6], 'pending': [], 'evidenceSha256': evidence, 'guard': guard}
@@ -215,7 +215,7 @@ def main():
     if args.action == 'nieves-prepared':
         from datetime import date, timedelta
         from quarter_rehearsal_nieves import run
-        run(root, value, 'prepared', (date.fromisoformat(value['date']) + timedelta(days=120)).isoformat()); return
+        run(root, value, 'prepared', (date.fromisoformat(value['date']) + timedelta(days=120)).isoformat(), packet.get('qualificationSupport')); return
     if args.action == 'environment-proofs':
         from quarter_rehearsal_environment import run
         run(root,value,database);return
