@@ -215,24 +215,36 @@ test("active floor whole-shift placement, swap and clear use retained V2 control
  expect(legacy).toEqual([]);
 });
 
-test("active back-office seat save and mixed-hour refusal preserve exact intervals",async({page})=>{
+test("active back-office seat save and mixed-hour refusal preserve exact intervals",async({page},testInfo)=>{
  const legacy=trackControls(page);await desk(page,"seats");await page.getByTestId("seat-date").fill(date);
  await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
  await page.getByTestId("seat-shift").selectOption(controlShift);await page.getByTestId("seat-station").selectOption("blue");
  const saved=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
  await page.getByTestId("seat-save").click();expect((await saved).status()).toBe(200);
  await expect(page.getByTestId("back-office-toast")).toBeVisible();
+ await expect.poll(async()=>{
+  const raw=await rawDraftDatabase(page);
+  return raw.heads.rows.every(value=>{const h=value as {state:string;pendingRequestId:string|null};return h.state!=="outstanding"&&h.pendingRequestId===null;});
+ }).toBe(true);
  const {day,headers}=await apiDay(page),requestId=randomUUID();requests.push(requestId);
  const response=await page.request.put(`${apiOrigin}/api/v2/assignments/paint`,{headers:{...headers,"Content-Type":"application/vnd.floor-boards.paint-v2+json","X-Floor-Boards-Protocol":"2"},data:{protocol:2,requestId,capabilitySha256:day.capabilitySha256,board:"caja",date,
   expected:{databaseEpoch:day.databaseEpoch,worldRevision:day.worldRevision},sources:day.sources.filter(s=>s.shiftId===controlShift),hours:day.hours.filter(h=>h.shiftId===controlShift).map(h=>({shiftId:h.shiftId,hourStart:h.hourStart,revision:h.revision,...(h.revision===null?{legacySha256:h.legacySha256}:{})})),
   intents:[{shiftId:controlShift,quarter:"12:15",granularity:"quarter",action:"station",stationId:"purple1"}]}});expect(response.status()).toBe(200);
  const before=(await apiDay(page)).day;
  // Reselect the tab to load the acknowledged mixed world through the real loader.
- await page.getByTestId("back-office-tab-turnos").click();await page.getByTestId("back-office-tab-seats").click();await page.getByTestId("seat-date").fill(date);
+ await page.getByTestId("back-office-tab-turnos").click();await expect(page.getByTestId("seat-date")).toHaveCount(0);
+ const defaultLoaded=page.waitForResponse(r=>r.url().endsWith("/api/v2/boards/caja/days/2026-09-20/management"));
+ await page.getByTestId("back-office-tab-seats").click();await defaultLoaded;
+ const mixedLoaded=page.waitForResponse(r=>r.url().endsWith(`/api/v2/boards/caja/days/${date}`));
+ await page.getByTestId("seat-date").fill(date);
+ const loaded:PublicDayV2=await (await mixedLoaded).json();expect(loaded.worldRevision).toBe(before.worldRevision);
+ expect(loaded.hours).toEqual(before.hours);
  await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
  await page.getByTestId("seat-shift").selectOption(controlShift);await page.getByTestId("seat-station").selectOption("yellow");
  let writes=0;page.on("request",r=>{if(r.method()==="PUT"&&r.url().endsWith("/api/v2/assignments/paint"))writes++;});
- await page.getByTestId("seat-save").click();await expect(page.getByTestId("back-office-error")).toContainText("HOUR_NEEDS_QUARTER");
+ await page.getByTestId("seat-save").click();
+ try{await expect(page.getByTestId("back-office-error")).toContainText("HOUR_NEEDS_QUARTER");}
+ catch(error){await testInfo.attach("synthetic-retained-seat-state",{body:JSON.stringify(await rawDraftDatabase(page)),contentType:"application/json"});throw error;}
  expect(writes).toBe(0);expect((await apiDay(page)).day.hours).toEqual(before.hours);expect(legacy).toEqual([]);
 });
 

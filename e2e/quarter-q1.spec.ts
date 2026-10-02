@@ -129,7 +129,7 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   // BREAK/cover spans. It cannot substitute for the real write/receipt assertions above.
   const dense = structuredClone(await day(page, board)), source = dense.sources.find(s => s.shiftId === full)!;
   const at = (time: string) => fromZonedTime(`${date}T${time}:00`, "America/Chicago").toISOString();
-  const colors = [...new Map(dense.stations.map(s => [s.color, s])).values()];
+  const colors = dense.stations.filter((s, i, all) => all.findIndex(other => other.color === s.color) === i);
   const stationView = (s: typeof colors[number]) => ({ id: s.id, label: s.label, color: s.color, board });
   dense.coverDisplay.tracks = [{ shiftId: full, employeeId: full, firstName: "Q1 Full", lastName: "Synthetic", board, sourcePosition: source.sourcePosition,
     startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:20"), kind: "break", station: stationView(colors[0]), fromStation: null, auto: false }] },
@@ -138,8 +138,12 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   for (const [i, color] of colors.entries()) {
     const id = `q1-${board}-color-${i}`;
     dense.employees.push({ id, firstName: `Color ${color.color}`, lastName: "Synthetic" });
-    dense.sources.push({ ...source, shiftId: id, employeeId: id });
-    dense.hours.push(...dense.hours.filter(h => h.shiftId === full).map(h => ({ ...h, shiftId: id })));
+    dense.sources.push({ ...source, shiftId: id, employeeId: id, startAt: at("11:05"), endAt: at("11:55") });
+    dense.hours.push({ shiftId: id, hourStart: at("11:00"), revision: null, legacySha256: "0".repeat(64), intervals: [
+      { startAt: at("11:00"), endAt: at("11:05"), state: "off", stationId: null, seatNumber: null, provenance: { kind: "legacy", assignmentId: null } },
+      { startAt: at("11:05"), endAt: at("11:55"), state: "assigned", stationId: color.id, seatNumber: null, provenance: { kind: "legacy", assignmentId: null } },
+      { startAt: at("11:55"), endAt: at("12:00"), state: "off", stationId: null, seatNumber: null, provenance: { kind: "legacy", assignmentId: null } },
+    ] });
     dense.coverDisplay.tracks.push({ shiftId: id, employeeId: id, firstName: `Color ${color.color}`, lastName: "Synthetic", board, sourcePosition: source.sourcePosition,
       startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:55"), kind: "work", station: stationView(color), fromStation: null, auto: false }] });
   }
@@ -169,8 +173,8 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
       expect(alignment!.x).toBeCloseTo(cell!.x, 1); expect(alignment!.width).toBeCloseTo(cell!.width, 1);
       const breakWidth = await page.getByTestId(`q1-hour-cell-${full}-11`).locator('[data-kind="break"]').evaluateAll(elements => elements.reduce((n, el) => n + el.getBoundingClientRect().width, 0));
       expect(breakWidth / cell!.width).toBeCloseTo(15 / 60, 2);
-      const cover = await coverRow.locator('[data-hour="11"]').boundingBox();
-      expect(Math.abs(cover!.x - cell!.x)).toBeLessThan(2); expect(Math.abs(cover!.width - cell!.width)).toBeLessThan(2);
+      const cover = await coverRow.locator('[data-hour="11"]').locator("..").boundingBox();
+      expect(cover!.x).toBeCloseTo(cell!.x, 1); expect(cover!.width).toBeCloseTo(cell!.width, 1);
       await expect(coverRow).toContainText("Q1 Cover Synthetic");
       await expect(page.getByTestId("q1-count-11-0").locator("strong")).toHaveText(String(colors.length + 2));
       const lines = await page.getByTestId(`q1-hour-cell-${full}-11`).evaluate(el => ({ boundary: getComputedStyle(el).borderRightStyle,
