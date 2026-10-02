@@ -128,7 +128,7 @@ def run(root, fixture, database):
                 if replay['tables'][table]!=current['tables'][table]:raise ValueError('REFUSED_IMPORTER_MUTATED:'+table)
         if (root/'never-read-login').exists() or (root/'never-open-browser').exists():raise ValueError('HOURLY_PROVIDER_TOUCHED')
         readback=verify_importers(inventory([]),app)
-        atomic_json(out/'completed.json',{'phase':phase,'compatibleDrain':True,'duplicateBehavior':'prepared-legacy-refusal' if phase=='prepared' else 'original-receipt-replay','hourlyCurrentAndNextWeek':True,'providerWaitedForLease':True,'changedLoadedPinsRefused':['folder','hourly'],'realProviderInvoked':False,'idleInventory':readback,'database':capture(database)['database']})
+        atomic_json(out/'completed.json',{'phase':phase,'runtimeManifestSha256':pin,'compatibleDrain':True,'duplicateBehavior':'prepared-legacy-refusal' if phase=='prepared' else 'original-receipt-replay','hourlyCurrentAndNextWeek':True,'providerWaitedForLease':True,'changedLoadedPinsRefused':['folder','hourly'],'realProviderInvoked':False,'idleInventory':readback,'database':capture(database)['database']})
     finally:
         if child is not None and child.poll() is None:
             child.terminate()

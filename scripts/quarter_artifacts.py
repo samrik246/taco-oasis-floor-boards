@@ -80,8 +80,8 @@ def seal(app, database, receipt):
     guard = capture(database)
     (app / "RELEASE_SHA").write_text(sha + "\n")
     files = inventory(app)
-    manifest = {'version': 1, 'scope': 'source-check', 'role': 'QP_COMPAT_R0', 'sourceSha': sha, 'qualification': 'candidate',
-                'versions': VERSIONS, 'quarterUi': False, 'blockNotes': False, 'files': files,
+    manifest = {'version': 1, 'scope': 'source-check', 'role': 'QP_UI_Q1', 'sourceSha': sha, 'qualification': 'candidate',
+                'versions': VERSIONS, 'quarterUi': True, 'blockNotes': False, 'files': files,
                 'treeSha256': hash_value(files), 'staticSha256': hash_value([r for r in files if r[0].startswith('.next/static/')]),
                 'buildIdSha256': file_hash(app / '.next/BUILD_ID'), 'schemaSha256': guard['schemaSha256'],
                 'migrationSha256': guard['state'][5], 'registrySha256': guard['registrySha256'],

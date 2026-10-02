@@ -50,7 +50,13 @@ def run(root, fixture, database, mode):
         return {'packet': packet, 'receipt': receipt}
     def replay(label, saved):
         before = capture(database)
-        result = cli(label, ['--apply', hash_value(saved['packet'])], saved['packet'])
+        packet = saved['packet']
+        if packet['artifactSha256'] != pin:
+            # Reattest only the host wrapper to the currently loaded artifact.
+            # Exact command/request bytes, original expectations and receipt stay unchanged.
+            packet = {**packet, 'artifactSha256': pin}
+            record(out / 'events.jsonl', 'host-wrapper-rebound', fromArtifact=saved['packet']['artifactSha256'], toArtifact=pin, commandSha256=hash_value(packet['command']))
+        result = cli(label, ['--apply', hash_value(packet)], packet)
         if result != saved['receipt']: raise ValueError('AGENT_ORIGINAL_RECEIPT_CHANGED')
         unchanged(before, capture(database))
     if mode == 'before':

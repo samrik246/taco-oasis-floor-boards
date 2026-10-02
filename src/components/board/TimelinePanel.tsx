@@ -13,6 +13,7 @@ import { formatStartLabel } from "@/lib/schedule/build-schedule";
 import { buildTimelineRows, personName } from "./timeline-rows";
 import { slicesForDay } from "./day-slice-input";
 import { QuarterRow } from "./QuarterRow";
+import { QuarterGrid } from "./QuarterGrid";
 import type { DayBoardDto } from "./types";
 
 type Props = {
@@ -53,6 +54,8 @@ export function TimelinePanel({
     });
   }, [day, date, hours, locale, t]);
   const slices = useMemo(() => (day && date ? slicesForDay(day, new Date()) : null), [day, date]);
+
+  if (day?.quarter) return <section data-testid="timeline-panel"><h2 className="mb-3 text-lg font-bold">{t.timelineTitle}</h2><QuarterGrid day={day} locale={locale} selectedHour={selectedHour} onSelectHour={onSelectHour}/><SavedCoverPanel day={day} locale={locale} rows={false}/></section>;
 
   return (
     <section

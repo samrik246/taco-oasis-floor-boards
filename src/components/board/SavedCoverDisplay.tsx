@@ -13,8 +13,8 @@ export const intervalLabel = (start: string, end: string) => `${formatInTimeZone
 const unavailableLabel = (locale: Locale) => locale === "es" ? "Detalle de cobertura no disponible" : "Cover detail unavailable";
 
 /** Geometry uses exact minute bounds, including factual partial shift minutes. */
-export function SavedHour({ day, hour, segments, locale, emptyLabel = "·" }: { day: DayBoardDto; hour: number; segments: CoverSegment[]; locale: Locale; emptyLabel?: string }) {
-  const start = +chicagoHourStart(day.date, hour);
+export function SavedHour({ day, hour, segments, locale, emptyLabel = "·", minute = 0, minutes = 60 }: { day: DayBoardDto; hour: number; segments: CoverSegment[]; locale: Locale; emptyLabel?: string; minute?: number; minutes?: number }) {
+  const start = +chicagoHourStart(day.date, hour) + minute * 60_000;
   return <span className="relative block h-14 w-full min-w-0 bg-white text-neutral-950" data-testid="saved-hour" data-hour={hour}>
     {segments.map((s, index) => {
       const away = s.kind === "cover" && s.station?.board !== day.board;
@@ -24,7 +24,7 @@ export function SavedHour({ day, hour, segments, locale, emptyLabel = "·" }: { 
       const time = intervalLabel(s.startAt, s.endAt);
       return <span key={index} data-testid={s.kind === "break" ? "break-stripe" : undefined} data-break={s.kind === "break" ? time.replace("–", "-") : undefined} data-kind={s.kind} data-away={away ? "1" : "0"} data-start={s.startAt} data-end={s.endAt}
         className={`absolute inset-y-0 flex min-w-0 flex-col justify-center overflow-hidden border border-neutral-500 px-0.5 text-center text-[10px] font-bold leading-tight ${s.kind === "break" ? "bg-neutral-950 text-white" : away ? "bg-neutral-200 text-neutral-950" : s.station ? stationColorClass(s.station.color) : "bg-amber-50 text-neutral-950"}`}
-        style={{ left: `${(Date.parse(s.startAt) - start) / 36000}%`, width: `${(Date.parse(s.endAt) - Date.parse(s.startAt)) / 36000}%` }} title={`${label} · ${time}`} aria-label={`${label} · ${time}`}>
+        style={{ left: `${(Date.parse(s.startAt) - start) / (minutes * 600)}%`, width: `${(Date.parse(s.endAt) - Date.parse(s.startAt)) / (minutes * 600)}%` }} title={`${label} · ${time}`} aria-label={`${label} · ${time}`}>
         <span>{label}</span><span className="mt-0.5 text-[9px]">{time}</span>{s.auto && <span>auto</span>}
       </span>;
     })}
@@ -56,8 +56,8 @@ function coverTracks(day: DayBoardDto, includePrimary: boolean) {
 }
 
 /** Insert into the existing time table, so its hour boundaries remain aligned. */
-export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false }: {
-  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean;
+export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false, quarterGuides = false }: {
+  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean; quarterGuides?: boolean;
 }) {
   return <>{coverTracks(day, includePrimary).map(track => <tr key={track.shiftId} data-testid={`cover-row-${track.shiftId}`}>
     <th className="sticky left-0 z-10 border-y border-neutral-300 bg-white px-2 py-1 text-left text-sm font-bold text-neutral-950" scope="row">
@@ -68,7 +68,7 @@ export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, include
       const start = +chicagoHourStart(day.date, hour);
       const segments = track.segments.flatMap(s => { const clip = clipSegment(s, start, start + 3600000); return clip ? [clip] : []; });
       const auxiliary = isAuxiliaryPosition(track.sourcePosition) || (track.board !== "caja" && track.board !== "cocina");
-      return <td key={hour} className="border border-neutral-300 p-0.5"><SavedHour day={day} hour={hour} segments={segments} locale={locale} emptyLabel={auxiliary ? locale === "es" ? "REFUERZO" : "BACKUP" : "·"} /></td>;
+      return <td key={hour} className="relative border border-neutral-300 p-0.5"><SavedHour day={day} hour={hour} segments={segments} locale={locale} emptyLabel={auxiliary ? locale === "es" ? "REFUERZO" : "BACKUP" : "·"} />{quarterGuides && [25, 50, 75].map(left => <span key={left} aria-hidden="true" className="pointer-events-none absolute inset-y-0 border-l border-dashed border-neutral-400" style={{left: `${left}%`}} />)}</td>;
     })}
   </tr>)}</>;
 }

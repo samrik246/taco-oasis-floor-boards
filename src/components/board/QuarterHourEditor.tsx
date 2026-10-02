@@ -2,17 +2,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { showDescansoButton } from "@/lib/breaks/picker-steps";
 import { chicagoYmd } from "@/lib/schedule/build-schedule";
-import { formatCompactHour,hourGridHours } from "@/lib/hour-grid";
 import { paletteSlots,PAINT_FAMILY_LABELS } from "@/lib/assignments/paint-families";
 import { activeGeneration, conflictBranches, DraftDatabase } from "@/lib/quarter/client/draft-db";
 import { generation,newEnvelope,type DraftGeneration,type DraftScope,type DraftSnapshot } from "@/lib/quarter/client/draft-types";
-import { hourEditRefusal,proposeHour } from "@/lib/quarter/client/edit";
+import { proposeHours, proposeQuarters } from "@/lib/quarter/client/edit";
+import { QuarterGrid, type GridCell, type GridNotice } from "./QuarterGrid";
 import { capabilities, matchCapabilities, sendSubmission } from "@/lib/quarter/client/transport";
 import { observeV1,v1Key } from "@/lib/quarter/client/v1-conversion";
 import { canonicalJson } from "@/lib/quarter/client/primitives";
 import { ManagerBreakDialog } from "@/components/breaks/ManagerBreakDialog";
 import { OverlayMenu } from "./OverlayMenu";
-import { SavedCoverPanel,SavedCoverRows,SavedShiftHour } from "./SavedCoverDisplay";
+import { SavedCoverPanel } from "./SavedCoverDisplay";
 import { displayName,stationColorClass } from "./board-helpers";
 import type { ColorEditorProps } from "./ManagerColorEditor";
 const empty:DraftSnapshot={head:null,generations:[],submissions:[],archives:[],originals:[],warnings:[]};
@@ -29,12 +29,7 @@ function originalText(value:unknown):string|null {
   const row=value as Record<string,unknown>;
   return typeof row.requestBytes==="string"?row.requestBytes:typeof row.original==="string"?row.original:null;
 }
-const explanation=(code:string,es:boolean)=>({HOUR_NEEDS_QUARTER:es?"Hora mixta: se necesita edición por cuartos. Se conserva sin cambios.":"Mixed hour: quarter editing is required. Saved intervals are preserved.",
- HOUR_HAS_OBLIGATION:es?"Esta hora tiene un BREAK o movimiento guardado. Revísalo antes de pintar.":"This hour has a saved BREAK or movement. Review it before painting.",
- QUARTER_DRAFT_REVIEW_ONLY:es?"Este borrador contiene cuartos; se conserva completo para revisión o reintento exacto.":"This draft contains quarters; it is retained in full for review or exact retry.",
- SOURCE_NOT_AVAILABLE:es?"Fuera del turno disponible.":"Outside the available shift."}[code]??code);
-
-/** R0 reads every interval; new editing is explicitly limited to safe uniform hours. */
+/** Q1 extends R0 retention without changing its envelope, receipts or review-only paths. */
 export function QuarterHourEditor(props:ColorEditorProps){
   const {day,locale,managerId,managerToken,board,date,onSaved,onDraftChange,selectedHour,onSelectHour,readonly}=props;
   const es=locale==="es",publicDay=day?.quarter??day?.bridge;
@@ -46,6 +41,8 @@ export function QuarterHourEditor(props:ColorEditorProps){
   const [unretained,setUnretained]=useState(false),[cleanupPending,setCleanupPending]=useState(false);
   const [snapshot,setSnapshot]=useState(empty),[feedback,setFeedback]=useState(""),[busy,setBusy]=useState(false),[ready,setReady]=useState(false);
   const [legacyOriginal,setLegacyOriginal]=useState<string|null>(null);
+  const [notice,setNotice]=useState<GridNotice|null>(null);
+  const lastCell=useRef<GridCell|null>(null);
   const [choice,setChoice]=useState<string|null>(null),[breakTarget,setBreakTarget]=useState<{employeeId:string;name:string}|null>(null);
   const current=activeGeneration(snapshot),branches=conflictBranches(snapshot),intents=(current?.envelope.intents??[]).filter(i=>!confirmedIntentIds.includes(i.intentId));
   const refresh=useCallback(async()=>{
@@ -82,15 +79,18 @@ export function QuarterHourEditor(props:ColorEditorProps){
     window.addEventListener("focus",focus);
     return ()=>{live=false;window.removeEventListener("focus",focus);connection?.close();db.current=null;};
   },[refresh,es]);
-  async function run(action:()=>Promise<unknown>){setBusy(true);try{await action();onDraftChange();}catch(error){setFeedback(`${es?"No retenido / requiere revisión":"Not retained / review required"}: ${error instanceof Error?error.message:String(error)}`);}finally{setBusy(false);}}
-  async function stage(shiftId:string,hour:number){
+  async function run(action:()=>Promise<unknown>){setBusy(true);try{await action();onDraftChange();}catch(error){const code=error instanceof Error?error.message:String(error);setFeedback(`${es?"No retenido / requiere revisión":"Not retained / review required"}: ${code}`);if(lastCell.current)setNotice({...lastCell.current,code});}finally{setBusy(false);}}
+  async function stage(cells:GridCell[]){
     if(!db.current||!publicDay||!choice||readonly||!ready||cleanupPending||pendingMemory.current)return;
+    lastCell.current=cells.at(-1)??null;
     await run(async()=>{
       const cap=await capabilities();matchCapabilities(cap,publicDay);
+      if(cells.some(c=>c.minute!==null)&&!cap.quarterUi)throw new Error("QUARTER_UI_UNAVAILABLE");
       const action=choice==="erase"?{action:"erase" as const}:choice.startsWith("family:")?{action:"family" as const,family:choice.slice(7)}:{action:"station" as const,stationId:choice};
       // The visible base remains the CAS expectation even if another tab has advanced.
       await db.current!.read(scope);
-      const {base,proposal}=proposeHour(scope,snapshot,publicDay,shiftId,hour,action);
+      const changes=cells.map(c=>({...c,action}));
+      const {base,proposal}=cells[0].minute===null?proposeHours(scope,snapshot,publicDay,changes):proposeQuarters(scope,snapshot,publicDay,changes.map(c=>({...c,minute:c.minute!})));
       pendingMemory.current=proposal;setPendingPreview(proposal);setUnretained(true);
       const result=await db.current!.retain(scope,base,proposal);pendingMemory.current=null;setPendingPreview(null);setUnretained(false);setSnapshot(result.snapshot);
       setFeedback(result.status==="conflict"?(es?"Conflicto: ambas versiones están retenidas.":"Conflict: both versions are retained."):(es?"Retenido localmente; aún sin guardar.":"Locally retained; not yet saved."));
@@ -111,6 +111,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
     setCleanupPending(result.status==="cleanup-pending");
     if(result.status!=="cleanup-pending")setSnapshot(await db.current!.read(scope));
     setFeedback(result.status==="saved"?(es?"Guardado.":"Saved."):result.status==="cleanup-pending"?(es?"Guardado; limpieza local pendiente.":"Saved; local cleanup pending."):result.status==="rejected"?`${es?"Rechazado; borrador conservado":"Rejected; draft retained"}: ${result.code}`:(es?"Guardado sin confirmar. Reintentar usa la misma solicitud.":"Save unconfirmed. Retry uses the same request."));
+    if(result.status==="rejected"&&lastCell.current)setNotice({...lastCell.current,code:result.code??"SAVE_REJECTED"});
     if(result.receipt)await onSaved();
   });}
   async function resolveBranch(branch:DraftGeneration,useBranch:boolean){if(!db.current||!ready||readonly||!snapshot.head||snapshot.head.pendingRequestId)return;await run(async()=>{
@@ -131,7 +132,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
   </div>:null;
   if(!day||!publicDay)return <section data-testid="quarter-hour-editor"><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{preservedReview}</section>;
   return <section className="space-y-3" data-testid="quarter-hour-editor">
-    <p className="text-sm">{es?"Esta versión permite pintar horas uniformes. Los intervalos guardados se muestran completos.":"This version edits uniform hours. All saved intervals are shown."}</p>
+    <p className="text-sm">{es?"Pinta una hora uniforme o abre los cuartos para editar 15 minutos. Los cambios son privados hasta guardar.":"Paint a uniform hour or open quarters to edit 15 minutes. Changes stay private until saved."}</p>
     <div className="flex flex-wrap gap-2">{paletteSlots(day.stations).map(slot=>{
       const id=slot.kind==="family"?`family:${slot.family}`:slot.id,station=slot.kind==="station"?day.stations.find(s=>s.id===slot.id):null;
       return <button key={id} data-testid={`quarter-palette-${id}`} type="button" aria-pressed={choice===id} onClick={()=>setChoice(id)} className={`min-h-11 rounded border-2 p-2 font-bold ${station?stationColorClass(station.color):"bg-white text-neutral-900"} ${choice===id?"ring-4 ring-neutral-900":""}`}>{slot.kind==="family"?PAINT_FAMILY_LABELS[slot.family]:station?.label}</button>;
@@ -150,11 +151,11 @@ export function QuarterHourEditor(props:ColorEditorProps){
     {intents.length>0&&<p>{intents.length} {es?"cambios privados retenidos":"retained private changes"}</p>}
     {branches.map(branch=><div key={branch.generationId} className="rounded border-2 border-amber-700 p-3"><p>{es?"Otra versión retenida":"Another retained version"}: {branch.envelope.intents.length} {es?"cambios":"changes"}</p><details><summary>{es?"Ver versión original":"View original version"}</summary><pre className="overflow-auto text-xs">{canonicalJson(branch.envelope)}</pre></details><button type="button" className="min-h-11 border p-2" disabled={readonly||!ready||busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,true)}>{es?"Elegir esta versión":"Choose this version"}</button><button type="button" className="min-h-11 border p-2" disabled={readonly||!ready||busy||Boolean(snapshot.head?.pendingRequestId)} onClick={()=>void resolveBranch(branch,false)}>{es?"Conservar versión actual":"Keep current version"}</button></div>)}
     {!reviewOnly&&snapshot.archives.filter(a=>a.result==="review").map(a=><details key={a.v1Sha256}><summary>{es?"Borrador anterior requiere revisión":"Earlier draft requires review"}: {a.staleReason}</summary><pre className="overflow-auto text-xs">{a.original}</pre></details>)}
-    <div className="overflow-x-auto"><table className="border-collapse text-xs"><thead><tr><th className="min-w-40">{es?"Persona":"Person"}</th>{hourGridHours().map(h=><th className="min-w-36" key={h}><button type="button" className="min-h-11 w-full" aria-pressed={selectedHour===h} onClick={()=>onSelectHour(h)}>{formatCompactHour(h)}</button></th>)}</tr></thead><tbody>
-      {day.shifts.map(shift=><tr key={shift.id}><th className="sticky left-0 z-10 bg-white text-left"><span>{displayName(shift)}</span>{showDescansoButton({readonly,openDate:date,today:chicagoYmd(new Date()),superseded:Boolean(shift.supersededAt),laterShiftOfPerson:day.shifts.some(s=>s.employee.id===shift.employee.id&&s.id!==shift.id&&Date.parse(s.startAt)<Date.parse(shift.startAt))})&&<button type="button" className="block min-h-11" disabled={busy} onClick={()=>setBreakTarget({employeeId:shift.employee.id,name:displayName(shift)})}>BREAK</button>}<OverlayMenu day={day} shift={shift} board={board} date={date} locale={locale} managerToken={managerToken} readonly={readonly} busy={busy} onSaved={onSaved}/></th>{hourGridHours().map(h=>{
-        const refusal=hourEditRefusal(publicDay,shift.id,h),pending=intents.filter(i=>i.intent.shiftId===shift.id&&Number(i.intent.quarter.slice(0,2))===h);
-        return <td key={h} className="border p-0.5"><button type="button" className="w-full min-w-36" disabled={busy||readonly||!ready||unretained||cleanupPending||!choice||refusal==="SOURCE_NOT_AVAILABLE"} onClick={()=>refusal?setFeedback(explanation(refusal,es)):void stage(shift.id,h)} data-testid={`quarter-cell-${shift.id}-${h}`} aria-label={`${displayName(shift)} ${formatCompactHour(h)}`}><SavedShiftHour day={day} shiftId={shift.id} hour={h} locale={locale}/></button>{pending.length>0&&<span className="block border border-dashed border-blue-800 p-1" data-testid="quarter-private-preview">{es?"Privado":"Private"}: {pending.map(i=>`${i.intent.quarter} ${i.intent.action==="station"?day.stations.find(s=>s.id===(i.intent.action==="station"?i.intent.stationId:null))?.label:i.intent.action==="family"?i.intent.family:es?"Borrar":"Erase"}`).join(" · ")}</span>}</td>;
-      })}</tr>)}<SavedCoverRows day={day} locale={locale} hours={hourGridHours()}/></tbody></table></div><SavedCoverPanel day={day} locale={locale} rows={false}/>
+    <QuarterGrid day={day} locale={locale} selectedHour={selectedHour} onSelectHour={onSelectHour}
+      intents={intents} disabled={busy||readonly||!ready||unretained||cleanupPending} hasChoice={Boolean(choice)} onPaint={stage} notice={notice} onNotice={setNotice}
+      personControls={shift=><>{showDescansoButton({readonly,openDate:date,today:chicagoYmd(new Date()),superseded:Boolean(shift.supersededAt),laterShiftOfPerson:day.shifts.some(s=>s.employee.id===shift.employee.id&&s.id!==shift.id&&Date.parse(s.startAt)<Date.parse(shift.startAt))})&&<button type="button" className="block min-h-11" disabled={busy} onClick={()=>setBreakTarget({employeeId:shift.employee.id,name:displayName(shift)})}>BREAK</button>}<OverlayMenu day={day} shift={shift} board={board} date={date} locale={locale} managerToken={managerToken} readonly={readonly} busy={busy} onSaved={onSaved}/></>}/>
+    <SavedCoverPanel day={day} locale={locale} rows={false}/>
+
     {breakTarget&&<ManagerBreakDialog employeeId={breakTarget.employeeId} name={breakTarget.name} board={board} locale={locale} managerToken={managerToken} onClose={()=>setBreakTarget(null)} onSaved={onSaved}/>}
   </section>;
 }

@@ -59,6 +59,8 @@ def run_scenario(root, manifest_file, scenario):
         (run / ('picker-' + label + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode: raise ValueError('REHEARSAL_PICKER_FAILED:' + label)
     browser_seed = run / 'browser-seed.json'
+    bundle_seed = run / 'real-bundle-seed.json'
+    bundle_reconciled = run / 'real-bundle-reconciled.json'
     profile = run / 'browser-profile'
     def browser(mode, output, prior=browser_seed):
         command = ['node', str(app / 'node_modules/tsx/dist/cli.mjs'), str(app / 'scripts/quarter-rehearsal-browser.ts'), mode, str(profile), date, source, str(output), str(prior)]
@@ -67,6 +69,15 @@ def run_scenario(root, manifest_file, scenario):
         (run / ('browser-' + mode + '.log')).write_text(result.stdout + result.stderr)
         if result.returncode:
             raise ValueError('REHEARSAL_BROWSER_FAILED:' + mode)
+    def real_bundle(mode, output, prior=bundle_seed):
+        # Always use the Q1 proof driver, even while the app serves the frozen R0.
+        # The observed page and challenge come from the currently served artifact.
+        driver = Path(base['candidate']['path'])
+        command = ['node', str(driver / 'node_modules/tsx/dist/cli.mjs'), str(driver / 'scripts/quarter-rehearsal-browser.ts'), 'bundle-' + mode, str(run / 'real-bundle-profile'), date, source, str(output), str(prior)]
+        record(run / 'browser-commands.jsonl', 'actual-bundle-start', argv=command, servedManifestSha256=file_hash(app / MANIFEST))
+        result = subprocess.run(command, cwd=app, capture_output=True, text=True)
+        log = run / ('real-bundle-' + mode + '.log'); log.write_text(result.stdout + result.stderr)
+        if result.returncode: raise ValueError('ACTUAL_BUNDLE_PROOF_FAILED:' + mode)
     def replay_preserved(before, after):
         # Exact replay takes the shared mutex but must add no application mutation.
         for key in ('database', 'state', 'schemaSha256', 'registrySha256'):
@@ -79,6 +90,7 @@ def run_scenario(root, manifest_file, scenario):
         nonlocal before_recovery
         client('write', writes)
         browser('seed', browser_seed)
+        if not self_run: real_bundle('seed', bundle_seed)
         picker('before')
         client('read', run / 'post-write-read.json')
         before_recovery = capture(database)
@@ -136,6 +148,7 @@ def run_scenario(root, manifest_file, scenario):
                     raise ValueError('RECOVERED_INTERVAL_READ_CHANGED')
                 picker('after')
                 browser('reconcile', run / 'browser-reconciled.json')
+                if not self_run: real_bundle('reconcile', bundle_reconciled)
                 client('replay', run / 'replayed.json', writes)
                 replay_preserved(before_recovery, capture(database))
                 client('fresh', run / 'post-recovery-write.json')
@@ -154,6 +167,7 @@ def run_scenario(root, manifest_file, scenario):
                     if json.loads((run / 'r0-post-write-read.json').read_text()) != json.loads((run / 'returned-candidate-read.json').read_text()):
                         raise ValueError('ROUNDTRIP_INTERVAL_READ_CHANGED')
                     browser('preserve', run / 'browser-returned-candidate.json', run / 'browser-reconciled.json')
+                    if not self_run: real_bundle('preserve', run / 'real-bundle-returned.json', bundle_reconciled)
                     client('replay', run / 'returned-original-replay.json', writes)
                     client('replay', run / 'returned-r0-replay.json', run / 'post-recovery-write.json')
                     replay_preserved(current, capture(database)); picker('after-return')
@@ -161,8 +175,10 @@ def run_scenario(root, manifest_file, scenario):
                 if service.state.exists():
                     raise ValueError('RECOVERY_BLOCKED_STILL_SERVING')
                 browser('inspect', run / 'browser-offline-preserved.json')
+                if not self_run: real_bundle('offline', run / 'real-bundle-offline.json')
         record(root / 'evidence/rehearsal.jsonl', 'scenario-controller-proof', scenario=scenario, outcome='controller-passed', controllerOutcome=result,
                pending=['composed-proof-summary','actual-Q1-artifact-crossings'] if self_run else ['composed-proof-summary'],
+               actualBundleCrossings=('not-applicable-preflight-refused' if 'incompatible' in scenario else not self_run),
                roundtrip=roundtrip, browserStores=bool(before_recovery), receiptReplay=bool(before_recovery and result != 'recovery-blocked'), guard=capture(database))
     finally:
         service.stop()
