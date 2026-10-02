@@ -220,7 +220,7 @@ test("active back-office seat save and mixed-hour refusal preserve exact interva
  // not replace the selected day's sources or allow a mismatched-scope save.
  let releaseDefault=()=>{};
  const gate=new Promise<void>(resolve=>{releaseDefault=resolve;});page.on("close",releaseDefault);
- await page.route("**/api/v2/boards/caja/days/2026-09-20",async route=>{const response=await route.fetch();await gate;await route.fulfill({response});});
+ await page.route("**/api/v2/boards/caja/days/2026-09-20",async route=>{const response=await route.fetch({url:route.request().url().replace("floor-boards.test","127.0.0.1")});await gate;await route.fulfill({response});});
  const legacy=trackControls(page);await desk(page,"seats");await page.getByTestId("seat-date").fill(date);
  await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
  const staleFinished=page.waitForResponse(r=>r.url().endsWith("/api/v2/boards/caja/days/2026-09-20/management"));
