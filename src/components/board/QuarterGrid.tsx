@@ -11,11 +11,14 @@ import { clipSegment, savedHourSegments } from "./cover-display";
 import { SavedCoverRows, SavedHour, intervalLabel } from "./SavedCoverDisplay";
 import type { DayBoardDto, ShiftDto } from "./types";
 import styles from "./QuarterGrid.module.css";
+import { CellFeedback } from "./CellFeedback";
 import { ShiftSourceRole } from "./ShiftSourceRole";
 import { NievesUnassigned } from "./NievesUnassigned";
 
 export type GridCell = { shiftId: string; hour: number; minute: 0 | 15 | 30 | 45 | null };
-export type GridNotice = GridCell & { code: string };
+export type GridCellError = GridCell & { code: string };
+export type GridNotice = GridCellError & { errors?: GridCellError[] };
+const cellId = (cell: GridCell) => `quarter-cell-${cell.shiftId}-${cell.hour}${cell.minute === null ? "" : `-${cell.minute}`}`;
 const hours = hourGridHours(), quarters = [0, 15, 30, 45] as const;
 const nameWidth = 176, overviewWidth = 144;
 export function quarterExplanation(code: string, es: boolean): string {
@@ -70,17 +73,22 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
   }
   async function paint(cells: GridCell[]) {
     if (disabled || !onPaint) return;
-    for (const cell of cells) {
-      const code = refusal(cell);
-      if (code) { onNotice?.({ ...cell, code }); return; }
-    }
+    const errors = cells.flatMap(cell => { const code = refusal(cell); return code ? [{ ...cell, code }] : []; });
+    if (errors.length) { onNotice?.({ ...errors[0], errors }); return; }
     if (!hasChoice) return;
     select(cells.at(-1)!.hour); onNotice?.(null); await onPaint(cells);
   }
   function preview(rows: RetainedIntent[]) {
     return rows.map(({intent}) => `${intent.quarter} ${intent.action === "station" ? day.stations.find(s => s.id === intent.stationId)?.label ?? intent.stationId : intent.action === "family" ? intent.family : es ? "Borrar" : "Erase"}`).join(" · ");
   }
-  return <><NievesUnassigned day={day} locale={locale}/><div ref={scroller} className={styles.scroller} data-testid="q1-grid-scroll" data-zoom={zoom ? "quarter" : "hour"}>
+  return <><NievesUnassigned day={day} locale={locale}/>
+    {notice && <details open className="rounded border-2 border-amber-800 bg-amber-50 p-2 text-sm text-amber-950" data-testid="q1-error-summary">
+      <summary className="min-h-11 cursor-pointer font-bold">{es ? "Cambios sin aplicar" : "Changes not applied"} ({notice.errors?.length ?? 1})</summary>
+      <ul>{(notice.errors ?? [notice]).map(error => <li key={cellId(error)}><button type="button" className="min-h-11 text-left underline" onClick={() => {
+        const cell = document.getElementById(cellId(error)); cell?.scrollIntoView({ block: "center", inline: "center" }); cell?.focus({ preventScroll: true }); onNotice?.({ ...error, errors: notice.errors });
+      }}>{day.shifts.find(shift => shift.id === error.shiftId)?.employee.firstName} · {formatHourLabel(error.hour)}{error.minute !== null ? ` · :${String(error.minute).padStart(2, "0")}` : ""}: {quarterExplanation(error.code, es)}</button></li>)}</ul>
+    </details>}
+    <div ref={scroller} className={styles.scroller} data-testid="q1-grid-scroll" data-zoom={zoom ? "quarter" : "hour"}>
     <table className={styles.grid} style={{ width: nameWidth + hours.length * hourWidth }} data-testid="q1-grid">
       <colgroup><col style={{ width: nameWidth }} />{hours.map(h => <col key={h} style={{ width: hourWidth }} />)}</colgroup>
       <thead><tr>
@@ -107,18 +115,15 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
                 <span className={styles.preview} title={preview(pending)}>{pending.length > 0 && <span data-testid="quarter-private-preview">{es ? "Privado" : "Private"}: {preview(pending)}</span>}</span></>;
               return <div key={minute ?? "hour"} className={styles.cell} style={{ width: zoom ? "25%" : "100%" }}>
                 {onPaint ? <button type="button" className={styles.paint} disabled={disabled || code === "SOURCE_NOT_AVAILABLE" || (!hasChoice && !code)}
-                  data-testid={`quarter-cell-${shift.id}-${hour}${minute === null ? "" : `-${minute}`}`} data-minute={minute ?? "hour"}
+                  id={cellId(cell)} data-testid={cellId(cell)} data-minute={minute ?? "hour"}
+                  aria-describedby={notice?.shiftId === shift.id && notice.hour === hour && notice.minute === minute ? "q1-cell-notice-message" : undefined}
                   aria-label={`${displayName(shift)} ${formatHourLabel(hour)}${minute === null ? "" : ` · :${String(minute).padStart(2, "0")}`}`}
                   onPointerDown={event => { suppressClick.current = false; if (event.pointerType === "mouse" && event.button === 0) drag.current = [cell]; }}
                   onPointerEnter={event => { if (event.pointerType === "mouse" && event.buttons === 1 && drag.current.length && !drag.current.some(c => c.shiftId === cell.shiftId && c.hour === hour && c.minute === minute)) drag.current.push(cell); }}
                   onPointerUp={() => { const cells = drag.current; drag.current = []; if (cells.length > 1) { suppressClick.current = true; setTimeout(() => { suppressClick.current = false; }, 0); void paint(cells); } }}
                   onFocus={() => setInspected(cell)}
                   onClick={() => { setInspected(cell); if (suppressClick.current) { suppressClick.current = false; return; } void paint([cell]); }}>{content}</button> : <button type="button" className={styles.paint} aria-label={`${displayName(shift)} · ${formatHourLabel(hour)}`} onClick={() => setInspected(cell)}>{content}</button>}
-                {notice?.shiftId === shift.id && notice.hour === hour && notice.minute === minute && <div className={styles.notice} role="alert" data-testid="q1-cell-notice">
-                  <p>{quarterExplanation(notice.code, es)}</p>
-                  {minute === null && ["HOUR_NEEDS_QUARTER", "HOUR_HAS_OBLIGATION", "QUARTER_DRAFT_REVIEW_ONLY"].includes(notice.code) && <button type="button" className="min-h-11 font-bold underline" onClick={() => openQuarters(hour)}>{es ? "Editar cuartos" : "Edit quarters"}</button>}
-                  <button type="button" className="ml-3 min-h-11 underline" onClick={() => onNotice?.(null)}>{es ? "Cerrar" : "Close"}</button>
-                </div>}
+
               </div>;
             })}
             {zoom && <span className={styles.guides} aria-hidden="true">{[25, 50, 75].map(left => <span key={left} style={{ left: `${left}%` }} />)}</span>}
@@ -127,6 +132,11 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
       </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} interactiveDetails /></tbody>
     </table>
   </div>
+    {notice && <CellFeedback anchorId={cellId(notice)} testId="q1-cell-notice">
+      <p>{quarterExplanation(notice.code, es)}</p>
+      {notice.minute === null && ["HOUR_NEEDS_QUARTER", "HOUR_HAS_OBLIGATION", "QUARTER_DRAFT_REVIEW_ONLY"].includes(notice.code) && <button type="button" className="min-h-11 font-bold underline" onClick={() => openQuarters(notice.hour)}>{es ? "Editar cuartos" : "Edit quarters"}</button>}
+      <button type="button" className="ml-3 min-h-11 underline" onClick={() => onNotice?.(null)}>{es ? "Cerrar" : "Close"}</button>
+    </CellFeedback>}
     {inspected && <div className="rounded border border-neutral-500 bg-white p-2 text-sm text-neutral-950" data-testid="q1-interval-detail" aria-live="polite">
       <strong>{day.shifts.find(s => s.id === inspected.shiftId)?.employee.firstName} · {formatHourLabel(inspected.hour)}</strong>
       {(savedHourSegments(day, inspected.shiftId, inspected.hour) ?? []).map((segment, index) => <p key={index}>{intervalLabel(segment.startAt, segment.endAt)} · {segment.kind === "break" ? "BREAK" : segment.kind === "cover" ? `${es ? "Cubre" : "Cover"} · ${segment.station?.label ?? "—"}` : segment.station?.label ?? (es ? "Sin pintar" : "Unpainted")}</p>)}

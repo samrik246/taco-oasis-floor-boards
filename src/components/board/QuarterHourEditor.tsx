@@ -42,7 +42,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
   const [snapshot,setSnapshot]=useState(empty),[feedback,setFeedback]=useState(""),[busy,setBusy]=useState(false),[ready,setReady]=useState(false);
   const [legacyOriginal,setLegacyOriginal]=useState<string|null>(null);
   const [notice,setNotice]=useState<GridNotice|null>(null);
-  const lastCell=useRef<GridCell|null>(null);
+  const lastCell=useRef<GridCell|null>(null), attemptedCells=useRef<GridCell[]>([]);
   const [choice,setChoice]=useState<string|null>(null),[breakTarget,setBreakTarget]=useState<{employeeId:string;name:string}|null>(null);
   const current=activeGeneration(snapshot),branches=conflictBranches(snapshot),intents=(current?.envelope.intents??[]).filter(i=>!confirmedIntentIds.includes(i.intentId));
   const refresh=useCallback(async()=>{
@@ -79,10 +79,10 @@ export function QuarterHourEditor(props:ColorEditorProps){
     window.addEventListener("focus",focus);
     return ()=>{live=false;window.removeEventListener("focus",focus);connection?.close();db.current=null;};
   },[refresh,es]);
-  async function run(action:()=>Promise<unknown>){setBusy(true);try{await action();onDraftChange();}catch(error){const code=error instanceof Error?error.message:String(error);setFeedback(`${es?"No retenido / requiere revisión":"Not retained / review required"}: ${code}`);if(lastCell.current)setNotice({...lastCell.current,code});}finally{setBusy(false);}}
+  async function run(action:()=>Promise<unknown>){setBusy(true);try{await action();onDraftChange();}catch(error){const code=error instanceof Error?error.message:String(error);setFeedback(`${es?"No retenido / requiere revisión":"Not retained / review required"}: ${code}`);if(lastCell.current)setNotice({...lastCell.current,code,errors:attemptedCells.current.map(cell=>({...cell,code}))});}finally{setBusy(false);}}
   async function stage(cells:GridCell[]){
     if(!db.current||!publicDay||!choice||readonly||!ready||cleanupPending||pendingMemory.current)return;
-    lastCell.current=cells.at(-1)??null;
+    lastCell.current=cells.at(-1)??null;attemptedCells.current=cells;
     await run(async()=>{
       const cap=await capabilities();matchCapabilities(cap,publicDay);
       if(cells.some(c=>c.minute!==null)&&!cap.quarterUi)throw new Error("QUARTER_UI_UNAVAILABLE");
@@ -96,7 +96,10 @@ export function QuarterHourEditor(props:ColorEditorProps){
       setFeedback(result.status==="conflict"?(es?"Conflicto: ambas versiones están retenidas.":"Conflict: both versions are retained."):(es?"Retenido localmente; aún sin guardar.":"Locally retained; not yet saved."));
     });
   }
-  async function save(){if(!db.current||!publicDay||readonly||!ready||pendingMemory.current)return;await run(async()=>{
+  async function save(){if(!db.current||!publicDay||readonly||!ready||pendingMemory.current)return;
+    attemptedCells.current=intents.map(({intent})=>({shiftId:intent.shiftId,hour:Number(intent.quarter.slice(0,2)),minute:intent.granularity==="hour"?null:Number(intent.quarter.slice(3)) as 0|15|30|45})).filter((cell,index,all)=>all.findIndex(other=>other.shiftId===cell.shiftId&&other.hour===cell.hour&&other.minute===cell.minute)===index);
+    lastCell.current=attemptedCells.current.at(-1)??lastCell.current;
+    await run(async()=>{
     const reconciled=await refresh();
     if(reconciled?.receipt){await onSaved();return;}
     const fresh=await db.current!.read(scope);
@@ -111,7 +114,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
     setCleanupPending(result.status==="cleanup-pending");
     if(result.status!=="cleanup-pending")setSnapshot(await db.current!.read(scope));
     setFeedback(result.status==="saved"?(es?"Guardado.":"Saved."):result.status==="cleanup-pending"?(es?"Guardado; limpieza local pendiente.":"Saved; local cleanup pending."):result.status==="rejected"?`${es?"Rechazado; borrador conservado":"Rejected; draft retained"}: ${result.code}`:(es?"Guardado sin confirmar. Reintentar usa la misma solicitud.":"Save unconfirmed. Retry uses the same request."));
-    if(result.status==="rejected"&&lastCell.current)setNotice({...lastCell.current,code:result.code??"SAVE_REJECTED"});
+    if(result.status==="rejected"&&lastCell.current)setNotice({...lastCell.current,code:result.code??"SAVE_REJECTED",errors:attemptedCells.current.map(cell=>({...cell,code:result.code??"SAVE_REJECTED"}))});
     if(result.receipt)await onSaved();
   });}
   async function resolveBranch(branch:DraftGeneration,useBranch:boolean){if(!db.current||!ready||readonly||!snapshot.head||snapshot.head.pendingRequestId)return;await run(async()=>{
@@ -131,7 +134,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
     {legacyOriginal!==null&&<details><summary>{es?"Ver borrador anterior sin convertir":"View unconverted old draft"}</summary><pre className="overflow-auto text-xs">{legacyOriginal}</pre></details>}
   </div>:null;
   if(!day||!publicDay)return <section data-testid="quarter-hour-editor"><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{preservedReview}</section>;
-  return <section className="space-y-3" data-testid="quarter-hour-editor">
+  return <section className="space-y-3" data-testid="quarter-hour-editor" tabIndex={-1} data-paint-navigation-blocked={busy||unretained?"1":"0"}>
     <p className="text-sm">{es?"Pinta una hora uniforme o abre los cuartos para editar 15 minutos. Los cambios son privados hasta guardar.":"Paint a uniform hour or open quarters to edit 15 minutes. Changes stay private until saved."}</p>
     <div className="flex flex-wrap gap-2">{paletteSlots(day.stations).map(slot=>{
       const id=slot.kind==="family"?`family:${slot.family}`:slot.id,station=slot.kind==="station"?day.stations.find(s=>s.id===slot.id):null;

@@ -1,5 +1,7 @@
 "use client";
 
+import { HomeLink } from "@/components/HomeLink";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -217,6 +219,7 @@ export function WallBoard() {
 
       {searchParams.get("readback")==="1"&&<ClientReadbackPanel board={board} role="wall" view="wall" locale={locale} />}
       <footer className="px-6 pb-4 text-sm text-neutral-500">
+        {!kiosk && <HomeLink board={board} />}
         <Link href={`/?board=${board}`} data-testid="wall-exit" className="underline">
           {board === "cocina" ? "Salir" : "Exit wall"}
         </Link>

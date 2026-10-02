@@ -1,5 +1,7 @@
 "use client";
 
+import { HomeLink } from "@/components/HomeLink";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -1191,6 +1193,12 @@ export function FloorBoard() {
     >
       <KioskLock active={kiosk} />
       <header className="sticky top-0 z-20 border-b-2 border-neutral-900 bg-white px-3 py-2 sm:px-4">
+        <div className="mb-2 flex items-center justify-end gap-2" data-testid="toolbar-corner">
+          {!kiosk && <HomeLink board={board} />}
+          <button type="button" className="touch-target min-h-11 shrink-0 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" aria-expanded={!toolbarHidden} onClick={() => setToolbarHidden((hidden) => !hidden)} data-testid={toolbarHidden ? "toolbar-show" : "toolbar-hide"}>
+            {toolbarHidden ? t.toolbarShow : t.toolbarHide}
+          </button>
+        </div>
         {toolbarHidden ? (
           <div className="flex min-h-11 flex-wrap items-center gap-2 text-sm font-bold">
             <span className="shrink-0">{boardName}</span>
@@ -1215,9 +1223,6 @@ export function FloorBoard() {
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {staffBreakLink}
               <div id="paint-controls-slot" data-testid="paint-controls-slot" className="flex flex-wrap items-center gap-2" />
-              <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3" onClick={() => setToolbarHidden(false)} data-testid="toolbar-show">
-                {t.toolbarShow}
-              </button>
             </div>
           </div>
         ) : (
@@ -1271,9 +1276,6 @@ export function FloorBoard() {
               </button>
               <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} data-testid="toolbar-more">
                 {t.toolbarMore}
-              </button>
-              <button type="button" className="touch-target min-h-11 rounded-md border-2 border-neutral-900 px-3 text-sm font-bold" onClick={() => setToolbarHidden(true)} data-testid="toolbar-hide">
-                {t.toolbarHide}
               </button>
             </div>
             {showMore && <div className="mt-2 border-t border-neutral-300 pt-2" data-testid="toolbar-secondary">

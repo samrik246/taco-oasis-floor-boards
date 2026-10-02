@@ -49,6 +49,25 @@ for(const board of ["caja","cocina"] as const) for(const locale of ["es","en"] a
   await expect(page.getByTestId("paint-headcount-16")).toHaveText("2");
   await expect(page.locator('[data-testid="paint-row-backup"]')).toHaveCount(0);
   const ids=await page.getByTestId("paint-palette").locator('button[data-testid^="paint-palette-"]').evaluateAll(nodes=>nodes.map(node=>node.getAttribute("data-testid")));
+  // Legacy hourly refusals follow the tapped cell through both scroll axes,
+  // with a keyboard-reachable summary and no private-draft mutation.
+  await page.getByTestId(`paint-palette-${station}`).click();
+  await page.getByTestId("paint-cell-unpainted-16").click();
+  await expect(page.getByTestId("paint-cell-notice")).toBeVisible();
+  await expect(page.getByTestId("paint-error-summary").getByRole("button")).toHaveCount(1);
+  await page.getByTestId("paint-error-summary").getByRole("button").focus(); await page.keyboard.press("Enter");
+  await expect(page.getByTestId("paint-cell-unpainted-16")).toBeFocused();
+  for (const width of [1280, 390]) for (const theme of ["light", "dark"] as const) {
+    await page.setViewportSize({width,height:800}); await page.emulateMedia({colorScheme:theme});
+    await page.getByTestId("paint-matrix").evaluate(el=>{el.scrollLeft+=35;}); await page.mouse.wheel(0,80);
+    await expect(page.getByTestId("paint-cell-notice")).toBeInViewport({ratio:1});
+    const proof=await page.getByTestId("paint-cell-notice").evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,position:getComputedStyle(el).position,text:el.textContent,visible:el.contains(document.elementFromPoint(r.x+r.width/2,r.y+10))};});
+    expect(proof.position).toBe("fixed");expect(proof.visible).toBe(true);
+    const dir=path.join(process.env.FLOOR_BOARDS_TEST_ROOT!,"release-a-screens");mkdirSync(dir,{recursive:true});
+    await page.screenshot({path:path.join(dir,`legacy-error-${board}-${locale}-${width}-${theme}.png`)});
+  }
+  await page.getByTestId("paint-cell-notice").getByRole("button").click();
+  await page.setViewportSize({width:1280,height:800}); await page.emulateMedia({colorScheme:"light"});
   const final=page.getByTestId(`paint-palette-${payload!.stations.at(-1)!.id}`);
   await final.scrollIntoViewIfNeeded();await expect(final).toBeInViewport({ratio:1});
   expect(await page.evaluate(()=>window.scrollY)).toBeGreaterThan(100);

@@ -1,5 +1,7 @@
 "use client";
 
+import { HomeLink } from "@/components/HomeLink";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchCompatibleBoard } from "@/lib/quarter/client/transport";
@@ -228,6 +230,7 @@ function BackOfficeScreen({
         >
           {copy.enter}
         </button>
+        <HomeLink />
         <Link href="/" className="text-sm font-semibold underline">
           {copy.floorBoard}
         </Link>
@@ -254,7 +257,8 @@ function BackOfficeScreen({
           >
             {locale === "es" ? "EN" : "ES"}
           </button>
-          <Link href="/" className="underline">
+          <HomeLink />
+        <Link href="/" className="underline">
             {copy.floorBoard}
           </Link>
           <button type="button" className="underline" onClick={clearDesk} data-testid="back-office-logout">

@@ -1,5 +1,7 @@
 "use client";
 
+import { HomeLink } from "@/components/HomeLink";
+
 import { useCallback, useEffect, useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { useSearchParams } from "next/navigation";
@@ -25,7 +27,7 @@ function BreakList({ items, testId }: { items: BreakNowItem[]; testId: string })
   );
 }
 
-/** Read-only board of who is on break and the next three. No sign-in and no links. */
+/** Read-only board of who is on break and the next three. No sign-in; kiosk entry keeps navigation hidden. */
 export function AhoraScreen() {
   const params = useSearchParams();
   const kiosk = kioskRequested(params);
@@ -63,6 +65,7 @@ export function AhoraScreen() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-none flex-col gap-6 bg-white p-6 text-neutral-950" data-testid="ahora">
       <KioskLock active={kiosk} />
+      {!kiosk && <nav className="flex justify-end"><HomeLink board={board ?? undefined} /></nav>}
       <h1 className="text-3xl font-bold">Ahora en BREAK</h1>
       {!board && <p className="text-lg font-semibold" role="alert">Esa área no tiene BREAK.</p>}
       {failed && <p className="rounded-md border-2 border-neutral-950 px-3 py-2 text-lg font-bold" role="alert" data-testid="ahora-error">No se pudo actualizar</p>}

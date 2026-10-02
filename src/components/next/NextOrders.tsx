@@ -14,7 +14,8 @@ import {
   weekDays,
 } from "@/lib/upcoming/calendar";
 import { NEXT_COPY, type NextCopy } from "./next-copy";
-import { ReceiptWorkspace } from "@/components/receipts/ReceiptWorkspace";
+import { PrintButton } from "./PrintButton";
+import { HomeLink } from "@/components/HomeLink";
 import { ManagerUnlockModal } from "@/components/board/ManagerUnlockModal";
 import { useManagerIdle, useManagerSession } from "@/components/board/useManagerSession";
 import { messagesFor } from "@/lib/i18n";
@@ -93,7 +94,7 @@ export function NextOrders() {
   useManagerIdle({ idleMs: session.idleMs, onIdle: session.lock, active: session.isManager });
   const [unlockOpen, setUnlockOpen] = useState(false);
   const pendingToken = useRef<((token: string | null) => void) | null>(null);
-  const [receiptsOpen, setReceiptsOpen] = useState(false);
+  const [uncertainTails, setUncertainTails] = useState<Set<string>>(() => new Set());
 
   const t = NEXT_COPY[prefs.locale];
   const locale = prefs.locale;
@@ -132,7 +133,6 @@ export function NextOrders() {
   }, []);
 
   const openOrder = (o: UpcomingOrder) => {
-    setReceiptsOpen(false);
     window.history.pushState({ nextSheet: true }, "");
     setOpen(o);
   };
@@ -290,7 +290,7 @@ export function NextOrders() {
           <Link href="/?board=cocina" className={`${BTN} bg-white underline`} data-testid="next-back">
             {t.back}
           </Link>
-          <Link href="/receipts" className={`${BTN} bg-white underline`}>{locale === "es" ? "Impresoras de recibos" : "Receipt printers"}</Link>
+          <HomeLink className={`${BTN} bg-white`} />
         </div>
         {optionsOpen && (
           <fieldset
@@ -403,17 +403,11 @@ export function NextOrders() {
             today={today}
             onClose={closeSheet}
             printSlot={
-              <button className={`${BTN} w-full bg-white`} onClick={() => void getToken().then((token) => { if (token) setReceiptsOpen(true); })}>{t.print}</button>
+              <PrintButton key={open.id_tail} tail={open.id_tail} t={t} getToken={getToken} onTokenRejected={session.lock} uncertainTails={uncertainTails} onUncertain={(tail) => setUncertainTails((current) => new Set([...current, tail]))} />
             }
           />
         </div>
       )}
-      {open && receiptsOpen && session.manager && <div className="fixed inset-0 z-40 overflow-y-auto bg-neutral-50 p-4">
-        <button className={`${BTN} mb-4 bg-white`} onClick={() => setReceiptsOpen(false)}>{t.back}</button>
-        {/* A display tail cannot mint content handles. The accepted producer/host
-            catalog remains unavailable until the separate engine integration. */}
-        <ReceiptWorkspace key={session.manager.id + ":" + open.id_tail} manager={session.manager} locale={locale} onLock={session.lock} />
-      </div>}
       <ManagerUnlockModal
         open={unlockOpen}
         t={messagesFor(locale)}

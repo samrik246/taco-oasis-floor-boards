@@ -1,4 +1,6 @@
 "use client";
+
+import { HomeLink } from "@/components/HomeLink";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { KioskLock, kioskRequested, releaseKioskLock } from "@/components/board/KioskLock";
@@ -20,5 +22,5 @@ export function DescansosScreen() {
     if (href) { releaseKioskLock(); window.location.assign(href); }
     else setVisit(v => v + 1);
   }, [href]);
-  return <main className="min-h-dvh w-full bg-white"><KioskLock active={kioskRequested(params)} /><BreakWorkspace key={visit} board={board} locale={locale} onClose={close} /></main>;
+  return <main className="min-h-dvh w-full bg-white"><KioskLock active={kioskRequested(params)} />{!kioskRequested(params) && <nav className="flex justify-end p-3"><HomeLink board={board} /></nav>}<BreakWorkspace key={visit} board={board} locale={locale} onClose={close} /></main>;
 }

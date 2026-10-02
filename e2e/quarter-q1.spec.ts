@@ -83,7 +83,57 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   expect(Math.abs(expanded!.x + expanded!.width / 2 - (scroll!.x + (scroll!.width + 176) / 2))).toBeLessThan(3);
   for (const [minute, count] of [[0, 2], [15, 2], [30, 1], [45, 1]]) await expect(page.getByTestId(`q1-count-12-${minute}`).locator("strong")).toHaveText(String(count));
   await page.getByTestId(`quarter-palette-${station}`).click();
-  await page.getByTestId(`quarter-cell-${full}-11-15`).click(); await save(page);
+  await page.getByTestId(`quarter-cell-${full}-11-15`).click();
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+  // Inicio changes routes without moving the floor token into the desk or
+  // rewriting the private draft's heads/generations/submissions.
+  const retained = () => page.evaluate(() => new Promise<Record<string, unknown[]>>((resolve, reject) => {
+    const request = indexedDB.open("taco-oasis-paint-drafts");
+    request.onerror = () => reject(request.error); request.onsuccess = () => {
+      const database = request.result, names = ["heads", "generations", "submissions", "v1Archives"], result: Record<string, unknown[]> = {};
+      const transaction = database.transaction(names, "readonly");
+      for (const name of names) { const read = transaction.objectStore(name).getAll(); read.onsuccess = () => { result[name] = read.result; }; }
+      transaction.oncomplete = () => { database.close(); resolve(result); }; transaction.onabort = () => { database.close(); reject(transaction.error); };
+    };
+  }));
+  const beforeNavigation = await retained();
+  await page.getByTestId("toolbar-hide").click();
+  await expect(page.getByTestId(`quarter-palette-${station}`)).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("toolbar-show").click();
+  expect(await retained()).toEqual(beforeNavigation);
+  await page.getByTestId("inicio-link").click(); await page.getByTestId("inicio-floor").click();
+  if (await page.getByTestId("floor-board").getAttribute("data-role") !== "manager") {
+    await page.getByTestId("compact-manager").click(); await page.getByTestId("manager-code-input").fill("e2e-second-owner"); await page.getByTestId("manager-unlock-submit").click();
+  }
+  await page.getByTestId("compact-date").selectOption(date); await page.getByTestId("compact-view").selectOption("timeline");
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
+  expect(await retained()).toEqual(beforeNavigation);
+  const navOutput = join(process.env.FLOOR_BOARDS_TEST_ROOT!, "release-a-screens"); mkdirSync(navOutput, { recursive: true });
+  writeFileSync(join(navOutput, `${board}-private-navigation.json`), JSON.stringify({ before: beforeNavigation, after: await retained(), scope: "actual browser draft stores across folded controls and Inicio return" }, null, 2));
+  if (await page.getByTestId("q1-grid-scroll").getAttribute("data-zoom") !== "quarter") await page.getByTestId("q1-zoom").click();
+  await page.getByTestId(`quarter-palette-${station}`).click();
+  await page.getByTestId(`quarter-cell-${tail}-11-30`).click(); await expect(page.getByTestId("quarter-private-preview")).toHaveCount(2);
+  await page.getByTestId("q1-zoom").click();
+  await belowToolbar(page, page.getByTestId(`q1-row-${full}`));
+  const dragFrom = await page.getByTestId(`quarter-cell-${full}-11`).boundingBox(), dragTo = await page.getByTestId(`quarter-cell-${tail}-11`).boundingBox();
+  const beforeRefusal = await retained();
+  await page.mouse.move(dragFrom!.x + dragFrom!.width / 2, dragFrom!.y + 30); await page.mouse.down();
+  await page.mouse.move(dragTo!.x + dragTo!.width / 2, dragTo!.y + 30, { steps: 10 }); await page.mouse.up();
+  await expect(page.getByTestId("q1-error-summary").getByRole("button")).toHaveCount(2);
+  await page.getByTestId("q1-error-summary").getByRole("button").nth(1).focus(); await page.keyboard.press("Enter");
+  await expect(page.getByTestId(`quarter-cell-${tail}-11`)).toBeFocused();
+  expect(await retained()).toEqual(beforeRefusal);
+  for (const width of [768, 390]) {
+    await page.setViewportSize({ width, height: 800 }); await page.getByTestId("q1-grid-scroll").evaluate(el => { el.scrollLeft += 35; }); await page.mouse.wheel(0, 80);
+    await expect(page.getByTestId("q1-cell-notice")).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: join(navOutput, `${board}-multiple-errors-${width}.png`) });
+  }
+  writeFileSync(join(navOutput, `${board}-multiple-errors.json`), JSON.stringify({ errorCount: 2, before: beforeRefusal, after: await retained() }, null, 2));
+  await page.getByTestId("q1-cell-notice").getByRole("button", { name: "Close", exact: true }).click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "Discard draft", exact: true }).click(); await expect(page.getByTestId("quarter-private-preview")).toHaveCount(0);
+  await page.getByTestId("q1-zoom").click(); await page.getByTestId(`quarter-cell-${full}-11-15`).click();
+  await save(page);
   const first = await day(page, board), hour = first.hours.find(h => h.shiftId === full && h.hourStart === fromZonedTime(`${date}T11:00:00`, "America/Chicago").toISOString())!;
   expect(hour.intervals.filter(i => i.state === "assigned").map(i => [i.startAt, i.endAt, i.stationId])).toEqual([[fromZonedTime(`${date}T11:15:00`, "America/Chicago").toISOString(), fromZonedTime(`${date}T11:30:00`, "America/Chicago").toISOString(), station]]);
   await page.getByTestId("q1-zoom").click();

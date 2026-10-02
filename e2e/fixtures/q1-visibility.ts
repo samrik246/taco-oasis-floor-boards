@@ -36,8 +36,11 @@ export async function visibleText(target: Locator) {
   return target.evaluate(el => {
     const box = (rect: DOMRect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom });
     const css = getComputedStyle(el), toolbar = document.querySelector('[data-testid="floor-board"] > header')!;
-    const scroller = el.closest('[data-testid="q1-grid-scroll"]')!;
-    const clip = scroller.getBoundingClientRect(), toolbarRect = toolbar.getBoundingClientRect();
+    const scroller = el.closest('[data-testid="q1-grid-scroll"]') ?? document.querySelector('[data-testid="q1-grid-scroll"]')!;
+    const toolbarRect = toolbar.getBoundingClientRect();
+    // Cell feedback is portaled out of the scrolling table. Its actual clip is
+    // the viewport below the toolbar; every text hit-test remains mandatory.
+    const clip = css.position === "fixed" ? new DOMRect(0, toolbarRect.bottom, innerWidth, innerHeight - toolbarRect.bottom) : scroller.getBoundingClientRect();
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), text = [];
     while (walker.nextNode()) {
       const node = walker.currentNode;

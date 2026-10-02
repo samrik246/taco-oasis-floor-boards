@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Printer } from "lucide-react";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
 import type { NextCopy } from "./next-copy";
@@ -104,6 +104,7 @@ export function PrintButtonView({
  * follows it.
  */
 export function PrintButton({ tail, t, getToken, onTokenRejected, uncertainTails, onUncertain }: Props) {
+  const inFlight = useRef(false);
   const [enabled, setEnabled] = useState(false);
   const [printed, setPrinted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -134,10 +135,14 @@ export function PrintButton({ tail, t, getToken, onTokenRejected, uncertainTails
   if (!enabled) return null;
 
   async function tap() {
-    const token = await getToken();
-    if (!token) return;
+    // Lock before the asynchronous unlock as well as the send. React state alone
+    // does not exclude a second tap delivered before the next render.
+    if (inFlight.current || uncertainTails.has(tail) || notice?.kind === "uncertain") return;
+    inFlight.current = true;
     setBusy(true);
     try {
+      const token = await getToken();
+      if (!token) return;
       const res = await fetch("/api/upcoming/print", {
         method: "POST",
         headers: { "content-type": "application/json", ...managerAuthHeaders(token) },
@@ -176,6 +181,7 @@ export function PrintButton({ tail, t, getToken, onTokenRejected, uncertainTails
       onUncertain(tail);
       setNotice({ kind: "uncertain" });
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }

@@ -1,5 +1,6 @@
 "use client";
 
+import { CellFeedback } from "./CellFeedback";
 import { ShiftSourceRole } from "./ShiftSourceRole";
 import { NievesUnassigned } from "./NievesUnassigned";
 
@@ -174,6 +175,11 @@ function LegacyColorEditor({
   const [busy, setBusy] = useState(false);
   const [breakTarget, setBreakTarget] = useState<{ employeeId: string; name: string } | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [cellErrors, setCellErrors] = useState<{ shiftId: string; hour: number; text: string }[]>([]);
+  const [activeError, setActiveError] = useState(0);
+  function cellError(text: string, cells: { shiftId: string; hour: number }[]) {
+    setFeedback({ kind: "err", text }); setCellErrors(cells.map(cell => ({ ...cell, text }))); setActiveError(0);
+  }
   const [mandatoryAsk, setMandatoryAsk] = useState<string | null>(null);
   const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
   const copy = locale === "es" ? {
@@ -336,7 +342,7 @@ function LegacyColorEditor({
       });
       const body = await response.json() as { error?: string; code?: string };
       if (!response.ok) {
-        setFeedback({ kind: "err", text: body.error ?? copy.failed });
+        cellError(body.error ?? copy.failed, Object.values(draftState.draft));
         if (response.status === 409 || response.status === 401) await onSaved();
         return;
       }
@@ -345,7 +351,7 @@ function LegacyColorEditor({
       setFeedback({ kind: "ok", text: copy.saved });
       await onSaved();
     } catch {
-      setFeedback({ kind: "err", text: copy.failed });
+      cellError(copy.failed, Object.values(draftState.draft));
     } finally {
       setBusy(false);
     }
@@ -367,14 +373,14 @@ function LegacyColorEditor({
   function paint(shift: ShiftDto, hour: number, off: boolean) {
     if (busy || readonly || off || shift.supersededAt) return;
     if (selected == null) {
-      setFeedback({ kind: "err", text: copy.needChoice });
+      cellError(copy.needChoice, [{ shiftId: shift.id, hour }]);
       return;
     }
     const family = familyChoice(selected);
     const stationId = selected === "erase" || family ? null : selected;
     if ((family && PAINT_FAMILIES[family].every((id) => abilityFor(shift, id) === "forbidden")) ||
         (stationId && abilityFor(shift, stationId) === "forbidden")) {
-      setFeedback({ kind: "err", text: copy.forbidden });
+      cellError(copy.forbidden, [{ shiftId: shift.id, hour }]);
       return;
     }
     const assignment = currentAssignment(shift, date, hour);
@@ -401,7 +407,7 @@ function LegacyColorEditor({
       if (savedTaken || pendingIn) {
         const station = day.stations.find((candidate) => candidate.id === stationId);
         const seat = station ? displayStationLabel(locale, station) : stationId;
-        setFeedback({ kind: "err", text: copy.taken(seat, formatHourLabel(hour)) });
+        cellError(copy.taken(seat, formatHourLabel(hour)), [{ shiftId: shift.id, hour }]);
         return;
       }
     }
@@ -420,7 +426,7 @@ function LegacyColorEditor({
           Object.values(draftState.draft).filter((pending) => pending.hour === hour && pending.stationId === id).length < station.maxConcurrent;
       });
       if (!free) {
-        setFeedback({ kind: "err", text: copy.full });
+        cellError(copy.full, [{ shiftId: shift.id, hour }]);
         return;
       }
     }
@@ -432,6 +438,7 @@ function LegacyColorEditor({
       stationId,
       ...(family ? { family } : {}),
     };
+    setCellErrors([]);
     stage(edit);
   }
 
@@ -496,7 +503,7 @@ function LegacyColorEditor({
   ) : null;
 
   return (
-    <section className="min-w-0 rounded-lg border-2 border-neutral-900 bg-white p-3" data-testid="manager-color-editor">
+    <section className="min-w-0 rounded-lg border-2 border-neutral-900 bg-white p-3" data-testid="manager-color-editor" tabIndex={-1} data-paint-navigation-blocked={busy||storageError==="retain"?"1":"0"}>
       {foldControls && controlsSlot ? createPortal(paintControls, controlsSlot) : (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-bold">{copy.title}</h2>
@@ -506,6 +513,11 @@ function LegacyColorEditor({
       {foldControls && controlsSlot ? <h2 className="mb-3 text-lg font-bold">{copy.title}</h2> : null}
       {(feedback || staleDraft) && <p className={cn("mb-3 rounded-md border-2 px-3 py-2 text-sm font-bold", !staleDraft && feedback?.kind === "ok" ? "border-emerald-800 bg-emerald-50 text-emerald-950" : "border-red-800 bg-red-50 text-red-950")} role={staleDraft || feedback?.kind === "err" ? "alert" : "status"} data-testid="paint-feedback">{staleDraft ? storageError === "retain" ? copy.conflict : copy.refreshed : feedback?.text}</p>}
       {restored && pendingCount > 0 && !staleDraft && <p className="mb-3 rounded-md border-2 border-blue-800 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-950" role="status" data-testid="paint-restored">{copy.restored}</p>}
+      {cellErrors.length > 0 && <details open className="mb-3 rounded border-2 border-amber-800 bg-amber-50 p-2 text-amber-950" data-testid="paint-error-summary">
+        <summary className="min-h-11 font-bold">{locale === "es" ? "Cambios sin aplicar" : "Changes not applied"} ({cellErrors.length})</summary>
+        <ul>{cellErrors.map((error, index) => <li key={`${error.shiftId}-${error.hour}`}><button type="button" className="min-h-11 text-left underline" onClick={() => { const cell = document.getElementById(`paint-cell-${error.shiftId}-${error.hour}`); cell?.scrollIntoView({ block: "center", inline: "center" }); cell?.focus({ preventScroll: true }); setActiveError(index); }}>{day?.shifts.find(shift => shift.id === error.shiftId)?.employee.firstName} · {formatHourLabel(error.hour)}: {error.text}</button></li>)}</ul>
+      </details>}
+      {cellErrors[activeError] && <CellFeedback anchorId={`paint-cell-${cellErrors[activeError].shiftId}-${cellErrors[activeError].hour}`} testId="paint-cell-notice"><p>{cellErrors[activeError].text}</p><button type="button" className="min-h-11 underline" onClick={() => setCellErrors([])}>{locale === "es" ? "Cerrar" : "Close"}</button></CellFeedback>}
       {storageError && <p className="mb-3 rounded-md border-2 border-red-800 bg-red-50 px-3 py-2 text-sm font-bold text-red-950" role="alert" data-testid="paint-storage-error">{storageError === "retain" ? copy.storageError : copy.storageClearError}</p>}
       {staleDraft && <ul className="mb-3 space-y-1" data-testid="paint-stale-list">{Object.values(draftState.draft).filter((edit) => day && !editStillMatches(day, date, edit)).map((edit) => {
         const shift = day?.shifts.find((candidate) => candidate.id === edit.shiftId);
@@ -627,7 +639,7 @@ function LegacyColorEditor({
                 const quarters = paintedSlices ? personQuarters(paintedSlices, shift.employee.id, hour) : [];
                 const showAmber = !removedHere && !station && cell.kind !== "off" && !ended && (amberByShift.get(shift.id)?.has(hour) ?? false);
                 return <td key={hour} className="border-b border-neutral-300 p-0.5 text-center" data-kind={cell.kind} data-pending={edit ? "1" : "0"}>
-                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{saved && !edit && day ? <SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /> : visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}{removedHere && <AmberMark kind="removed-hour" />}{!saved && <><QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></>}</button>}
+                  {cell.kind === "off" || ended ? <span className="block min-h-11 content-center text-neutral-500">{label}</span> : <button type="button" className={cn("relative touch-target min-h-11 w-full rounded border-2 px-1 text-xs font-bold leading-tight", station ? stationColorClass(station.color) : frame.className, edit && "ring-2 ring-inset ring-amber-700", readonly && "opacity-60")} disabled={readonly || busy} onClick={() => paint(shift, hour, false)} aria-label={`${personName(shift)}, ${formatHourLabel(hour)}, ${label}${dotText ? `, ${dotText}` : ""}${edit ? `, ${copy.pending(1)}` : ""}`} id={`paint-cell-${shift.id}-${hour}`} aria-describedby={cellErrors[activeError]?.shiftId === shift.id && cellErrors[activeError]?.hour === hour ? "paint-cell-notice-message" : undefined} data-testid={`paint-cell-${shift.id}-${hour}`} data-outline={station ? undefined : frame.outline} data-wash={station ? undefined : frame.wash ? "1" : "0"}>{saved && !edit && day ? <SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /> : visibleLabel}{dots.length > 0 && <EligibilityDots shiftId={shift.id} hour={hour} dots={dots} stations={day?.stations ?? []} />}{edit && <span className="block text-[10px] uppercase">{locale === "es" ? "Pendiente" : "Pending"}</span>}{showAmber && <AmberMark kind="empty-hour" />}{removedHere && <AmberMark kind="removed-hour" />}{!saved && <><QuarterRow quarters={quarters} /><BreakStripe label={stripe} /></>}</button>}
                   {saved && edit && day && <span className="mt-1 block border-t text-[10px]">{locale === "es" ? "Guardado" : "Saved"}<SavedShiftHour day={day} shiftId={shift.id} hour={hour} locale={locale} /></span>}
                 </td>;
               })}

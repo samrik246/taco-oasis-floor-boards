@@ -14,7 +14,6 @@
 .count + .count { border-left: 1px dashed #c4c4c4; }
 .guides { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .guides > span { position: absolute; top: 0; bottom: 0; border-left: 1px dashed #a3a3a3; filter: drop-shadow(1px 0 0 white); }
-.notice { position: absolute; top: 56px; left: 0; z-index: 30; width: 300px; max-width: 80vw; padding: 8px; border: 2px solid #92400e; border-radius: 4px; color: #451a03; background: #fffbeb; box-shadow: 0 2px 8px #0003; }
 @media (prefers-color-scheme: dark) {
   .grid, .grid .person { color: #f5f5f5; background: #262626; }
   .grid thead { background: #171717; }

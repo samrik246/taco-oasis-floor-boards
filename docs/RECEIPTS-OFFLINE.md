@@ -1,18 +1,24 @@
 # Receipt picker and diagnostics — offline host boundary
 
-This next-version slice supplies `/receipts`, the manager Imprimir entry in
-`/next`, a closed V4 browser/host boundary and a component that accepts fake
-engine dependencies for tests. The production route deliberately supplies no
-engine. It cannot spawn Python, query a device, provision state or send paper.
-There is no browser or environment switch that enables the fake.
+Release A restores the existing `PrintButton` in each NEXT order detail, with
+per-order uncertainty retained for the page visit. It is hidden when printing
+is off, history is unavailable, or the capability read fails. Manager unlock,
+expiry, repeated-tap exclusion and uncertain-send refusal remain in force.
+The legacy `/api/upcoming/print` route retains its `history_unavailable` refusal;
+Release A does not enable printing or configure a transport.
+
+The unfinished ReceiptWorkspace is no longer opened by NEXT and `/receipts`
+has no navigation entry in NEXT or Inicio. Its direct route keeps the existing
+manager unlock and its API keeps active-manager/origin/schema enforcement.
+This retained offline implementation supplies a closed V4 browser/host boundary
+and injected test dependencies. Production supplies no engine and cannot send
+paper through that route. There is no browser or environment switch for the fake.
 
 The current upcoming-order projection supplies display tails, not authoritative
-content handles. Its picker therefore holds content until the trusted producer
-and owned-handle catalog are integrated. Never mint document identity from a
-tail or accept client source IDs/hashes. The old PrintButton is no longer
-mounted in NEXT; the gated legacy endpoint remains for its existing owner and
-must be retired before real receipt integration so the engine is the only sender.
-Unreadable legacy history now returns unavailable, never printed:false.
+content handles. Release B must integrate the trusted producer and owned-handle
+catalog; never mint document identity from a tail or accept client source IDs or
+hashes. Retire the legacy sender at that separately authorized cutover so there
+is only one sender. Synthetic transport checks do not establish observed paper.
 
 ## Frozen boundaries
 
