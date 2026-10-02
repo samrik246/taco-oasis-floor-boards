@@ -2,7 +2,9 @@ import { boardWrite, acquireBoardWrite } from "@/lib/shared-write";
 import { requireLegacy } from "@/lib/quarter/schema";
 import { prisma } from "@/lib/db";
 import { writeBoardChange, type BoardChangeActor } from "@/lib/board-change-log";
-import { createShiftAssignment, type AssignmentTx } from "./service";
+import { createAssignment, createShiftAssignment, type AssignmentTx } from "./service";
+import { chicagoHourStart, hourGridHours } from "@/lib/hour-grid";
+import { NIEVES_POSITION, nievesSeats, type FixedWindow, type FixedPlacementSkip } from "@/lib/import/nieves";
 
 export type FixedAssignParams = {
   board: string;
@@ -11,6 +13,8 @@ export type FixedAssignParams = {
   actor?: BoardChangeActor;
   /** When set, this write joins the caller's transaction instead of opening one. */
   db?: AssignmentTx;
+  /** Import-only: absent old blanks must never become implicit repair work. */
+  introduced?: ReadonlyMap<string, readonly FixedWindow[]>;
 };
 
 export type FixedAssignSummary = {
@@ -22,7 +26,7 @@ export type FixedAssignSummary = {
   superseded: number;
 };
 
-export type FixedAssignResult = { ok: true; summary: FixedAssignSummary };
+export type FixedAssignResult = { ok: true; summary: FixedAssignSummary; fixedSkipped: FixedPlacementSkip[] };
 
 /**
  * Planner G — "Colocar fijos". Places every non-superseded shift that day on
@@ -59,6 +63,7 @@ export async function placeFixedAssignments(
         boardRemoved: false,
         sourcePosition: { in: [...byPosition.keys()] },
       },
+      include: { employee: { select: { firstName: true, lastName: true } } },
     });
 
     const ordered = shifts
@@ -78,8 +83,45 @@ export async function placeFixedAssignments(
       forbidden: 0,
       superseded: 0,
     };
+    const fixedSkipped: FixedPlacementSkip[] = [];
 
     for (const { shift, stationId } of ordered) {
+      if (shift.sourcePosition === NIEVES_POSITION) {
+        const seats = nievesSeats(stationId);
+        let preferred = stationId;
+        const bookings = await tx.staffBreak.findMany({ where: { date: shift.date, status: "booked",
+          OR: [{ employeeId: shift.employeeId }, { coverEmployeeId: shift.employeeId }, { shuffleEmployeeId: shift.employeeId }] } });
+        const overlays = await tx.boardOverlay.findMany({ where: { date: shift.date, cancelledAt: null,
+          OR: [{ employeeId: shift.employeeId }, { partnerEmployeeId: shift.employeeId }] } });
+        for (const hour of hourGridHours()) {
+          const hourStart = chicagoHourStart(shift.date, hour);
+          const startMs = Math.max(+hourStart, +shift.startAt), endMs = Math.min(+hourStart + 3_600_000, +shift.endAt);
+          if (endMs - startMs < 60_000) continue;
+          const existing = await tx.assignment.findFirst({ where: { employeeId: shift.employeeId, hourStart } });
+          if (existing) {
+            if (seats.includes(existing.stationId)) { summary.alreadyThere++; preferred = existing.stationId; }
+            else summary.personBusy++;
+            continue;
+          }
+          // An hourly write must be wholly new: otherwise it would also repaint
+          // an old erased part of a source extended inside this same hour.
+          if (params.introduced && !(params.introduced.get(shift.id) ?? []).some(w => w.startMs <= startMs && w.endMs >= endMs)) continue;
+          const protectedWork = [...bookings, ...overlays].some(o => +o.startAt < endMs && +o.endAt > startMs);
+          let placed = false;
+          if (!protectedWork) for (const candidate of [preferred, ...seats.filter(s => s !== preferred)]) {
+            const result = await createAssignment({ shiftId: shift.id, stationId: candidate, date: shift.date, hour, now: params.now, db: tx });
+            if (result.ok) { summary.placed++; preferred = candidate; placed = true; break; }
+          }
+          if (!placed) {
+            summary.stationOccupied++;
+            fixedSkipped.push({ shiftId: shift.id, employeeId: shift.employeeId,
+              workerName: `${shift.employee.firstName} ${shift.employee.lastName}`.trim(), date: shift.date, hour,
+              startAt: new Date(startMs).toISOString(), endAt: new Date(endMs).toISOString(),
+              reason: protectedWork ? "SAVED_OBLIGATION" : "NO_ELIGIBLE_FREE_SEAT" });
+          }
+        }
+        continue;
+      }
       const result = await createShiftAssignment({
         shiftId: shift.id,
         stationId,
@@ -109,7 +151,7 @@ export async function placeFixedAssignments(
         count: summary.placed,
       });
     }
-    return { ok: true as const, summary };
+    return { ok: true as const, summary, fixedSkipped };
   };
   if (params.db) {await acquireBoardWrite(params.db);return run(params.db); }
   return boardWrite(prisma,run);
@@ -123,9 +165,11 @@ export async function placeFixedAssignments(
 export async function placeFixedForImportedDates(
   dates: readonly string[],
   db?: AssignmentTx,
-): Promise<void> {
+  introduced?: ReadonlyMap<string, readonly FixedWindow[]>,
+): Promise<FixedPlacementSkip[]> {
+  const skipped: FixedPlacementSkip[] = [];
   for (const date of [...new Set(dates)]) {
-    await placeFixedAssignments({ board: "caja", date, db });
-    await placeFixedAssignments({ board: "cocina", date, db });
+    for (const board of ["caja", "cocina"]) skipped.push(...(await placeFixedAssignments({ board, date, db, introduced })).fixedSkipped);
   }
+  return skipped;
 }

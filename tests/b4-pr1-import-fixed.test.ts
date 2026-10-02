@@ -17,8 +17,9 @@ vi.mock("@/lib/assignments/fixed-assign", async () => {
     placeFixedForImportedDates: async (
       dates: readonly string[],
       db?: Parameters<typeof actual.placeFixedForImportedDates>[1],
+      introduced?: Parameters<typeof actual.placeFixedForImportedDates>[2],
     ) => {
-      const placed = await actual.placeFixedForImportedDates(dates, db);
+      const placed = await actual.placeFixedForImportedDates(dates, db, introduced);
       if (failPlacement.current) throw new Error("fixed placement failed");
       return placed;
     },

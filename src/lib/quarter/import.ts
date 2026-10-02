@@ -11,6 +11,8 @@ import { hourKey,legacyHour,resolvePaintWorld,sourceSnapshot,type PaintHour } fr
 import { reconcileSource } from "./reconcile";
 import { persistHour,recordMutation,receiptFor } from "./transaction";
 import { peerHours,projectSeatNumbers,validatePaintWorld,validateObligations } from "./validation";
+import { NIEVES_POSITION, introducedNievesWindows } from "@/lib/import/nieves";
+import { proposeNievesHour } from "./nieves-import";
 
 const ACTOR={id:"system:import-v2",name:"Import"};
 export type ImportInitiator={kind:"manager"|"folder"|"hourly";managerId?:string};
@@ -44,6 +46,7 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
   const oldWorlds=await Promise.all(plan.dates.map(d=>resolvePaintWorld(db,d.date)));
   const batch=await db.importBatch.create({data:{filename,fingerprint,rowCount:parsed.shifts.length}});
   const defaults=await loadColumnDefaults(db);
+  const availableStations=new Set((await db.station.findMany({select:{id:true}})).map(s=>s.id));
   const employees=new Map<string,string>();
   for(const s of parsed.shifts) {
     if(!employees.has(s.externalId)) {
@@ -53,6 +56,7 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
     }
     const employeeId=employees.get(s.externalId)!;
     for(const ability of seedAbilitiesFromPositions([s.sourcePosition])) {
+      if(!availableStations.has(ability.stationId))continue;
       const level=ability.level==="ok"&&defaults.get(ability.stationId)==="forbidden"?"forbidden":ability.level;
       await db.employeeStationAbility.upsert({where:{employeeId_stationId:{employeeId,stationId:ability.stationId}},
         create:{employeeId,stationId:ability.stationId,level},update:{}});
@@ -121,6 +125,7 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
     }
   }
   const fixedSkipped:NonNullable<ImportCommitResult["fixedSkipped"]>=[];
+  const introduced = introducedNievesWindows(plan, created);
   const maps=await db.positionStationMap.findMany({where:{stationId:{not:null}},include:{station:true}});
   for(const date of plan.dates.map(d=>d.date)) {
     const before=await resolvePaintWorld(db,date);projectSeatNumbers(before);
@@ -132,6 +137,29 @@ export async function commitQuarterImport(db:QuarterDb,input:{parsed:ParseResult
     for(const original of candidates) {
       const source=before.sources.find(s=>s.id===original.shiftId)!;
       const stationId=maps.find(m=>m.position===source.sourcePosition)!.stationId!;
+      if(source.sourcePosition===NIEVES_POSITION) {
+        const windows=introduced.get(source.id)??[];
+        if(!windows.length)continue;
+        const proposal=structuredClone(staged);
+        const hour=proposal.hours.find(h=>hourKey(h.shiftId,h.hourStartMs)===hourKey(original.shiftId,original.hourStartMs))!;
+        const planHour=await proposeNievesHour(db,proposal,hour,windows,stationId);
+        const person=parsed.shifts.find(s=>employees.get(s.externalId)===source.employeeId)!;
+        const note=(w:{startMs:number;endMs:number;reason:string})=>fixedSkipped.push({shiftId:source.id,employeeId:source.employeeId,
+          workerName:`${person.firstName} ${person.lastName}`.trim(),date,hour:chicagoHourOf(new Date(original.hourStartMs)),
+          startAt:new Date(w.startMs).toISOString(),endAt:new Date(w.endMs).toISOString(),reason:w.reason});
+        planHour.skipped.forEach(note);
+        if(!planHour.placed.length)continue;
+        const proposedKeys=new Set(touched);proposedKeys.add(hourKey(hour.shiftId,hour.hourStartMs));
+        try {
+          peerHours(proposal,proposedKeys,hour.segments.flatMap(s=>s.stationId?[{hourStartMs:hour.hourStartMs,stationId:s.stationId}]:[]));
+          projectSeatNumbers(proposal);await validatePaintWorld(db,proposal,proposedKeys);await validateObligations(db,before,proposal,now);
+          staged=proposal;for(const key of proposedKeys)touched.add(key);
+        } catch(error) {
+          if(!(error instanceof QuarterRefused)||!["STATION_FULL","PERSON_ALREADY_ASSIGNED","FORBIDDEN_ABILITY","STATION_BOARD_MISMATCH","SEAT_NUMBER_CONFLICT","PERSISTED_COVER_CONFLICT","OVERLAY_CONFLICT"].includes(error.code))throw error;
+          planHour.placed.forEach(w=>note({...w,reason:error.code}));
+        }
+        continue;
+      }
       let reason=original.id?"ADOPTED_HOUR":original.segments.some(s=>s.state==="assigned")?"OCCUPIED_HOUR":null;
       if(!reason) {
         const proposal=structuredClone(staged);

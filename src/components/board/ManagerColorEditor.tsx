@@ -1,5 +1,8 @@
 "use client";
 
+import { ShiftSourceRole } from "./ShiftSourceRole";
+import { NievesUnassigned } from "./NievesUnassigned";
+
 import { DraftDatabase } from "@/lib/quarter/client/draft-db";
 import { QuarterHourEditor } from "./QuarterHourEditor";
 import { useEffect, useMemo, useState } from "react";
@@ -553,6 +556,7 @@ function LegacyColorEditor({
               <th className="sticky left-0 z-10 border-b border-r-2 border-neutral-300 bg-white px-2 py-1.5 text-sm font-bold" scope="row">
                 <span className="block">{personName(shift)} {ended ? `· ${t.shiftEnded}` : ""}</span>
                 <span className="block text-[11px] font-medium text-neutral-600">{laterShiftOfPerson ? "↳ " : ""}{shiftTime(shift.startAt, locale)}–{shiftTime(shift.endAt, locale)}</span>
+                <ShiftSourceRole shiftId={shift.id} position={shift.sourcePosition} locale={locale}/>
                 {showDescansoButton({
                   readonly,
                   openDate: date,
@@ -632,6 +636,7 @@ function LegacyColorEditor({
           {rows.length === 0 && <p className="p-4 text-sm font-semibold text-neutral-600">{t.timelineEmpty}</p>}
         </div>
       </div>
+      {day && <NievesUnassigned day={day} locale={locale}/>}
       {day && <SavedCoverPanel day={day} locale={locale} hours={hours} rows={rows.length === 0} />}
       {day && (
         <OverlayDayList

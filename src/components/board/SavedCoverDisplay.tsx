@@ -1,5 +1,5 @@
 import { formatInTimeZone } from "date-fns-tz";
-import type { ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { isAuxiliaryPosition } from "@/lib/board/auxiliary";
 import { TIMEZONE } from "@/lib/constants";
 import { chicagoHourStart, formatCompactHour, hourGridHours } from "@/lib/hour-grid";
@@ -8,6 +8,7 @@ import type { CoverSegment } from "@/lib/board/cover-display";
 import { stationColorClass } from "./board-helpers";
 import { clipSegment, savedHourSegments, type StationInterval } from "./cover-display";
 import type { DayBoardDto } from "./types";
+import { ShiftSourceRole } from "./ShiftSourceRole";
 
 export const intervalLabel = (start: string, end: string) => `${formatInTimeZone(new Date(start), TIMEZONE, "h:mm a")}–${formatInTimeZone(new Date(end), TIMEZONE, "h:mm a")}`;
 const unavailableLabel = (locale: Locale) => locale === "es" ? "Detalle de cobertura no disponible" : "Cover detail unavailable";
@@ -56,21 +57,40 @@ function coverTracks(day: DayBoardDto, includePrimary: boolean) {
 }
 
 /** Insert into the existing time table, so its hour boundaries remain aligned. */
-export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false, quarterGuides = false, nameCellClassName = "" }: {
-  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean; quarterGuides?: boolean; nameCellClassName?: string;
+export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false, quarterGuides = false, nameCellClassName = "", interactiveDetails = false }: {
+  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean; quarterGuides?: boolean; nameCellClassName?: string; interactiveDetails?: boolean;
 }) {
-  return <>{coverTracks(day, includePrimary).map(track => <tr key={track.shiftId} data-testid={`cover-row-${track.shiftId}`}>
+  const [inspected, setInspected] = useState<string | null>(null);
+  const detailLabel = locale === "es" ? "Ver cobertura" : "View cover";
+  return <>{coverTracks(day, includePrimary).map(track => <Fragment key={track.shiftId}><tr data-testid={`cover-row-${track.shiftId}`}>
     <th className={`sticky left-0 z-10 border-y border-neutral-300 bg-white px-2 py-1 text-left text-sm font-bold text-neutral-950 ${nameCellClassName}`} scope="row">
-      {track.firstName} {track.lastName}<span className="block text-[10px] font-normal">{locale === "es" ? "Cobertura guardada" : "Saved cover"}</span>
+      {interactiveDetails ? <button type="button" className="min-h-11 w-full text-left underline" data-testid={`cover-detail-open-${track.shiftId}`}
+        aria-label={`${detailLabel} · ${track.firstName} ${track.lastName}`} aria-expanded={inspected === track.shiftId}
+        onFocus={() => setInspected(track.shiftId)} onClick={() => setInspected(track.shiftId)}>{track.firstName} {track.lastName}</button> : <>{track.firstName} {track.lastName}</>}
+      <span className="block text-[10px] font-normal">{locale === "es" ? "Cobertura guardada" : "Saved cover"}</span>
+      <ShiftSourceRole shiftId={track.shiftId} position={track.sourcePosition} locale={locale}/>
     </th>
     {leadingColumns === 2 && <td className="border-y border-neutral-300 bg-white px-1 text-center text-[10px] text-neutral-950">{intervalLabel(track.startAt, track.endAt)}</td>}
     {hours.map(hour => {
       const start = +chicagoHourStart(day.date, hour);
       const segments = track.segments.flatMap(s => { const clip = clipSegment(s, start, start + 3600000); return clip ? [clip] : []; });
       const auxiliary = isAuxiliaryPosition(track.sourcePosition) || (track.board !== "caja" && track.board !== "cocina");
-      return <td key={hour} className="relative border border-neutral-300 p-0.5"><SavedHour day={day} hour={hour} segments={segments} locale={locale} emptyLabel={auxiliary ? locale === "es" ? "REFUERZO" : "BACKUP" : "·"} />{quarterGuides && [25, 50, 75].map(left => <span key={left} aria-hidden="true" className="pointer-events-none absolute inset-y-0 border-l border-dashed border-neutral-400" style={{left: `${left}%`}} />)}</td>;
+      const content = <SavedHour day={day} hour={hour} segments={segments} locale={locale} emptyLabel={auxiliary ? locale === "es" ? "REFUERZO" : "BACKUP" : "·"} />;
+      return <td key={hour} className="relative border border-neutral-300 p-0.5">{interactiveDetails && segments.length ?
+        <button type="button" className="block min-h-11 w-full p-0 text-left" data-testid={`cover-hour-detail-${track.shiftId}-${hour}`} aria-label={`${detailLabel} · ${track.firstName} ${track.lastName} · ${formatCompactHour(hour)}`}
+          onFocus={() => setInspected(track.shiftId)} onClick={() => setInspected(track.shiftId)}>{content}</button> : content}
+        {quarterGuides && [25, 50, 75].map(left => <span key={left} aria-hidden="true" className="pointer-events-none absolute inset-y-0 border-l border-dashed border-neutral-400" style={{left: `${left}%`}} />)}</td>;
     })}
-  </tr>)}</>;
+  </tr>{interactiveDetails && inspected === track.shiftId && <tr><td colSpan={hours.length + leadingColumns}>
+    <div className="sticky left-0 my-2 rounded border-2 border-neutral-700 bg-white p-3 text-left text-sm text-neutral-950" style={{ width: "min(36rem, calc(100vw - 64px))" }}
+      data-testid={`cover-detail-${track.shiftId}`} aria-live="polite">
+      <strong>{track.firstName} {track.lastName}</strong>
+      {track.segments.map((s, index) => <p key={index} data-start={s.startAt} data-end={s.endAt}>
+        {s.kind === "break" ? "BREAK" : `${locale === "es" ? "Cubre" : "Cover"} · ${s.station ? `${boardDisplayName(locale, s.station.board === "caja" ? "caja" : "cocina")} · ${displayStationLabel(locale, s.station)}` : locale === "es" ? "REFUERZO" : "BACKUP"}`} · {intervalLabel(s.startAt, s.endAt)}
+      </p>)}
+      <button type="button" className="mt-2 min-h-11 rounded border-2 border-neutral-700 px-3 font-bold" onClick={() => setInspected(null)}>{locale === "es" ? "Cerrar" : "Close"}</button>
+    </div>
+  </td></tr>}</Fragment>)}</>;
 }
 
 /** Notices plus a stand-alone grid where no primary time table is mounted. */

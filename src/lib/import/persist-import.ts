@@ -27,6 +27,7 @@ import { planRemovalIdentity, type RemovalDecision } from "@/lib/import/removal-
 import { seatNumberForWrite } from "@/lib/assignments/seat-number";
 import { dropImportedBreaks } from "@/lib/breaks/import-drop";
 import { endImportedOverlays } from "@/lib/overlays/write";
+import { introducedNievesWindows, type FixedPlacementSkip } from "./nieves";
 
 /**
  * Persist a parse result. Never writes pay columns or staff email (they are
@@ -78,7 +79,7 @@ export type ImportCommitResult = {
   importBatchId: string;
   rowCount: number;
   dates: DatePreview[];
-  fixedSkipped?: { shiftId:string;hour:number;reason:string }[];
+  fixedSkipped?: FixedPlacementSkip[];
   replayed?: boolean;
 };
 
@@ -276,6 +277,7 @@ export async function commitImport(
     }
     const employeeIdByExternal = new Map<string, string>();
     const columnDefaults = await loadColumnDefaults(tx);
+    const availableStations = new Set((await tx.station.findMany({ select: { id: true } })).map(s => s.id));
     for (const [externalId, info] of nameByExternal) {
       const emp = await tx.employee.upsert({
         where: { externalId },
@@ -286,6 +288,7 @@ export async function commitImport(
       // Seed only missing abilities. A saved row stays as the manager left it.
       // A missing bien follows the column default, so Nuevos no is stored as no.
       for (const seed of seedAbilitiesFromPositions(positionsByExternal.get(externalId) ?? [])) {
+        if (!availableStations.has(seed.stationId)) continue;
         const columnDefault = columnDefaults.get(seed.stationId);
         const level = seed.level === "ok" && columnDefault === "forbidden" ? "forbidden" : seed.level;
         await tx.employeeStationAbility.upsert({
@@ -457,9 +460,9 @@ export async function commitImport(
 
     await dropImportedBreaks(tx, { supersededShiftIds, changedShiftIds, boardRemovedShiftIds });
     await endImportedOverlays(tx, { supersededShiftIds, boardRemovedShiftIds });
-    await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx);
+    const fixedSkipped = await placeFixedForImportedDates(plan.dates.map((row) => row.date), tx, introducedNievesWindows(plan, created));
 
-    const result={ importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates };
+    const result={ importBatchId: batch.id, rowCount: parsed.shifts.length, dates: plan.dates, ...(fixedSkipped.length ? { fixedSkipped } : {}) };
     if(schema)await saveImportReceipt(tx,{parsed,initiator:opts.initiator,fingerprint,filename,planDigest:plan.digest,revisionBefore:revisionBefore!,result,now});
     return result;
   }, IMPORT_TX);

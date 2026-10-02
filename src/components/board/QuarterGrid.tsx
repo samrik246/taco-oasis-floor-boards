@@ -11,6 +11,8 @@ import { clipSegment, savedHourSegments } from "./cover-display";
 import { SavedCoverRows, SavedHour, intervalLabel } from "./SavedCoverDisplay";
 import type { DayBoardDto, ShiftDto } from "./types";
 import styles from "./QuarterGrid.module.css";
+import { ShiftSourceRole } from "./ShiftSourceRole";
+import { NievesUnassigned } from "./NievesUnassigned";
 
 export type GridCell = { shiftId: string; hour: number; minute: 0 | 15 | 30 | 45 | null };
 export type GridNotice = GridCell & { code: string };
@@ -78,7 +80,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
   function preview(rows: RetainedIntent[]) {
     return rows.map(({intent}) => `${intent.quarter} ${intent.action === "station" ? day.stations.find(s => s.id === intent.stationId)?.label ?? intent.stationId : intent.action === "family" ? intent.family : es ? "Borrar" : "Erase"}`).join(" · ");
   }
-  return <><div ref={scroller} className={styles.scroller} data-testid="q1-grid-scroll" data-zoom={zoom ? "quarter" : "hour"}>
+  return <><NievesUnassigned day={day} locale={locale}/><div ref={scroller} className={styles.scroller} data-testid="q1-grid-scroll" data-zoom={zoom ? "quarter" : "hour"}>
     <table className={styles.grid} style={{ width: nameWidth + hours.length * hourWidth }} data-testid="q1-grid">
       <colgroup><col style={{ width: nameWidth }} />{hours.map(h => <col key={h} style={{ width: hourWidth }} />)}</colgroup>
       <thead><tr>
@@ -93,7 +95,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
         </span>)}</div></td>)}
       </tr></thead>
       <tbody>{day.shifts.map(shift => <tr key={shift.id} data-testid={`q1-row-${shift.id}`}>
-        <th className={styles.person} scope="row"><span className="block">{displayName(shift)}</span><span className="block text-[10px] font-normal">{intervalLabel(shift.startAt, shift.endAt)}</span>{personControls?.(shift)}</th>
+        <th className={styles.person} scope="row"><span className="block">{displayName(shift)}</span><span className="block text-[10px] font-normal">{intervalLabel(shift.startAt, shift.endAt)}</span><ShiftSourceRole shiftId={shift.id} position={shift.sourcePosition} locale={locale}/>{personControls?.(shift)}</th>
         {hours.map(hour => <td key={hour} data-testid={`q1-hour-cell-${shift.id}-${hour}`}>
           <div className={styles.hour}>
             {(zoom ? quarters : [null]).map(minute => {
@@ -122,7 +124,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
             {zoom && <span className={styles.guides} aria-hidden="true">{[25, 50, 75].map(left => <span key={left} style={{ left: `${left}%` }} />)}</span>}
           </div>
         </td>)}
-      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} /></tbody>
+      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} interactiveDetails /></tbody>
     </table>
   </div>
     {inspected && <div className="rounded border border-neutral-500 bg-white p-2 text-sm text-neutral-950" data-testid="q1-interval-detail" aria-live="polite">

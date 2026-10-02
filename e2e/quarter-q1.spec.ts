@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { safeDatabasePath } from "../scripts/test-db-path.cjs";
 import { belowToolbar, viewportEvidence } from "./fixtures/q1-visibility";
 import type { PublicDayV2 } from "../src/lib/quarter/client/day";
+import { displayStationLabel } from "../src/lib/i18n";
 
 const date = "2041-10-12", origin = "http://floor-boards.test:3100";
 const ids = ["caja", "cocina"].flatMap(board => [`q1-${board}-full`, `q1-${board}-tail`]);
@@ -148,7 +149,10 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   dense.coverDisplay.tracks = [{ shiftId: full, employeeId: full, firstName: "Q1 Full", lastName: "Synthetic", board, sourcePosition: source.sourcePosition,
     startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:20"), kind: "break", station: stationView(colors[0]), fromStation: null, auto: false }] },
   { shiftId: `q1-${board}-saved-cover`, employeeId: `q1-${board}-saved-cover`, firstName: "Q1 Cover", lastName: "Synthetic", board: "other", sourcePosition: "Office",
-    startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:20"), kind: "cover", station: stationView(colors[0]), fromStation: null, auto: false }] }];
+    startAt: source.startAt, endAt: source.endAt, segments: [
+      { startAt: at("11:05"), endAt: at("11:20"), kind: "cover", station: stationView(colors[0]), fromStation: null, auto: false },
+      { startAt: at("11:35"), endAt: at("11:40"), kind: "cover", station: stationView(colors[1]), fromStation: null, auto: false },
+    ] }];
   for (const [i, color] of colors.entries()) {
     const id = `q1-${board}-color-${i}`;
     dense.employees.push({ id, firstName: `Color ${color.color}`, lastName: "Synthetic" });
@@ -174,7 +178,10 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   async function captureMatrix(surfacePage: Page, surface: string) {
     const page = surfacePage, observations = [];
     const coverRow = page.getByTestId(`cover-row-q1-${board}-saved-cover`);
-    for (const locale of ["en", "es"]) for (const theme of ["light", "dark"] as const) {
+    let mutationRequests = 0;
+    const mutations = (r: import("@playwright/test").Request) => { if (r.url().includes("/api/") && ["POST", "PUT", "PATCH", "DELETE"].includes(r.method())) mutationRequests++; };
+    page.on("request", mutations);
+    for (const locale of ["en", "es"] as const) for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
       await page.getByTestId("toolbar-more").click();
       await page.getByTestId(`locale-toggle-${locale}`).click();
@@ -188,7 +195,7 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
         expect(alignment!.x).toBeCloseTo(cell!.x, 1); expect(alignment!.width).toBeCloseTo(cell!.width, 1);
         const breakWidth = await page.getByTestId(`q1-hour-cell-${full}-11`).locator('[data-kind="break"]').evaluateAll(elements => elements.reduce((n, el) => n + el.getBoundingClientRect().width, 0));
         expect(breakWidth / cell!.width).toBeCloseTo(15 / 60, 2);
-        const cover = await coverRow.locator('[data-hour="11"]').locator("..").boundingBox();
+        const cover = await coverRow.locator("td").filter({ has: page.locator('[data-hour="11"]') }).boundingBox();
         expect(cover!.x).toBeCloseTo(cell!.x, 1); expect(cover!.width).toBeCloseTo(cell!.width, 1);
         await expect(page.getByTestId("q1-count-11-0").locator("strong")).toHaveText(String(colors.length + 2));
         const lines = await page.getByTestId(`q1-hour-cell-${full}-11`).evaluate(el => ({ boundary: getComputedStyle(el).borderRightStyle,
@@ -232,6 +239,42 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
           for (let i = first; i < Math.min(first + 6, colors.length); i++) targets[`name-${i}`] = page.getByTestId(`q1-row-q1-${board}-color-${i}`).locator("th");
           await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-colors-${first}`), targets);
         }
+        // Full supplemental facts remain reachable independently of the BACKUP panel.
+        const backup = page.getByTestId("auxiliary-toggle");
+        if (await backup.getAttribute("aria-expanded") === "true") await backup.click();
+        await expect(backup).toHaveAttribute("aria-expanded", "false");
+        const coverId = `q1-${board}-saved-cover`, detail = page.getByTestId(`cover-detail-${coverId}`);
+        const beforeCounts = await page.getByTestId("q1-headcount-row").textContent();
+        const beforeSpans = await coverRow.locator('[data-kind="cover"]').evaluateAll(es => es.map(e => [e.getAttribute("data-start"), e.getAttribute("data-end"), e.getBoundingClientRect().width]));
+        // Touch the actual cover hour, including its five-minute fragment.
+        await page.getByTestId("q1-hour-header-11").getByRole("button").click();
+        await belowToolbar(page, coverRow);
+        const touch = await page.context().newCDPSession(page);
+        for (const duration of [15, 5]) {
+          const segment = coverRow.locator('[data-kind="cover"]').nth(duration === 15 ? 0 : 1);
+          const box = (await segment.boundingBox())!;
+          await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
+          await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          await expect(detail).toBeVisible();
+          await expect(detail).toContainText("Q1 Cover Synthetic");
+          for (const label of ["11:05 AM–11:20 AM", "11:35 AM–11:40 AM", displayStationLabel(locale, colors[0]), displayStationLabel(locale, colors[1])]) await expect(detail).toContainText(label);
+          await belowToolbar(page, detail);
+          await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-cover-touch-${duration}`), { detail });
+          await detail.getByRole("button", { name: locale === "es" ? "Cerrar" : "Close", exact: true }).click();
+          await belowToolbar(page, coverRow);
+        }
+        await touch.detach();
+        // Keyboard focus opens the same detail after a horizontal scroll to the far edge.
+        await page.getByTestId("q1-grid-scroll").evaluate(el => { el.scrollLeft = el.scrollWidth - el.clientWidth; });
+        const farEdge = await page.getByTestId("q1-grid-scroll").evaluate(el => el.scrollLeft);
+        await page.getByTestId(`cover-detail-open-${coverId}`).focus();
+        await page.keyboard.press("Enter");
+        await expect(detail).toBeVisible(); await belowToolbar(page, detail);
+        expect(await page.getByTestId("q1-grid-scroll").evaluate(el => el.scrollLeft)).toBeCloseTo(farEdge, 0);
+        await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-cover-keyboard`), { detail });
+        await detail.getByRole("button", { name: locale === "es" ? "Cerrar" : "Close", exact: true }).click();
+        expect(await page.getByTestId("q1-headcount-row").textContent()).toBe(beforeCounts);
+        expect(await coverRow.locator('[data-kind="cover"]').evaluateAll(es => es.map(e => [e.getAttribute("data-start"), e.getAttribute("data-end"), e.getBoundingClientRect().width]))).toEqual(beforeSpans);
         // After vertical and horizontal scrolling, a local refusal is visible beside its cell.
         if (surface === "editor") {
           await belowToolbar(page, page.getByTestId(`q1-row-${full}`));
@@ -244,6 +287,7 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
         observations.push({ surface, locale, theme, view, header: alignment, cell, positions, rowHeight: await page.getByTestId(`q1-row-${full}`).evaluate(e => e.getBoundingClientRect().height) });
       }
     }
+    page.off("request", mutations); expect(mutationRequests).toBe(0);
     return observations;
   }
   const observations = await captureMatrix(page, "editor");

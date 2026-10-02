@@ -1,5 +1,8 @@
 "use client";
 
+import { ShiftSourceRole } from "./ShiftSourceRole";
+import { NievesUnassigned } from "./NievesUnassigned";
+
 import { savedHourSegments } from "./cover-display";
 import { SavedCoverPanel, SavedCoverRows, SavedShiftHour } from "./SavedCoverDisplay";
 import { useMemo } from "react";
@@ -131,6 +134,7 @@ export function TimelinePanel({
                         </span>
                       )}
                     </span>
+                    <ShiftSourceRole shiftId={shift.id} position={shift.sourcePosition} locale={locale}/>
                   </th>
                   {cells.map((cell, i) => {
                     const hour = hours[i]!;
@@ -182,6 +186,7 @@ export function TimelinePanel({
           </table>
         </div>
       )}
+      {day && <NievesUnassigned day={day} locale={locale}/>}
       {day && <SavedCoverPanel day={day} locale={locale} hours={hours} rows={rows.length === 0} />}
     </section>
   );

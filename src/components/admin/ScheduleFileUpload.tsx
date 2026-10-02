@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ImportPreviewModal, type ImportPreviewData } from "@/components/board/ImportPreviewModal";
 import { messagesFor, type Locale } from "@/lib/i18n";
 import { managerAuthHeaders } from "@/lib/managers/auth-headers";
+import { intervalLabel } from "@/components/board/SavedCoverDisplay";
 
 /** The file picker that used to sit on the board. Preview, then confirm. */
 export function ScheduleFileUpload({ token, locale }: { token: string; locale: Locale }) {
@@ -27,7 +28,13 @@ export function ScheduleFileUpload({ token, locale }: { token: string; locale: L
     });
     const data=(await res.json()) as Record<string,unknown>&{error?:string};
     const details:string[]=[];
-    if(Array.isArray(data.fixedSkipped))for(const row of data.fixedSkipped)if(row&&typeof row.shiftId==="string")details.push(`${locale==="es"?"Posición fija omitida":"Fixed placement skipped"}: ${row.shiftId} · ${row.hour}:00 · ${row.reason}`);
+    if(Array.isArray(data.fixedSkipped))for(const row of data.fixedSkipped)if(row&&typeof row.shiftId==="string") {
+      const window=typeof row.startAt==="string"&&typeof row.endAt==="string"?`${row.date} · ${intervalLabel(row.startAt,row.endAt)}`:`${row.hour}:00`;
+      const reason=row.reason==="NO_ELIGIBLE_FREE_SEAT"?(locale==="es"?"Sin puesto libre habilitado":"No eligible free seat"):
+        row.reason==="SAVED_OBLIGATION"?(locale==="es"?"BREAK o movimiento guardado":"Saved BREAK or movement"):row.reason;
+      const label=row.workerName?(locale==="es"?"Posición fija sin asignar":"Fixed placement unassigned"):(locale==="es"?"Posición fija omitida":"Fixed placement skipped");
+      details.push(`${label}: ${row.workerName??row.shiftId} · ${window} · ${reason}`);
+    }
     const original=data.originalImport as {filename?:string;importedAt?:string;rowCount?:number}|undefined;
     if(original)details.push(`${locale==="es"?"Importación original":"Original import"}: ${original.filename??""} · ${original.importedAt??""} · ${original.rowCount??0}`);
     setDetails(details);return {ok:res.ok,data};
