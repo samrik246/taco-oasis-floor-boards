@@ -122,7 +122,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
             {zoom && <span className={styles.guides} aria-hidden="true">{[25, 50, 75].map(left => <span key={left} style={{ left: `${left}%` }} />)}</span>}
           </div>
         </td>)}
-      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} /></tbody>
+      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} /></tbody>
     </table>
   </div>
     {inspected && <div className="rounded border border-neutral-500 bg-white p-2 text-sm text-neutral-950" data-testid="q1-interval-detail" aria-live="polite">

@@ -56,11 +56,11 @@ function coverTracks(day: DayBoardDto, includePrimary: boolean) {
 }
 
 /** Insert into the existing time table, so its hour boundaries remain aligned. */
-export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false, quarterGuides = false }: {
-  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean; quarterGuides?: boolean;
+export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, includePrimary = false, quarterGuides = false, nameCellClassName = "" }: {
+  day: DayBoardDto; locale: Locale; hours: number[]; leadingColumns?: 1 | 2; includePrimary?: boolean; quarterGuides?: boolean; nameCellClassName?: string;
 }) {
   return <>{coverTracks(day, includePrimary).map(track => <tr key={track.shiftId} data-testid={`cover-row-${track.shiftId}`}>
-    <th className="sticky left-0 z-10 border-y border-neutral-300 bg-white px-2 py-1 text-left text-sm font-bold text-neutral-950" scope="row">
+    <th className={`sticky left-0 z-10 border-y border-neutral-300 bg-white px-2 py-1 text-left text-sm font-bold text-neutral-950 ${nameCellClassName}`} scope="row">
       {track.firstName} {track.lastName}<span className="block text-[10px] font-normal">{locale === "es" ? "Cobertura guardada" : "Saved cover"}</span>
     </th>
     {leadingColumns === 2 && <td className="border-y border-neutral-300 bg-white px-1 text-center text-[10px] text-neutral-950">{intervalLabel(track.startAt, track.endAt)}</td>}

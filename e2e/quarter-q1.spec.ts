@@ -4,6 +4,7 @@ import { fromZonedTime } from "date-fns-tz";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { safeDatabasePath } from "../scripts/test-db-path.cjs";
+import { belowToolbar, viewportEvidence } from "./fixtures/q1-visibility";
 import type { PublicDayV2 } from "../src/lib/quarter/client/day";
 
 const date = "2041-10-12", origin = "http://floor-boards.test:3100";
@@ -63,7 +64,7 @@ async function day(page: Page, board: string): Promise<PublicDayV2> {
 }
 
 for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, exact erase, mixed-hour entry, drag and grid geometry`, async ({ page }) => {
-  test.setTimeout(300_000); await page.setViewportSize({ width: 1280, height: 900 });
+  test.setTimeout(600_000); await page.setViewportSize({ width: 1280, height: 900 });
   await page.addInitScript(() => localStorage.setItem("taco-oasis-locale-v1", "en"));
   await open(page, board); expect(await page.evaluate(() => isSecureContext)).toBe(false);
   const full = `q1-${board}-full`, tail = `q1-${board}-tail`, station = `q1-${board}-a`;
@@ -87,7 +88,8 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await page.getByTestId(`quarter-cell-${full}-11`).click();
   await expect(page.getByTestId("q1-cell-notice")).toContainText("Mixed hour");
   const shots = join(process.env.FLOOR_BOARDS_TEST_ROOT!, "q1-grid-screens"); mkdirSync(shots, { recursive: true });
-  await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-mixed-refusal.png`) });
+  await belowToolbar(page, page.getByTestId(`q1-row-${full}`));
+  await viewportEvidence(page, join(shots, `${board}-mixed-refusal`), { notice: page.getByTestId("q1-cell-notice") });
   expect(await page.getByTestId("quarter-private-preview").count()).toBe(0);
   await page.getByTestId("q1-cell-notice").getByRole("button", { name: "Edit quarters" }).click();
   await expect(page.getByTestId("q1-grid-scroll")).toHaveAttribute("data-zoom", "quarter");
@@ -111,6 +113,7 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   const cdp = await page.context().newCDPSession(page);
   const touchCell = page.getByTestId(`quarter-cell-${full}-12-0`);
   await touchCell.scrollIntoViewIfNeeded(); const touchBox = (await touchCell.boundingBox())!;
+  await viewportEvidence(page, join(shots, `${board}-before-touch-raw`), { full: page.getByTestId(`q1-row-${full}`).locator("th"), tail: page.getByTestId(`q1-row-${tail}`).locator("th") }, false);
   const scrollBefore = await page.getByTestId("q1-grid-scroll").evaluate(el => el.scrollLeft);
   const x = touchBox.x + touchBox.width / 2, y = touchBox.y + 25;
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
@@ -124,7 +127,17 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: tap.x + 3, y: tap.y + 25 }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1); await save(page); await cdp.detach();
-  await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-saved-quarter.png`) });
+  const names = { full: page.getByTestId(`q1-row-${full}`).locator("th"), tail: page.getByTestId(`q1-row-${tail}`).locator("th") };
+  await viewportEvidence(page, join(shots, `${board}-after-touch-save-raw`), names, false);
+  // Retain the old capture method separately to distinguish its scroll from normal viewport pixels.
+  await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-saved-quarter-locator-diagnostic.png`) });
+  await viewportEvidence(page, join(shots, `${board}-after-locator-raw`), names, false);
+  await belowToolbar(page, page.getByTestId("q1-grid-scroll"));
+  await viewportEvidence(page, join(shots, `${board}-saved-quarter-viewport`), names);
+  for (const fraction of [0, 0.37, 1]) {
+    await page.getByTestId("q1-grid-scroll").evaluate((el, f) => { el.scrollLeft = (el.scrollWidth - el.clientWidth) * f; }, fraction);
+    await viewportEvidence(page, join(shots, `${board}-saved-quarter-scroll-${fraction}`), names);
+  }
   // Read-only visual fixture extends the genuine response with dense colors and saved
   // BREAK/cover spans. It cannot substitute for the real write/receipt assertions above.
   const dense = structuredClone(await day(page, board)), source = dense.sources.find(s => s.shiftId === full)!;
@@ -157,46 +170,87 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await page.getByTestId(`quarter-cell-${full}-11-0`).click();
   await expect(page.getByTestId("q1-cell-notice")).toContainText("saved BREAK");
   await page.getByTestId("q1-cell-notice").getByRole("button", { name: "Close", exact: true }).click();
-  const observations = [];
-  for (const locale of ["en", "es"]) for (const theme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: theme });
-    await page.getByTestId("toolbar-more").click();
-    await page.getByTestId(`locale-toggle-${locale}`).click();
-    await page.getByTestId("toolbar-more").click();
-    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-locale", locale);
-    await expect(page.getByTestId("q1-headcount-row")).toContainText(locale === "es" ? "Personal programado" : "Scheduled workers");
-    for (const view of ["quarter", "hour"]) {
-      if (await page.getByTestId("q1-grid-scroll").getAttribute("data-zoom") !== view) await page.getByTestId("q1-zoom").click();
-      await page.getByTestId("q1-hour-header-11").getByRole("button").click();
-      await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-${locale}-${theme}-${view}.png`) });
-      const alignment = await page.getByTestId("q1-hour-header-11").boundingBox(), cell = await page.getByTestId(`q1-hour-cell-${full}-11`).boundingBox();
-      expect(alignment!.x).toBeCloseTo(cell!.x, 1); expect(alignment!.width).toBeCloseTo(cell!.width, 1);
-      const breakWidth = await page.getByTestId(`q1-hour-cell-${full}-11`).locator('[data-kind="break"]').evaluateAll(elements => elements.reduce((n, el) => n + el.getBoundingClientRect().width, 0));
-      expect(breakWidth / cell!.width).toBeCloseTo(15 / 60, 2);
-      const cover = await coverRow.locator('[data-hour="11"]').locator("..").boundingBox();
-      expect(cover!.x).toBeCloseTo(cell!.x, 1); expect(cover!.width).toBeCloseTo(cell!.width, 1);
-      await expect(coverRow).toContainText("Q1 Cover Synthetic");
-      await expect(page.getByTestId("q1-count-11-0").locator("strong")).toHaveText(String(colors.length + 2));
-      const lines = await page.getByTestId(`q1-hour-cell-${full}-11`).evaluate(el => ({ boundary: getComputedStyle(el).borderRightStyle,
-        guides: [...el.querySelectorAll('span[aria-hidden="true"]')].map(g => ({ pointer: getComputedStyle(g).pointerEvents, line: getComputedStyle(g.firstElementChild!).borderLeftStyle })) }));
-      expect(lines.boundary).toBe("dashed");
-      if (view === "quarter") { expect(lines.guides).toHaveLength(1); expect(lines.guides[0]).toEqual({ pointer: "none", line: "dashed" }); }
-      observations.push({ locale, theme, view, header: alignment, cell, rowHeight: await page.getByTestId(`q1-row-${full}`).evaluate(e => e.getBoundingClientRect().height) });
-      for (const fraction of [0, 0.37, 1]) {
-        const geometry = await page.getByTestId("q1-grid-scroll").evaluate((el, fraction) => {
-          el.scrollLeft = (el.scrollWidth - el.clientWidth) * fraction;
-          const visible = [...el.querySelectorAll('[data-testid^="q1-hour-header-"]')].filter(h => h.getBoundingClientRect().right > el.getBoundingClientRect().left + 176 && h.getBoundingClientRect().left < el.getBoundingClientRect().right);
-          return { fraction, left: el.scrollLeft, max: el.scrollWidth - el.clientWidth, alignment: visible.map(h => {
-            const hour = h.getAttribute("data-testid")!.split("-").at(-1), cell = el.querySelector(`[data-testid$="-full-${hour}"]`)!, a = h.getBoundingClientRect(), b = cell.getBoundingClientRect();
-            return { hour, dx: a.x - b.x, dw: a.width - b.width };
-          }) };
-        }, fraction);
-        expect(geometry.alignment.length).toBeGreaterThan(0);
-        for (const { dx, dw } of geometry.alignment) { expect(Math.abs(dx)).toBeLessThan(1); expect(Math.abs(dw)).toBeLessThan(1); }
-        expect(geometry.left).toBeCloseTo(geometry.max * fraction, 0);
+  async function captureMatrix(surfacePage: Page, surface: string) {
+    const page = surfacePage, observations = [];
+    const coverRow = page.getByTestId(`cover-row-q1-${board}-saved-cover`);
+    for (const locale of ["en", "es"]) for (const theme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await page.getByTestId("toolbar-more").click();
+      await page.getByTestId(`locale-toggle-${locale}`).click();
+      await page.getByTestId("toolbar-more").click();
+      await expect(page.getByTestId("floor-board")).toHaveAttribute("data-locale", locale);
+      await expect(page.getByTestId("q1-headcount-row")).toContainText(locale === "es" ? "Personal programado" : "Scheduled workers");
+      for (const view of ["quarter", "hour"]) {
+        if (await page.getByTestId("q1-grid-scroll").getAttribute("data-zoom") !== view) await page.getByTestId("q1-zoom").click();
+        await page.getByTestId("q1-hour-header-11").getByRole("button").click();
+        const alignment = await page.getByTestId("q1-hour-header-11").boundingBox(), cell = await page.getByTestId(`q1-hour-cell-${full}-11`).boundingBox();
+        expect(alignment!.x).toBeCloseTo(cell!.x, 1); expect(alignment!.width).toBeCloseTo(cell!.width, 1);
+        const breakWidth = await page.getByTestId(`q1-hour-cell-${full}-11`).locator('[data-kind="break"]').evaluateAll(elements => elements.reduce((n, el) => n + el.getBoundingClientRect().width, 0));
+        expect(breakWidth / cell!.width).toBeCloseTo(15 / 60, 2);
+        const cover = await coverRow.locator('[data-hour="11"]').locator("..").boundingBox();
+        expect(cover!.x).toBeCloseTo(cell!.x, 1); expect(cover!.width).toBeCloseTo(cell!.width, 1);
+        await expect(page.getByTestId("q1-count-11-0").locator("strong")).toHaveText(String(colors.length + 2));
+        const lines = await page.getByTestId(`q1-hour-cell-${full}-11`).evaluate(el => ({ boundary: getComputedStyle(el).borderRightStyle,
+          guides: [...el.querySelectorAll('span[aria-hidden="true"]')].map(g => ({ pointer: getComputedStyle(g).pointerEvents, line: getComputedStyle(g.firstElementChild!).borderLeftStyle })) }));
+        expect(lines.boundary).toBe("dashed");
+        if (view === "quarter") { expect(lines.guides).toHaveLength(1); expect(lines.guides[0]).toEqual({ pointer: "none", line: "dashed" }); }
+        const positions = [];
+        for (const position of ["center", "initial", "intermediate", "far-edge"] as const) {
+          const fraction = { center: null, initial: 0, intermediate: 0.37, "far-edge": 1 }[position];
+          if (fraction !== null) await page.getByTestId("q1-grid-scroll").evaluate((el, f) => { el.scrollLeft = (el.scrollWidth - el.clientWidth) * f; }, fraction);
+          await belowToolbar(page, page.getByTestId("q1-grid-scroll"));
+          const geometry = await page.getByTestId("q1-grid-scroll").evaluate(el => {
+            const visible = [...el.querySelectorAll('[data-testid^="q1-hour-header-"]')].filter(h => h.getBoundingClientRect().left >= el.getBoundingClientRect().left + 176 && h.getBoundingClientRect().right <= el.getBoundingClientRect().right);
+            return { left: el.scrollLeft, max: el.scrollWidth - el.clientWidth, alignment: visible.map(h => {
+              const hour = h.getAttribute("data-testid")!.split("-").at(-1), cell = el.querySelector(`[data-testid$="-full-${hour}"]`)!, a = h.getBoundingClientRect(), b = cell.getBoundingClientRect();
+              return { hour, dx: a.x - b.x, dw: a.width - b.width };
+            }) };
+          });
+          expect(geometry.alignment.length).toBeGreaterThan(0);
+          for (const { dx, dw } of geometry.alignment) { expect(Math.abs(dx)).toBeLessThan(1); expect(Math.abs(dw)).toBeLessThan(1); }
+          if (fraction !== null) expect(geometry.left).toBeCloseTo(geometry.max * fraction, 0);
+          const visibleHour = geometry.alignment[0].hour;
+          const prefix = join(shots, `${board}-${surface}-${locale}-${theme}-${view}-${position}`);
+          const top = await viewportEvidence(page, `${prefix}-top`, {
+            header: page.getByTestId(`q1-hour-header-${visibleHour}`), counts: page.getByTestId(`q1-count-${visibleHour}-0`).locator(".."),
+            label: page.getByTestId("q1-headcount-row").locator("th"), full: page.getByTestId(`q1-row-${full}`).locator("th"), tail: page.getByTestId(`q1-row-${tail}`).locator("th"),
+          });
+          for (const name of [top.full, top.tail]) { expect(name.position).toBe("sticky"); expect(name.rect.x).toBeCloseTo(name.scroller.x, 0); }
+          await belowToolbar(page, coverRow);
+          const bottom = await viewportEvidence(page, `${prefix}-cover`, { cover: coverRow.locator("th") });
+          expect(bottom.cover.position).toBe("sticky"); expect(bottom.cover.rect.x).toBeCloseTo(bottom.cover.scroller.x, 0);
+          expect(bottom.cover.textContent).toContain("Q1 Cover Synthetic");
+          expect(bottom.cover.scrollX).toBeCloseTo(geometry.left, 0);
+          positions.push({ position, geometry, top, bottom });
+        }
+        // After vertical and horizontal scrolling, a local refusal is visible beside its cell.
+        if (surface === "editor") {
+          await belowToolbar(page, page.getByTestId(`q1-row-${full}`));
+          const button = page.getByTestId(`quarter-cell-${full}-11${view === "quarter" ? "-0" : ""}`);
+          await button.click();
+          await expect(page.getByTestId("q1-cell-notice")).toContainText(locale === "es" ? "BREAK" : "BREAK");
+          await viewportEvidence(page, join(shots, `${board}-${surface}-${locale}-${theme}-${view}-refusal`), { notice: page.getByTestId("q1-cell-notice") });
+          await page.getByTestId("q1-cell-notice").getByRole("button", { name: locale === "es" ? "Cerrar" : "Close", exact: true }).click();
+        }
+        observations.push({ surface, locale, theme, view, header: alignment, cell, positions, rowHeight: await page.getByTestId(`q1-row-${full}`).evaluate(e => e.getBoundingClientRect().height) });
       }
     }
+    return observations;
   }
+  const observations = await captureMatrix(page, "editor");
+  // A separate staff page exercises TimelinePanel without mounting the active editor.
+  const viewer = await page.context().newPage(); await viewer.setViewportSize({ width: 1280, height: 900 });
+  await viewer.route(`**/api/v2/boards/${board}/days/*`, route => {
+    const requestedDate = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    return route.fulfill({ json: JSON.parse(JSON.stringify(dense).replaceAll(date, requestedDate)) });
+  });
+  viewer.on("request", r => { if (r.method() === "PUT" && r.url().endsWith("/api/v2/assignments/paint")) visualWrites++; });
+  await viewer.goto(`${origin}/?readonly=1&board=${board}`);
+  await viewer.getByTestId("compact-view").selectOption("timeline");
+  await expect(viewer.getByTestId("timeline-panel")).toBeVisible();
+  await expect(viewer.getByTestId("quarter-hour-editor")).toHaveCount(0);
+  observations.push(...await captureMatrix(viewer, "timeline"));
+  await viewer.close();
   expect(visualWrites).toBe(0);
   expect(await coverRow.locator('[data-kind="cover"]').evaluateAll(elements => elements.map(el => [el.getAttribute("data-start"), el.getAttribute("data-end")]))).toEqual(coverIdentity);
   writeFileSync(join(shots, `${board}-geometry.json`), JSON.stringify({ overview, expanded, height, observations }, null, 2));
