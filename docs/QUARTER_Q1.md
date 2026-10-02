@@ -71,6 +71,15 @@ registry, foreign-key guarantees and every other table must remain unchanged.
 The completion record binds both snapshots and the activation journal; final
 Q1 aggregation checks their hashes and revalidates the exact transition.
 
+Scenario preservation baselines follow the final authenticated read: the client
+helper signs in even in read mode, which updates the safe lock rows. Each strict
+crossing retains both 26-table guards and typed safe lock rows before assertions;
+failed actions retain the immediate after snapshot too. The roundtrip additionally
+retains pre-read rows so the authentication side effect can be diagnosed without
+credentials or sessions. Completion and Q1 aggregation bind and revalidate every
+boundary, including refusal and return-to-candidate. No lock table is exempted
+from the strict crossing checks; controller stopped-state checks remain unchanged.
+
 Complete unit/API, fresh production browser, typecheck, packet, static and
 normalized lint checks and source-bound screenshots precede the frozen handoff.
 Actual composed execution needs the independent pin/packet review. Physical

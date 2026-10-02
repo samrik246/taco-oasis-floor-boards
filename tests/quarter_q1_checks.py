@@ -56,7 +56,7 @@ class Q1AggregateChecks(unittest.TestCase):
                  'actualBundleCrossings': 'not-applicable-preflight-refused' if 'incompatible' in case else True}
                 for case, outcome in zip(rehearse.SCENARIOS[:6], outcomes)]
         (self.root / 'evidence/rehearsal.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaisesRegex(ValueError, 'SCENARIO_BOUNDARY_EVIDENCE_REQUIRED'):
             self.run_aggregate()
         self.assertFalse((self.root / 'evidence/verification.json').exists())
 
@@ -447,6 +447,133 @@ class ActivationTransitionChecks(unittest.TestCase):
         event = json.loads(path.read_text()); event['guard']['schemaSha256'] = '0' * 64
         path.write_text(json.dumps(event) + '\n'); binding[path.name] = self.guard.file_hash(path)
         with self.assertRaisesRegex(ValueError, 'ACTIVATION_JOURNAL_MISMATCH'): self.evidence(binding)
+
+
+class ScenarioBoundaryChecks(unittest.TestCase):
+    def setUp(self):
+        ActivationTransitionChecks.setUp(self)
+        import quarter_scenarios as scenarios
+        self.scenarios = scenarios
+        with sqlite3.connect(self.database) as db:
+            db.execute('DROP TABLE StaffBreakLock')
+            db.execute('CREATE TABLE StaffBreakLock(id INTEGER PRIMARY KEY, updatedAt DATETIME NOT NULL)')
+            db.executemany('INSERT INTO StaffBreakLock VALUES(?,?)', [(1, 1000), (2, 2000)])
+
+    def tearDown(self): self.temp.cleanup()
+
+    def mutate(self, sql):
+        with sqlite3.connect(self.database) as db: db.executescript(sql)
+
+    def snapshot(self, label): return self.scenarios.boundary_snapshot(self.database, self.out, label)
+
+    def load(self, label): return json.loads((self.out / (label + '-boundary.json')).read_text())
+
+    def ordered(self):
+        self.snapshot('post-acknowledgement')
+        def read():
+            self.assertTrue((self.out / 'pre-nieves-read-boundary.json').exists())
+            self.assertFalse((self.out / 'post-nieves-boundary.json').exists())
+            self.mutate('UPDATE StaffBreakLock SET updatedAt=3000 WHERE id=2')
+        return self.scenarios.authenticated_boundary(self.database, self.out, read)
+
+    def complete(self):
+        self.ordered(); self.snapshot('recovery-after'); self.snapshot('return-before'); self.snapshot('return-after')
+        names, _ = self.scenarios.boundary_contract('normal-r0-q1-r0-q1')
+        return {'scenario': 'normal-r0-q1-r0-q1', 'boundaryEvidence': {n + '-boundary.json': self.guard.file_hash(self.out / (n + '-boundary.json')) for n in names}}
+
+    def test_final_read_precedes_strict_baseline_and_retains_safe_auth_delta(self):
+        baseline = self.ordered(); after = self.snapshot('recovery-after')
+        self.scenarios.validate_boundary_pair(baseline, after)
+        before = self.load('pre-nieves-read')
+        self.assertEqual(before['lockRows']['values'][1][1], ['integer', '2000'])
+        self.assertEqual(baseline['lockRows']['values'][1][1], ['integer', '3000'])
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:tables'):
+            self.scenarios.validate_boundary_pair(before, after)
+        self.assertEqual(len(after['guard']['tables']), 26)
+
+    def test_lock_mutation_after_final_baseline_refuses_with_raw_rows(self):
+        before = self.ordered(); self.mutate('UPDATE StaffBreakLock SET updatedAt=4000 WHERE id=2')
+        after = self.snapshot('recovery-after')
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:tables'):
+            self.scenarios.validate_boundary_pair(before, after)
+        self.assertEqual(self.load('recovery-after')['lockRows']['values'][1][1], ['integer', '4000'])
+
+    def test_unrelated_mutation_after_final_baseline_refuses(self):
+        before = self.ordered(); self.mutate("UPDATE Manager SET name='changed'")
+        after = self.snapshot('recovery-after')
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:tables'):
+            self.scenarios.validate_boundary_pair(before, after)
+
+    def test_acknowledged_receipt_removal_refuses(self):
+        self.mutate("INSERT INTO PaintCommandReceipt VALUES('m','ack',?, 'synthetic-epoch',1,2,'{}',1000)".replace('?', "'" + 'a' * 64 + "'"))
+        before = self.ordered(); self.mutate('DELETE FROM PaintCommandReceipt')
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:tables'):
+            self.scenarios.validate_boundary_pair(before, self.snapshot('recovery-after'))
+
+    def test_auth_action_exception_still_retains_after_rows(self):
+        def fail():
+            self.mutate('UPDATE StaffBreakLock SET updatedAt=3000 WHERE id=2')
+            raise ValueError('READ_FAILED')
+        with self.assertRaisesRegex(ValueError, 'READ_FAILED'):
+            self.scenarios.authenticated_boundary(self.database, self.out, fail)
+        self.assertEqual(self.load('post-nieves')['lockRows']['values'][1][1], ['integer', '3000'])
+
+    def test_malformed_lock_failure_is_saved_before_validation(self):
+        before = self.ordered(); self.mutate("UPDATE StaffBreakLock SET updatedAt='bad' WHERE id=2")
+        after = self.snapshot('recovery-after')
+        with self.assertRaisesRegex(ValueError, 'BOUNDARY_LOCK_ROWS_INVALID'):
+            self.scenarios.validate_boundary_pair(before, after)
+        self.assertEqual(self.load('recovery-after')['lockRows']['values'][1][1], ['text', 'bad'])
+
+    def test_guard_failure_is_saved(self):
+        self.mutate('DROP TABLE StaffBreakLock'); value = self.snapshot('recovery-after')
+        self.assertEqual(set(value['errors']), {'guard', 'lockRows'})
+        with self.assertRaisesRegex(ValueError, 'BOUNDARY_SNAPSHOT_INVALID'): self.scenarios.validate_boundary_snapshot(value)
+
+    def test_existing_evidence_cannot_be_rebaselined(self):
+        original = self.snapshot('post-nieves'); self.mutate('UPDATE StaffBreakLock SET updatedAt=4000')
+        with self.assertRaisesRegex(ValueError, 'BOUNDARY_EVIDENCE_EXISTS'): self.snapshot('post-nieves')
+        self.assertEqual(self.load('post-nieves'), original)
+
+    def test_same_database_identity_and_order_required(self):
+        before = self.ordered(); original = self.snapshot('recovery-after')
+        for key, value in (('databasePath', 'replacement.db'), ('startedAtMs', 1)):
+            after = copy.deepcopy(original); after[key] = value
+            with self.assertRaises(ValueError): self.scenarios.validate_boundary_pair(before, after)
+        after = copy.deepcopy(original); after['guard']['database']['inode'] += 1; after['rowDatabase']['inode'] += 1
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:database'):
+            self.scenarios.validate_boundary_pair(before, after)
+
+    def test_completion_binds_both_crossings_and_auth_diagnostics(self):
+        completion = self.complete()
+        bound = self.scenarios.validate_scenario_boundaries(self.out, completion, self.fixture)
+        self.assertEqual(len(bound), 6)
+        for name in list(completion['boundaryEvidence']):
+            changed = copy.deepcopy(completion); del changed['boundaryEvidence'][name]
+            with self.assertRaisesRegex(ValueError, 'SCENARIO_BOUNDARY_EVIDENCE_REQUIRED'):
+                self.scenarios.validate_scenario_boundaries(self.out, changed, self.fixture)
+
+    def test_changed_and_rehashed_invalid_boundary_refuse(self):
+        completion = self.complete(); path = self.out / 'recovery-after-boundary.json'; value = json.loads(path.read_text())
+        value['lockRows']['values'][1][1] = ['integer', '9999']; value['guard']['tables']['StaffBreakLock']['sha256'] = self.guard.hash_value(value['lockRows']['values'])
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'SCENARIO_BOUNDARY_CHANGED'):
+            self.scenarios.validate_scenario_boundaries(self.out, completion, self.fixture)
+        completion['boundaryEvidence'][path.name] = self.guard.file_hash(path)
+        with self.assertRaisesRegex(ValueError, 'QUARTER_PRESERVATION_CHANGED:tables'):
+            self.scenarios.validate_scenario_boundaries(self.out, completion, self.fixture)
+
+    def test_aggregate_refuses_wrong_fixture_identity(self):
+        completion = self.complete(); self.fixture['identity'][1] += 1
+        with self.assertRaisesRegex(ValueError, 'SCENARIO_BOUNDARY_DATABASE_MISMATCH'):
+            self.scenarios.validate_scenario_boundaries(self.out, completion, self.fixture)
+
+    def test_all_six_cases_require_strict_boundary_pairs(self):
+        expected_counts = [2, 1, 1, 1, 1, 1]
+        for scenario, count in zip(rehearse.SCENARIOS[:6], expected_counts):
+            labels, pairs = self.scenarios.boundary_contract(scenario)
+            self.assertEqual(len(pairs), count)
+            self.assertTrue(all(a in labels and b in labels for a, b in pairs))
 
 
 if __name__ == '__main__':

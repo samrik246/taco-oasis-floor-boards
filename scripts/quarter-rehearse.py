@@ -137,6 +137,8 @@ def verify_q1(root, database, value, packet):
     for row in cases:
         scenario = row['scenario']; folder = root / 'evidence/scenarios' / scenario
         if row['controllerOutcome'] != expected[scenario] or row.get('actualBundleCrossings') != ('not-applicable-preflight-refused' if scenario == 'incompatible-target-never-starts' else True): raise ValueError('Q1_CASE_INCOMPLETE:' + scenario)
+        from quarter_scenarios import validate_scenario_boundaries
+        evidence.update(validate_scenario_boundaries(folder, row, value))
         if scenario != 'incompatible-target-never-starts':
             seed = json.loads((folder / 'real-bundle-seed.json').read_text())
             if seed.get('role') != 'QP_UI_Q1' or seed.get('sourceSha') != q1['sourceSha'] or seed.get('measurement', {}).get('artifactSha256') != value['candidate']['manifestSha256'] or not seed.get('receipt') or not seed.get('newerIntentId'): raise ValueError('Q1_LOADED_SEED_REQUIRED')

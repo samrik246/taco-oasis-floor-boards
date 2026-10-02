@@ -6,6 +6,9 @@ import {faultDraftIndexes,rawDraftDatabase} from "./fixtures/draft-storage-fault
 import {PrismaClient} from "@prisma/client";
 import {join} from "node:path";
 import {randomUUID} from "node:crypto";
+import {execFileSync} from "node:child_process";
+import {mkdirSync,readFileSync} from "node:fs";
+import {hashManagerCode} from "../src/lib/managers/codes";
 import type {PublicDayV2} from "../src/lib/quarter/client/day";
 import {fromZonedTime} from "date-fns-tz";
 import {safeDatabasePath} from "../scripts/test-db-path.cjs";
@@ -52,6 +55,42 @@ async function openEditor(page:Page){
   await page.getByTestId("compact-date").selectOption(date);await page.getByTestId("compact-view").selectOption("timeline");
   await expect(page.getByTestId("quarter-hour-editor")).toBeVisible();
 }
+test("qualification read helper authenticates before the strict preservation baseline",async({},testInfo)=>{
+  const root=process.env.FLOOR_BOARDS_TEST_ROOT!,folder=join(root,"qualification-read-boundary");mkdirSync(folder);
+  const manager="boundary-rehearsal-owner";
+  await db.manager.create({data:{id:manager,name:"Synthetic boundary",codeHash:hashManagerCode("quarter-rehearsal-owner"),active:true}});
+  await db.staffBreakLock.upsert({where:{id:2},create:{id:2,updatedAt:new Date(1000)},update:{updatedAt:new Date(1000)}});
+  try{
+    // This invokes the unchanged client, its real POST /api/managers, and the
+    // actual signInWithCode/reservePasscodeAttempt path against the built server.
+    execFileSync("python3",["-c",`
+import json, subprocess, sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / 'scripts'))
+from quarter_scenarios import authenticated_boundary, boundary_snapshot, validate_boundary_pair
+from quarter_artifacts import atomic_json
+folder, database, date, shift = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+def read():
+    subprocess.run(['node','node_modules/tsx/dist/cli.mjs','scripts/quarter-rehearsal-client.ts','http://127.0.0.1:3100',date,shift,str(folder/'read.json'),'read'], check=True, capture_output=True)
+baseline = authenticated_boundary(database, folder, read)
+after = boundary_snapshot(database, folder, 'recovery-after')
+validate_boundary_pair(baseline, after)
+old = json.loads((folder/'pre-nieves-read-boundary.json').read_text())
+assert old['lockRows']['values'] != baseline['lockRows']['values']
+assert [t for t in old['guard']['tables'] if old['guard']['tables'][t] != baseline['guard']['tables'][t]] == ['StaffBreakLock']
+try: validate_boundary_pair(old, after)
+except ValueError as error:
+    assert str(error) == 'QUARTER_PRESERVATION_CHANGED:tables'
+else: raise AssertionError('stale baseline accepted')
+atomic_json(folder/'result.json', {'actualReadHelper':True,'staleBaselineRefused':True,'finalBaselinePreserved':True,'before':old['lockRows'],'after':baseline['lockRows']})
+`,folder,join(root,"e2e.db"),date,person],{env:{...process.env,PYTHONDONTWRITEBYTECODE:"1"},stdio:"pipe",timeout:30000});
+    const proof=JSON.parse(readFileSync(join(folder,"result.json"),"utf8"));
+    expect(proof).toMatchObject({actualReadHelper:true,staleBaselineRefused:true,finalBaselinePreserved:true});
+    for(const name of ["result.json","pre-nieves-read-boundary.json","post-nieves-boundary.json","recovery-after-boundary.json"])
+      await testInfo.attach(name,{path:join(folder,name),contentType:"application/json"});
+  }finally{await db.manager.delete({where:{id:manager}});}
+});
+
 test("ordinary HTTP real save loses response, then reload reconciles original receipt without duplicate mutation",async({page})=>{
   await page.addInitScript(()=>{
     Object.defineProperty(crypto,"randomUUID",{value:undefined});Object.defineProperty(crypto,"subtle",{value:undefined});Object.defineProperty(window,"BroadcastChannel",{value:undefined});
