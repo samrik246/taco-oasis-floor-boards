@@ -8,17 +8,28 @@ export async function settledFrame(page: Page) {
 
 /** Scroll the document, preserving horizontal grid position and the real toolbar. */
 export async function belowToolbar(page: Page, target: Locator) {
-  const scroll = await target.evaluate(el => {
+  const measure = () => target.evaluate(el => {
     const toolbar = document.querySelector('[data-testid="floor-board"] > header')!;
-    const wanted = scrollY + el.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom - 16;
-    const y = Math.max(0, Math.min(wanted, document.documentElement.scrollHeight - innerHeight));
-    return { y, delta: y - scrollY };
+    const top = el.getBoundingClientRect().top, toolbarBottom = toolbar.getBoundingClientRect().bottom;
+    const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+    const y = Math.max(0, Math.min(scrollY + top - toolbarBottom - 16, max));
+    return { y, delta: y - scrollY, scrollY, top, toolbarBottom, max };
   });
-  // Real wheel input also exercises the compositor path used by attended scrolling.
+  const observations = [];
+  // Layout may settle after a save/locator capture. Recompute from its current
+  // rectangle instead of demanding a scroll offset measured before that change.
   await page.mouse.move(8, 400);
-  await page.mouse.wheel(0, scroll.delta);
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeCloseTo(scroll.y, 0);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await settledFrame(page);
+    const scroll = await measure(); observations.push(scroll);
+    if (Math.abs(scroll.delta) < 1) break;
+    await page.mouse.wheel(0, scroll.delta);
+    await page.screenshot({ fullPage: false });
+  }
   await settledFrame(page);
+  const final = await measure(); observations.push(final);
+  await page.evaluate(rows => Reflect.set(window, "__q1ScrollEvidence", rows), observations);
+  expect(Math.abs(final.delta), JSON.stringify(observations)).toBeLessThan(1);
 }
 
 export async function visibleText(target: Locator) {
@@ -75,7 +86,8 @@ export async function viewportEvidence(page: Page, path: string, targets: Record
     pixels.push(createHash("sha256").update(bytes).digest("hex"));
     if (attempt > 0 && pixels.at(-1) === pixels.at(-2) && JSON.stringify(before) === JSON.stringify(after)) break;
   }
-  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), pixels, initial, before, after }, null, 2));
+  const positioning = await page.evaluate(() => Reflect.get(window, "__q1ScrollEvidence") ?? []);
+  writeFileSync(`${path}.json`, JSON.stringify({ viewport: page.viewportSize(), positioning, pixels, initial, before, after }, null, 2));
   expect(pixels.at(-1), JSON.stringify(pixels)).toBe(pixels.at(-2));
   for (const key of Object.keys(before)) {
     expect(after[key]).toEqual(before[key]);
