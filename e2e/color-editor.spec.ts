@@ -258,10 +258,12 @@ test.describe("condensed staff board and manager color editor", () => {
   });
 
   test("navigation, manual lock, idle and reload recover the same manager's draft", async ({ page }) => {
-    // Control the short idle timer; fixture/API work must not consume its budget.
+    // Let initial hydration finish before freezing timers for the idle assertion.
+    // A paused clock can otherwise leave Next's Suspense fallback on screen.
     await page.clock.install({time:new Date()});
-    await page.clock.pauseAt(new Date(Date.now()+100));
     await page.goto("/");
+    await expect(page.getByTestId("floor-board")).toBeVisible();
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 100));
     await loadSample(page);
     await stageOpenHour(page);
     await page.getByTestId("compact-view").selectOption("schedule");
@@ -283,7 +285,10 @@ test.describe("condensed staff board and manager color editor", () => {
     await unlock(page);
     await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-pending")).toContainText(/1 cambio pendiente|1 pending change/i);
+    await page.clock.resume();
     await page.reload();
+    await expect(page.getByTestId("floor-board")).toBeVisible();
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 100));
     await unlock(page);
     await page.getByTestId("compact-date").selectOption("2026-09-20");
     await expect(page.getByTestId("paint-restored")).toBeVisible();
