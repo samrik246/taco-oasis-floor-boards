@@ -627,24 +627,29 @@ function SeatsTab({
   const [day, setDay] = useState<DayBoardDto|null>(null);
   const [shiftId, setShiftId] = useState("");
   const [stationId, setStationId] = useState("");
-
-  const load = useCallback(async () => {
-    try{const result=await fetchCompatibleBoard(board,date,auth["x-manager-session"]);
-      if(!result.day){setDay(null);onError("DAY_UNAVAILABLE");return;}
-      setDay(result.day);setShiftId(result.day.shifts[0]?.id??"");setStationId(result.day.stations[0]?.id??"");
-    }catch{setDay(null);onError("DAY_UNAVAILABLE");}
-  }, [board,date,onError,auth]);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const result = await fetchCompatibleBoard(board, date, auth["x-manager-session"]);
+        if (cancelled) return;
+        if (!result.day) { setDay(null); onError("DAY_UNAVAILABLE"); return; }
+        setDay(result.day); setShiftId(result.day.shifts[0]?.id ?? ""); setStationId(result.day.stations[0]?.id ?? "");
+      } catch { if (!cancelled) { setDay(null); onError("DAY_UNAVAILABLE"); } }
+    }
     void load();
-  }, [load]);
+    return () => { cancelled = true; };
+  }, [board, date, onError, auth, reload]);
 
   async function seat() {
+    if (!day || day.board !== board || day.date !== date) { onError("DAY_UNAVAILABLE"); return; }
     if(day?.quarter){
       if(!day.quarterManagerId){onError("MANAGER_REQUIRED");return;}
       try{const result=await saveHourControl({managerId:day.quarterManagerId,board,date},day.quarter,[{shiftId,hour,action:{action:"station",stationId}}],auth["x-manager-session"]);
         if(result.status!=="saved"&&result.status!=="cleanup-pending"){onError(result.code??"SAVE_UNCONFIRMED_REVIEW_RETAINED_DRAFT");return;}
-        onSaved(result.status==="saved"?copy.seated:"Saved; local cleanup pending.");await load();
+        onSaved(result.status==="saved"?copy.seated:"Saved; local cleanup pending.");setReload(value=>value+1);
       }catch(error){onError(error instanceof Error?error.message:"DRAFT_REQUIRES_REVIEW");}return;
     }
 
@@ -658,7 +663,7 @@ function SeatsTab({
       return;
     }
     onSaved(copy.seated);
-    await load();
+    setReload(value=>value+1);
   }
 
   return (
@@ -691,7 +696,7 @@ function SeatsTab({
             <option key={station.id} value={station.id}>{station.label}</option>
           ))}
         </select>
-        <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" onClick={() => void seat()} data-testid="seat-save">
+        <button type="button" className="min-h-11 rounded bg-neutral-900 px-4 font-bold text-white" disabled={!day || day.board !== board || day.date !== date} onClick={() => void seat()} data-testid="seat-save">
           {copy.seat}
         </button>
       </div>

@@ -216,8 +216,19 @@ test("active floor whole-shift placement, swap and clear use retained V2 control
 });
 
 test("active back-office seat save and mixed-hour refusal preserve exact intervals",async({page},testInfo)=>{
+ // Force the old default-date response to arrive after the chosen date. It must
+ // not replace the selected day's sources or allow a mismatched-scope save.
+ let releaseDefault=()=>{};
+ const gate=new Promise<void>(resolve=>{releaseDefault=resolve;});page.on("close",releaseDefault);
+ await page.route("**/api/v2/boards/caja/days/2026-09-20",async route=>{const response=await route.fetch();await gate;await route.fulfill({response});});
  const legacy=trackControls(page);await desk(page,"seats");await page.getByTestId("seat-date").fill(date);
  await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
+ const staleFinished=page.waitForResponse(r=>r.url().endsWith("/api/v2/boards/caja/days/2026-09-20/management"));
+ releaseDefault();await staleFinished;
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+ await expect(page.getByTestId("seat-date")).toHaveValue(date);
+ await expect(page.getByTestId("seat-shift").locator(`option[value="${controlShift}"]`)).toHaveCount(1);
+ await page.unroute("**/api/v2/boards/caja/days/2026-09-20");
  await page.getByTestId("seat-shift").selectOption(controlShift);await page.getByTestId("seat-station").selectOption("blue");
  const saved=page.waitForResponse(r=>r.url().endsWith("/api/v2/assignments/paint")&&r.request().method()==="PUT");
  await page.getByTestId("seat-save").click();expect((await saved).status()).toBe(200);
