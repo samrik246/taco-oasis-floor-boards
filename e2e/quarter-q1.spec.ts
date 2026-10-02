@@ -86,6 +86,8 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await page.getByTestId("q1-zoom").click();
   await page.getByTestId(`quarter-cell-${full}-11`).click();
   await expect(page.getByTestId("q1-cell-notice")).toContainText("Mixed hour");
+  const shots = join(process.env.FLOOR_BOARDS_TEST_ROOT!, "q1-grid-screens"); mkdirSync(shots, { recursive: true });
+  await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-mixed-refusal.png`) });
   expect(await page.getByTestId("quarter-private-preview").count()).toBe(0);
   await page.getByTestId("q1-cell-notice").getByRole("button", { name: "Edit quarters" }).click();
   await expect(page.getByTestId("q1-grid-scroll")).toHaveAttribute("data-zoom", "quarter");
@@ -105,19 +107,93 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await page.getByRole("button", { name: "Erase", exact: true }).click(); await page.getByTestId(`quarter-cell-${full}-11-15`).click(); await save(page);
   const erased = (await day(page, board)).hours.find(h => h.shiftId === full && h.hourStart === hour.hourStart)!;
   expect(erased.intervals.filter(i => i.state === "assigned").every(i => i.startAt >= fromZonedTime(`${date}T11:30:00`, "America/Chicago").toISOString())).toBe(true);
-  const root = process.env.FLOOR_BOARDS_TEST_ROOT!, shots = join(root, "q1-grid-screens"); mkdirSync(shots, { recursive: true });
+  // Synthetic Chromium touch is software coverage; it does not close either physical-tablet row.
+  const cdp = await page.context().newCDPSession(page);
+  const touchCell = page.getByTestId(`quarter-cell-${full}-12-0`);
+  await touchCell.scrollIntoViewIfNeeded(); const touchBox = (await touchCell.boundingBox())!;
+  const scrollBefore = await page.getByTestId("q1-grid-scroll").evaluate(el => el.scrollLeft);
+  const x = touchBox.x + touchBox.width / 2, y = touchBox.y + 25;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+  for (const delta of [30, 60, 100]) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - delta, y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect.poll(() => page.getByTestId("q1-grid-scroll").evaluate(el => el.scrollLeft)).toBeGreaterThan(scrollBefore);
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(0);
+  await page.getByTestId(`quarter-palette-q1-${board}-b`).click();
+  await touchCell.scrollIntoViewIfNeeded();
+  const tap = (await touchCell.boundingBox())!;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: tap.x + 3, y: tap.y + 25 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1); await save(page); await cdp.detach();
+  await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-saved-quarter.png`) });
+  // Read-only visual fixture extends the genuine response with dense colors and saved
+  // BREAK/cover spans. It cannot substitute for the real write/receipt assertions above.
+  const dense = structuredClone(await day(page, board)), source = dense.sources.find(s => s.shiftId === full)!;
+  const at = (time: string) => fromZonedTime(`${date}T${time}:00`, "America/Chicago").toISOString();
+  const colors = [...new Map(dense.stations.map(s => [s.color, s])).values()];
+  const stationView = (s: typeof colors[number]) => ({ id: s.id, label: s.label, color: s.color, board });
+  dense.coverDisplay.tracks = [{ shiftId: full, employeeId: full, firstName: "Q1 Full", lastName: "Synthetic", board, sourcePosition: source.sourcePosition,
+    startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:20"), kind: "break", station: stationView(colors[0]), fromStation: null, auto: false }] },
+  { shiftId: `q1-${board}-saved-cover`, employeeId: `q1-${board}-saved-cover`, firstName: "Q1 Cover", lastName: "Synthetic", board: "other", sourcePosition: "Office",
+    startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:20"), kind: "cover", station: stationView(colors[0]), fromStation: null, auto: false }] }];
+  for (const [i, color] of colors.entries()) {
+    const id = `q1-${board}-color-${i}`;
+    dense.employees.push({ id, firstName: `Color ${color.color}`, lastName: "Synthetic" });
+    dense.sources.push({ ...source, shiftId: id, employeeId: id });
+    dense.hours.push(...dense.hours.filter(h => h.shiftId === full).map(h => ({ ...h, shiftId: id })));
+    dense.coverDisplay.tracks.push({ shiftId: id, employeeId: id, firstName: `Color ${color.color}`, lastName: "Synthetic", board, sourcePosition: source.sourcePosition,
+      startAt: source.startAt, endAt: source.endAt, segments: [{ startAt: at("11:05"), endAt: at("11:55"), kind: "work", station: stationView(color), fromStation: null, auto: false }] });
+  }
+  let visualWrites = 0;
+  page.on("request", r => { if (r.method() === "PUT" && r.url().endsWith("/api/v2/assignments/paint")) visualWrites++; });
+  await page.route(`**/api/v2/boards/${board}/days/${date}`, route => route.fulfill({ json: dense }));
+  await page.getByTestId("refresh-day").click();
+  await expect(page.getByTestId(`q1-row-q1-${board}-color-0`)).toBeVisible();
+  const coverRow = page.getByTestId(`cover-row-q1-${board}-saved-cover`);
+  const coverIdentity = await coverRow.locator('[data-kind="cover"]').evaluateAll(elements => elements.map(el => [el.getAttribute("data-start"), el.getAttribute("data-end")]));
+  await page.getByTestId(`quarter-cell-${full}-11-0`).click();
+  await expect(page.getByTestId("q1-cell-notice")).toContainText("saved BREAK");
+  await page.getByTestId("q1-cell-notice").getByRole("button", { name: "Close", exact: true }).click();
   const observations = [];
   for (const locale of ["en", "es"]) for (const theme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: theme });
-    await page.evaluate(locale => { localStorage.setItem("taco-oasis-locale-v1", locale); window.dispatchEvent(new Event("taco-locale")); }, locale);
+    await page.getByTestId("toolbar-more").click();
+    await page.getByTestId(`locale-toggle-${locale}`).click();
+    await page.getByTestId("toolbar-more").click();
+    await expect(page.getByTestId("floor-board")).toHaveAttribute("data-locale", locale);
+    await expect(page.getByTestId("q1-headcount-row")).toContainText(locale === "es" ? "Personal programado" : "Scheduled workers");
     for (const view of ["quarter", "hour"]) {
       if (await page.getByTestId("q1-grid-scroll").getAttribute("data-zoom") !== view) await page.getByTestId("q1-zoom").click();
       await page.getByTestId("q1-hour-header-11").getByRole("button").click();
       await page.getByTestId("q1-grid-scroll").screenshot({ path: join(shots, `${board}-${locale}-${theme}-${view}.png`) });
       const alignment = await page.getByTestId("q1-hour-header-11").boundingBox(), cell = await page.getByTestId(`q1-hour-cell-${full}-11`).boundingBox();
       expect(alignment!.x).toBeCloseTo(cell!.x, 1); expect(alignment!.width).toBeCloseTo(cell!.width, 1);
+      const breakWidth = await page.getByTestId(`q1-hour-cell-${full}-11`).locator('[data-kind="break"]').evaluateAll(elements => elements.reduce((n, el) => n + el.getBoundingClientRect().width, 0));
+      expect(breakWidth / cell!.width).toBeCloseTo(15 / 60, 2);
+      const cover = await coverRow.locator('[data-hour="11"]').boundingBox();
+      expect(Math.abs(cover!.x - cell!.x)).toBeLessThan(2); expect(Math.abs(cover!.width - cell!.width)).toBeLessThan(2);
+      await expect(coverRow).toContainText("Q1 Cover Synthetic");
+      await expect(page.getByTestId("q1-count-11-0").locator("strong")).toHaveText(String(colors.length + 2));
+      const lines = await page.getByTestId(`q1-hour-cell-${full}-11`).evaluate(el => ({ boundary: getComputedStyle(el).borderRightStyle,
+        guides: [...el.querySelectorAll('span[aria-hidden="true"]')].map(g => ({ pointer: getComputedStyle(g).pointerEvents, line: getComputedStyle(g.firstElementChild!).borderLeftStyle })) }));
+      expect(lines.boundary).toBe("dashed");
+      if (view === "quarter") { expect(lines.guides).toHaveLength(1); expect(lines.guides[0]).toEqual({ pointer: "none", line: "dashed" }); }
       observations.push({ locale, theme, view, header: alignment, cell, rowHeight: await page.getByTestId(`q1-row-${full}`).evaluate(e => e.getBoundingClientRect().height) });
+      for (const fraction of [0, 0.37, 1]) {
+        const geometry = await page.getByTestId("q1-grid-scroll").evaluate((el, fraction) => {
+          el.scrollLeft = (el.scrollWidth - el.clientWidth) * fraction;
+          const visible = [...el.querySelectorAll('[data-testid^="q1-hour-header-"]')].filter(h => h.getBoundingClientRect().right > el.getBoundingClientRect().left + 176 && h.getBoundingClientRect().left < el.getBoundingClientRect().right);
+          return { fraction, left: el.scrollLeft, max: el.scrollWidth - el.clientWidth, alignment: visible.map(h => {
+            const hour = h.getAttribute("data-testid")!.split("-").at(-1), cell = el.querySelector(`[data-testid$="-full-${hour}"]`)!, a = h.getBoundingClientRect(), b = cell.getBoundingClientRect();
+            return { hour, dx: a.x - b.x, dw: a.width - b.width };
+          }) };
+        }, fraction);
+        expect(geometry.alignment.length).toBeGreaterThan(0);
+        for (const { dx, dw } of geometry.alignment) { expect(Math.abs(dx)).toBeLessThan(1); expect(Math.abs(dw)).toBeLessThan(1); }
+        expect(geometry.left).toBeCloseTo(geometry.max * fraction, 0);
+      }
     }
   }
+  expect(visualWrites).toBe(0);
+  expect(await coverRow.locator('[data-kind="cover"]').evaluateAll(elements => elements.map(el => [el.getAttribute("data-start"), el.getAttribute("data-end")]))).toEqual(coverIdentity);
   writeFileSync(join(shots, `${board}-geometry.json`), JSON.stringify({ overview, expanded, height, observations }, null, 2));
 });
