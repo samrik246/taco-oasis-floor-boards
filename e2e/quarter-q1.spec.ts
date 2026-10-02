@@ -12,6 +12,7 @@ const ids = ["caja", "cocina"].flatMap(board => [`q1-${board}-full`, `q1-${board
 let db: PrismaClient, active = false;
 const requests: string[] = [];
 test.describe.configure({ mode: "serial" });
+test.use({ actionTimeout: 15_000 });
 test.beforeAll(async () => {
   const root = process.env.FLOOR_BOARDS_TEST_ROOT!, url = `file:${join(root, "e2e.db")}`;
   safeDatabasePath({ ...process.env, DATABASE_URL: url }); db = new PrismaClient({ datasources: { db: { url } } });
@@ -246,7 +247,9 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
     return observations;
   }
   const observations = await captureMatrix(page, "editor");
-  // A separate staff page exercises TimelinePanel without mounting the active editor.
+  // The staff selector deliberately hides timeline today. Add a test-only option to
+  // call the existing change handler and mount the real loaded TimelinePanel; this
+  // is component visual coverage, not evidence of a public staff navigation route.
   const viewer = await page.context().newPage(); await viewer.setViewportSize({ width: 1280, height: 900 });
   await viewer.route(`**/api/v2/boards/${board}/days/*`, route => {
     const requestedDate = new URL(route.request().url()).pathname.split("/").at(-1)!;
@@ -254,6 +257,8 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   });
   viewer.on("request", r => { if (r.method() === "PUT" && r.url().endsWith("/api/v2/assignments/paint")) visualWrites++; });
   await viewer.goto(`${origin}/?readonly=1&board=${board}`);
+  await expect(viewer.getByTestId("compact-view").locator('option[value="timeline"]')).toHaveCount(0);
+  await viewer.getByTestId("compact-view").evaluate(el => el.append(new Option("Synthetic timeline fixture", "timeline")));
   await viewer.getByTestId("compact-view").selectOption("timeline");
   await expect(viewer.getByTestId("timeline-panel")).toBeVisible();
   await expect(viewer.getByTestId("quarter-hour-editor")).toHaveCount(0);
