@@ -8,9 +8,10 @@ import { ALL_STATIONS } from "@/lib/stations";
 import { chicagoHourStart } from "@/lib/hour-grid";
 import { previewImport, commitImport } from "@/lib/import/persist-import";
 import { NIEVES_POSITION } from "@/lib/import/nieves";
-import { migrateQuarterStorage, CAPABILITY_SHA256 } from "@/lib/quarter/schema";
+import { migrateQuarterStorage, CAPABILITY_SHA256, digest } from "@/lib/quarter/schema";
 import { withReleaseLease } from "@/lib/quarter/lease";
-import { assignedIntervals, resolvePaintWorld } from "@/lib/quarter/world";
+import { assignedIntervals, resolvePaintWorld, sourceSnapshot } from "@/lib/quarter/world";
+import { removeRestoreV2 } from "@/lib/quarter/removals";
 import { paintV2 } from "@/lib/quarter/transaction";
 import type { ParseResult } from "@/lib/parser/schedule-parser";
 
@@ -171,7 +172,14 @@ describe.each(["prepared", "active"])("Nieves %s importer", phase => {
     expect(await db.staffBreak.findUnique({ where: { id: booking.id } })).toEqual(booking);
     expect((await signature()).filter(s => s[0] === a.id || s[0] === b.id)).toEqual(before);
     await db.staffBreak.delete({ where: { id: booking.id } });
-    await db.shift.update({ where: { id: a.id }, data: { boardRemoved: true } });
+    if (phase === "active") {
+      const w = await world(), current = w.sources.find(s => s.id === a.id)!;
+      await removeRestoreV2({ protocol: 2, requestId: randomUUID(), capabilitySha256: CAPABILITY_SHA256,
+        operation: "remove", board: "caja", date, shiftId: a.id, reason: "Synthetic manager removal",
+        expected: { databaseEpoch: w.state!.databaseEpoch, worldRevision: w.revision!,
+          sourceSha256: digest(sourceSnapshot(current)), removalRevision: 0 } },
+      { id: "synthetic-manager", name: "Synthetic" }, now, db);
+    } else await db.shift.update({ where: { id: a.id }, data: { boardRemoved: true } });
     await load([...rows, { id: "Celia", start: 240, end: 360 }]);
     expect((await db.shift.findUnique({ where: { id: a.id } }))!.boardRemoved).toBe(true);
     expect((await work()).some(s => s.shiftId === a.id)).toBe(false);

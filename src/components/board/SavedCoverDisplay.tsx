@@ -86,7 +86,7 @@ export function SavedCoverRows({ day, locale, hours, leadingColumns = 1, include
       data-testid={`cover-detail-${track.shiftId}`} aria-live="polite">
       <strong>{track.firstName} {track.lastName}</strong>
       {track.segments.map((s, index) => <p key={index} data-start={s.startAt} data-end={s.endAt}>
-        {s.kind === "break" ? "BREAK" : `${locale === "es" ? "Cubre" : "Cover"} · ${s.station ? `${boardDisplayName(locale, s.station.board === "caja" ? "caja" : "cocina")} · ${displayStationLabel(locale, s.station)}` : locale === "es" ? "REFUERZO" : "BACKUP"}`} · {intervalLabel(s.startAt, s.endAt)}
+        {s.kind === "break" ? "BREAK" : `${s.kind === "cover" ? locale === "es" ? "Cubre · " : "Cover · " : ""}${s.station ? `${boardDisplayName(locale, s.station.board === "caja" ? "caja" : "cocina")} · ${displayStationLabel(locale, s.station)}` : s.kind === "cover" ? locale === "es" ? "REFUERZO" : "BACKUP" : locale === "es" ? "Sin pintar" : "Unpainted"}`} · {intervalLabel(s.startAt, s.endAt)}
       </p>)}
       <button type="button" className="mt-2 min-h-11 rounded border-2 border-neutral-700 px-3 font-bold" onClick={() => setInspected(null)}>{locale === "es" ? "Cerrar" : "Close"}</button>
     </div>

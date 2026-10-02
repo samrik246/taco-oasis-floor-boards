@@ -5,11 +5,11 @@ import { listBreakCovers, type BreakCover } from "@/lib/breaks/covers";
 import { saveBreak } from "@/lib/breaks/rules";
 import { MANDATORY_STATIONS_BY_BOARD } from "@/lib/mandatory";
 import { buildDaySlices, type SlicePaint, type SliceShift } from "@/lib/slices/day-slices";
-import { chicagoDateOffset } from "@/lib/date-math";
 import { chicagoDateTime } from "@/lib/time";
 
 const date = "2035-08-06";
-const coverDate = chicagoDateOffset("2036-02-02", Math.floor(Date.now() % 500));
+// This suite shares its database; random dates can collide with another fixture.
+const coverDate = "2045-08-06";
 const prisma = new PrismaClient();
 const stamp = `b4pr3c-${Date.now()}`;
 const stars = [...MANDATORY_STATIONS_BY_BOARD.cocina];
@@ -178,6 +178,7 @@ describe("B4 PR 3 cover list", () => {
   });
 
   it("one tap stores both Shuffle moves, and a name off the list is refused", async () => {
+    expect(await prisma.shift.count({ where: { date: coverDate } })).toBe(0);
     const people = await Promise.all(stars.map((stationId, index) => prisma.employee.create({
       data: { externalId: `${stamp}-${stationId}`, firstName: index === 1 ? "Gus" : `Seat${index}`, lastName: "Moss" },
     })));
