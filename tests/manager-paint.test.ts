@@ -292,21 +292,37 @@ describe("manager color paint transaction", () => {
   });
 
   it("refuses an incomplete family as a conflict without saving another edited hour", async () => {
-    if (!await prisma.station.findUnique({ where: { id: "green1" } })) createdFamilyStations.add("green1");
-    if (!await prisma.station.findUnique({ where: { id: "green2" } })) createdFamilyStations.add("green2");
-    await prisma.station.upsert({ where: { id: "green1" },
-      create: { id: "green1", board: "caja", label: "Green 1", color: "green", maxConcurrent: 1, sortOrder: 1 },
-      update: { board: "caja", maxConcurrent: 1 },
+    const originals = await prisma.station.findMany({
+      where: { id: { in: ["green1", "green2"] } },
+      select: { id: true, board: true, maxConcurrent: true },
+      orderBy: { id: "asc" },
     });
-    await prisma.station.upsert({ where: { id: "green2" },
-      create: { id: "green2", board: "cocina", label: "Green 2 / Jolt", color: "lime", maxConcurrent: 1, sortOrder: 2 },
-      update: { board: "cocina", maxConcurrent: 1 },
-    });
-    const result = await paintAssignments({ board: "caja", date, edits: [
-      edit(7, stationA), { ...edit(8, null), family: "green" },
-    ] }, chicagoDateTime(date, "6:00 am"));
-    expect(result).toEqual({ ok: false, status: 409, code: "BOARD_CHANGED",
-      message: "This position family changed. Refresh the board and review the painted hours." });
-    expect(await prisma.assignment.count({ where: { shiftId } })).toBe(0);
+    for (const id of ["green1", "green2"]) {
+      if (!originals.some(row => row.id === id)) createdFamilyStations.add(id);
+    }
+    try {
+      await prisma.station.upsert({ where: { id: "green1" },
+        create: { id: "green1", board: "caja", label: "Green 1", color: "green", maxConcurrent: 1, sortOrder: 1 },
+        update: { board: "caja", maxConcurrent: 1 },
+      });
+      await prisma.station.upsert({ where: { id: "green2" },
+        create: { id: "green2", board: "cocina", label: "Green 2 / Jolt", color: "lime", maxConcurrent: 1, sortOrder: 2 },
+        update: { board: "cocina", maxConcurrent: 1 },
+      });
+      const result = await paintAssignments({ board: "caja", date, edits: [
+        edit(7, stationA), { ...edit(8, null), family: "green" },
+      ] }, chicagoDateTime(date, "6:00 am"));
+      expect(result).toEqual({ ok: false, status: 409, code: "BOARD_CHANGED",
+        message: "This position family changed. Refresh the board and review the painted hours." });
+      expect(await prisma.assignment.count({ where: { shiftId } })).toBe(0);
+    } finally {
+      // Other files share this synthetic database; restore even on assertion failure.
+      for (const { id, ...data } of originals) await prisma.station.update({ where: { id }, data });
+    }
+    expect(await prisma.station.findMany({
+      where: { id: { in: originals.map(row => row.id) } },
+      select: { id: true, board: true, maxConcurrent: true },
+      orderBy: { id: "asc" },
+    })).toEqual(originals);
   });
 });

@@ -58,7 +58,7 @@ async function openEditor(page:Page){
 test("qualification read helper authenticates before the strict preservation baseline",async({},testInfo)=>{
   const root=process.env.FLOOR_BOARDS_TEST_ROOT!,folder=join(root,"qualification-read-boundary");mkdirSync(folder);
   const manager="boundary-rehearsal-owner";
-  await db.manager.create({data:{id:manager,name:"Synthetic boundary",codeHash:hashManagerCode("quarter-rehearsal-owner"),active:true}});
+  await db.manager.create({data:{id:manager,name:"Synthetic boundary",role:"owner",codeHash:hashManagerCode("quarter-rehearsal-owner"),active:true}});
   await db.staffBreakLock.upsert({where:{id:2},create:{id:2,updatedAt:new Date(1000)},update:{updatedAt:new Date(1000)}});
   try{
     // This invokes the unchanged client, its real POST /api/managers, and the
@@ -71,7 +71,9 @@ from quarter_scenarios import authenticated_boundary, boundary_snapshot, validat
 from quarter_artifacts import atomic_json
 folder, database, date, shift = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 def read():
-    subprocess.run(['node','node_modules/tsx/dist/cli.mjs','scripts/quarter-rehearsal-client.ts','http://127.0.0.1:3100',date,shift,str(folder/'read.json'),'read'], check=True, capture_output=True)
+    result = subprocess.run(['node','node_modules/tsx/dist/cli.mjs','scripts/quarter-rehearsal-client.ts','http://127.0.0.1:3100',date,shift,str(folder/'read.json'),'read'], capture_output=True, text=True)
+    (folder/'read-client.log').write_text(result.stdout + result.stderr)
+    if result.returncode: raise ValueError('ACTUAL_READ_HELPER_FAILED:' + result.stderr.strip())
 baseline = authenticated_boundary(database, folder, read)
 after = boundary_snapshot(database, folder, 'recovery-after')
 validate_boundary_pair(baseline, after)
