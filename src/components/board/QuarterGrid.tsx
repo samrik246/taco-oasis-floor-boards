@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { chicagoHourStart, formatCompactHour, formatHourLabel, hourGridHours } from "@/lib/hour-grid";
+import { chicagoHourStart, formatHourLabel, hourGridHours } from "@/lib/hour-grid";
 import { scheduledIntervalHeadcounts } from "@/lib/board/headcounts";
 import { hourEditRefusal, quarterEditRefusal } from "@/lib/quarter/client/edit";
 import type { RetainedIntent } from "@/lib/quarter/client/draft-types";
@@ -20,7 +20,7 @@ export type GridCellError = GridCell & { code: string };
 export type GridNotice = GridCellError & { errors?: GridCellError[] };
 const cellId = (cell: GridCell) => `quarter-cell-${cell.shiftId}-${cell.hour}${cell.minute === null ? "" : `-${cell.minute}`}`;
 const hours = hourGridHours(), quarters = [0, 15, 30, 45] as const;
-const nameWidth = 176, overviewWidth = 144;
+const nameWidth = 176, overviewWidth = 100;
 export function quarterExplanation(code: string, es: boolean): string {
   const messages: Record<string, [string, string]> = {
     HOUR_NEEDS_QUARTER: ["Mixed hour: open quarters to change just the intended interval.", "Hora mixta: abre los cuartos para cambiar solo el intervalo deseado."],
@@ -91,16 +91,19 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
     <div ref={scroller} className={styles.scroller} data-testid="q1-grid-scroll" data-zoom={zoom ? "quarter" : "hour"}>
     <table className={styles.grid} style={{ width: nameWidth + hours.length * hourWidth }} data-testid="q1-grid">
       <colgroup><col style={{ width: nameWidth }} />{hours.map(h => <col key={h} style={{ width: hourWidth }} />)}</colgroup>
-      <thead><tr>
-        <th className={styles.person}><span>{es ? "Persona" : "Person"}</span><span className="block text-xs tabular-nums">{formatHourLabel(selectedHour)}</span></th>
-        {hours.map(hour => <th key={hour} data-testid={`q1-hour-header-${hour}`}><button type="button" className="min-h-11 w-full font-bold" aria-pressed={selectedHour === hour} onClick={() => { centerRequested.current = zoom; select(hour); }}>{formatHourLabel(hour)}</button></th>)}
-      </tr><tr data-testid="q1-headcount-row">
-        <th className={styles.person}><span className="block text-xs">{es ? "Personal programado" : "Scheduled workers"}</span>
-          <button type="button" data-testid="q1-zoom" className={`min-h-11 min-w-11 text-2xl font-black ${zoom ? "text-orange-700" : "text-blue-700"}`} aria-pressed={zoom} aria-label={es ? zoom ? "Ver horas completas" : "Ver cuartos de hora" : zoom ? "Show whole hours" : "Show quarter hours"} onClick={() => { centerRequested.current = true; setZoom(!zoom); onNotice?.(null); }}>{zoom ? "<#>" : ">#<"}</button>
+      <thead><tr data-testid="q1-headcount-row">
+        <th className={styles.person}><span>{es ? "Persona" : "Person"}</span><span className="block text-xs">{es ? "Personal programado" : "Scheduled workers"}</span>
+          <button type="button" data-testid="q1-zoom" className="min-h-11 rounded border border-blue-700 px-2 text-sm font-bold text-blue-800" aria-pressed={zoom} onClick={() => { centerRequested.current = true; setZoom(!zoom); onNotice?.(null); }}>{es ? zoom ? "Horas completas" : "Dividir hora" : zoom ? "Whole hours" : "Split hour"}</button>
         </th>
-        {hours.map((hour, index) => <td key={hour}><div className="flex">{(zoom ? quarters : [0] as const).map((minute, q) => <span key={minute} className={styles.count} style={{ width: zoom ? "25%" : "100%" }} data-testid={`q1-count-${hour}-${minute}`}>
-          <span className="block text-[10px]">{zoom ? `${formatCompactHour(hour)}:${String(minute).padStart(2, "0")}` : formatCompactHour(hour)}</span><strong>{counts[index * (zoom ? 4 : 1) + q]}</strong>
-        </span>)}</div></td>)}
+        {hours.map((hour, index) => <th key={hour} scope="col" data-testid={`q1-hour-header-${hour}`}>
+          <button type="button" className="min-h-11 w-full whitespace-nowrap font-bold" aria-pressed={selectedHour === hour} onClick={() => { centerRequested.current = zoom; select(hour); }}>
+            {formatHourLabel(hour)}{!zoom && <> · <span data-testid={`q1-count-${hour}-0`}><strong aria-label={`${es ? "Personal programado" : "Scheduled workers"}: ${counts[index]}`}>{counts[index]}</strong></span></>}
+          </button>
+          {zoom && <div className="flex">{quarters.map((minute, q) => <span key={minute} className={styles.count} style={{ width: "25%" }} data-testid={`q1-count-${hour}-${minute}`}>
+            <span className="block text-[10px]">:{String(minute).padStart(2, "0")}</span><strong aria-label={`${es ? "Personal programado" : "Scheduled workers"}: ${counts[index * 4 + q]}`}>{counts[index * 4 + q]}</strong>
+          </span>)}</div>}
+
+        </th>)}
       </tr></thead>
       <tbody>{day.shifts.map(shift => <tr key={shift.id} data-testid={`q1-row-${shift.id}`}>
         <th className={styles.person} scope="row"><span className="block">{displayName(shift)}</span><span className="block text-[10px] font-normal">{intervalLabel(shift.startAt, shift.endAt)}</span><ShiftSourceRole shiftId={shift.id} position={shift.sourcePosition} locale={locale}/>{personControls?.(shift)}</th>
@@ -134,7 +137,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
   </div>
     {notice && <CellFeedback anchorId={cellId(notice)} testId="q1-cell-notice">
       <p>{quarterExplanation(notice.code, es)}</p>
-      {notice.minute === null && ["HOUR_NEEDS_QUARTER", "HOUR_HAS_OBLIGATION", "QUARTER_DRAFT_REVIEW_ONLY"].includes(notice.code) && <button type="button" className="min-h-11 font-bold underline" onClick={() => openQuarters(notice.hour)}>{es ? "Editar cuartos" : "Edit quarters"}</button>}
+      {notice.minute === null && ["HOUR_NEEDS_QUARTER", "HOUR_HAS_OBLIGATION", "QUARTER_DRAFT_REVIEW_ONLY"].includes(notice.code) && <button type="button" className="min-h-11 font-bold underline" onClick={() => openQuarters(notice.hour)}>{es ? "Dividir hora" : "Split hour"}</button>}
       <button type="button" className="ml-3 min-h-11 underline" onClick={() => onNotice?.(null)}>{es ? "Cerrar" : "Close"}</button>
     </CellFeedback>}
     {inspected && <div className="rounded border border-neutral-500 bg-white p-2 text-sm text-neutral-950" data-testid="q1-interval-detail" aria-live="polite">

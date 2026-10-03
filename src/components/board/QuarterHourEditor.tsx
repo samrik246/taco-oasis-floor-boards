@@ -135,7 +135,7 @@ export function QuarterHourEditor(props:ColorEditorProps){
   </div>:null;
   if(!day||!publicDay)return <section data-testid="quarter-hour-editor"><p role="status">{es?"Borrador conservado; el tablero compatible no está disponible.":"Draft retained; compatible board unavailable."}</p><p>{feedback}</p>{preservedReview}</section>;
   return <section className="space-y-3 bg-white text-neutral-950 [color-scheme:light]" data-testid="quarter-hour-editor" tabIndex={-1} data-paint-navigation-blocked={busy||unretained?"1":"0"}>
-    <p className="text-sm">{es?"Pinta una hora uniforme o abre los cuartos para editar 15 minutos. Los cambios son privados hasta guardar.":"Paint a uniform hour or open quarters to edit 15 minutes. Changes stay private until saved."}</p>
+    <p className="text-sm">{es?"Pinta una hora completa. Usa Dividir hora para editar 15 minutos. Los cambios son privados hasta guardar.":"Paint a whole hour. Use Split hour to edit 15 minutes. Changes stay private until saved."}</p>
     <div className="flex flex-wrap gap-2">{paletteSlots(day.stations).map(slot=>{
       const id=slot.kind==="family"?`family:${slot.family}`:slot.id,station=slot.kind==="station"?day.stations.find(s=>s.id===slot.id):null;
       return <button key={id} data-testid={`quarter-palette-${id}`} type="button" aria-pressed={choice===id} onClick={()=>setChoice(id)} className={`min-h-11 rounded border-2 p-2 font-bold ${station?stationColorClass(station.color):"bg-white text-neutral-900"} ${choice===id?"ring-4 ring-neutral-900":""}`}>{slot.kind==="family"?PAINT_FAMILY_LABELS[slot.family]:station?.label}</button>;
