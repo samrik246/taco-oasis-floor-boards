@@ -5,14 +5,31 @@ envelopes. It adds quarter painting/erase to the active color editor and an alig
 hour/quarter grid to the active editor and staff timeline. Prepared mode retains
 the hourly interface. Notes remain disabled.
 
-The blue `>#<` control below the selected clock in the Scheduled workers corner
-opens fourfold horizontal zoom; the orange `<#>` restores the overview. Time rows
-keep their height. The selected hour is centered in the area beside the fixed name
+The grid starts in whole hours, with one inline hour/count header. The header
+remains a button selecting the hour for Puesto and centering Split hour. The
+controls read Split hour / Whole hours (Dividir hora / Horas completas in Spanish).
+The overview is 100 px per hour; Split hour retains four independent quarter
+hit areas at fourfold width. The grid stays light in either color preference.
+Rows take their height from the name cell, with color filling that height and
+private proposals outlined with dashes inside their own factual intervals.
+The selected hour is centered in the area beside the fixed name
 column, with normal scrolling to both ends. Hour/column boundaries are dashed;
 quarter guides are lighter and cannot capture a pointer. Each quarter's count is
 the number of distinct scheduled people with at least one remaining contiguous
 minute, after removals. BREAK, unpainted work and sequential same-person sources
 do not inflate that count, and derived cover rows never add people.
+
+Whole-hour display joins touching saved pieces using the projection's exact
+kind/station/from-station/auto identity rule. A full box shows its station name;
+split and partial boxes show a saved/mapped code. Pieces of 15 minutes or less
+show the code only, with exact time on tap; longer pieces also show minutes
+(such as P2 30–00).
+MGR/LIMP are display-only fallbacks when no saved code exists. Saved codes win;
+the shared schedule/admin code map and saved data retain their prior values.
+Unknown codes retain the full station label; no abbreviation is inferred.
+Exact times remain in tapped details. Split hour retains separate editing cells.
+Puesto and wall occupants omit their time line and progress bar. The wall's
+bottom Saved covers and backup panels retain their prior presentation.
 
 Whole-hour convenience editing retains the R0 guard. A mixed or obligated hour,
 or an hour containing private quarter work, shows its reason beside the tapped
@@ -23,6 +40,9 @@ cell as well as in the save status. A mouse drag retains its visited cells in on
 CAS update; touch swipes remain scrolling, and taps/keyboard activation edit a
 single cell. Exact interval detail is readable below the grid when a cell is
 focused or selected, including narrow partial-shift fragments.
+Pointer focus defers that detail update until the click completes, so shortening
+the detail cannot clamp document scroll and move the target before release.
+Keyboard focus still updates detail immediately without proposing paint.
 
 Quarter changes preserve sibling intent IDs and original source/hour/world
 expectations. Narrowing a private whole-hour proposal expands it into its factual

@@ -1,3 +1,7 @@
+/** @vitest-environment jsdom */
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QuarterGrid } from "@/components/board/QuarterGrid";
 import { describe, expect, it } from "vitest";
 import { chicagoHourStart } from "@/lib/hour-grid";
 import { boardFromV2, publicDaySchema } from "@/lib/quarter/client/day";
@@ -73,5 +77,28 @@ describe("Q1 exact-quarter private proposals", () => {
     expect(scheduledIntervalHeadcounts(board, slots, new Date(iso(0)))).toEqual([1, 0, 0, 0]);
     board.shifts[0].endAt = iso(0.5); board.shifts = board.shifts.slice(0, 1);
     expect(scheduledIntervalHeadcounts(board, slots)).toEqual([0, 0, 0, 0]);
+  });
+});
+
+
+describe("compact whole-hour grid", () => {
+  it("keeps a no-color-selected cell available for inspection and shows one inline header", () => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(QuarterGrid, { day: boardFromV2(day()), locale: "en", selectedHour: 11, onPaint: async () => {} }));
+    expect(host.querySelectorAll("thead tr")).toHaveLength(1);
+    expect(host.querySelector('[data-testid="q1-hour-header-11"] button')?.textContent).toBe("11:00 am · 1");
+    expect(host.querySelector('[data-testid="q1-zoom"]')?.textContent).toBe("Split hour");
+    expect(host.querySelector('[data-testid="quarter-cell-source-11"]')?.hasAttribute("disabled")).toBe(false);
+    expect(host.querySelectorAll('[data-testid="quarter-private-preview"]')).toHaveLength(0);
+  });
+  it("draws a retained partial-quarter proposal inside its factual extent without rewriting either input", () => {
+    const view = day(); view.sources[0].endAt = iso(20);
+    const proposal = proposeQuarters(scope, empty, view, [{ shiftId: "source", hour: 11, minute: 15, action: { action: "station", stationId: "green1" } }], iso(0)).proposal;
+    const before = JSON.stringify({ view, proposal }), host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(QuarterGrid, { day: boardFromV2(view), locale: "en", selectedHour: 11, intents: proposal.envelope.intents }));
+    const marker = host.querySelector('[data-testid="quarter-private-preview"]') as HTMLElement;
+    expect(marker.style.left).toBe("25%"); expect(parseFloat(marker.style.width)).toBeCloseTo(100 / 12);
+    expect(marker.textContent).toContain("Private"); expect(marker.getAttribute("aria-label")).toContain("11:15 AM–11:20 AM");
+    expect(JSON.stringify({ view, proposal })).toBe(before);
   });
 });

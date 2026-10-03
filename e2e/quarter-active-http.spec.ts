@@ -154,7 +154,7 @@ test("ordinary HTTP failed retention keeps the first in-memory proposal until ex
   expect(await memory.locator("pre").textContent()).toBe(before);await expect(page.getByTestId("quarter-save")).toBeDisabled();
   await page.evaluate(()=>(window as unknown as {restoreDraftAdds:()=>void}).restoreDraftAdds());
   await memory.getByRole("button",{name:/Reintentar retención|Retry retention/}).click();
-  await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  await expect(page.getByTestId("quarter-private-preview")).toHaveAttribute("aria-label", /^(Privado|Private): Purple · /);
   await expect(memory).toHaveCount(0);
 });
 
@@ -179,7 +179,7 @@ test("ordinary HTTP receipt cleanup failure keeps a newer tab intent visible and
     release();await expect(page.getByTestId("quarter-draft-status")).toContainText(/limpieza local pendiente|local cleanup pending/);
     await page.getByRole("button",{name:/Revisar almacenamiento|Review retained work/}).click();
     await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
-    await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+    await expect(page.getByTestId("quarter-private-preview")).toHaveAttribute("aria-label", /^(Privado|Private): Purple · /);
     await page.evaluate(()=>(window as unknown as {restoreDraftPuts:()=>void}).restoreDraftPuts());
     await page.getByTestId("quarter-save").click();
     await expect(page.getByTestId("quarter-draft-status")).toHaveText(/Guardado\.|Saved\./);
@@ -418,10 +418,10 @@ test("ordinary HTTP acknowledged response after versionchange preserves success 
   dispatch();await expect.poll(()=>committed).toBe(true);release();
   await expect(page.getByTestId("quarter-draft-status")).toContainText(/limpieza local pendiente|local cleanup pending/);
   await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);
-  await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  await expect(page.getByTestId("quarter-private-preview")).toHaveAttribute("aria-label", /^(Privado|Private): Purple · /);
   expect(await rawDraftDatabase(page)).toEqual(before);await expect(page.getByTestId("quarter-save")).toBeDisabled();
   await openEditor(page);await expect(page.getByTestId("quarter-draft-status")).toContainText(/Guardado|Saved/);
-  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);await expect(page.getByTestId("quarter-private-preview")).toContainText("purple");
+  await expect(page.getByTestId("quarter-private-preview")).toHaveCount(1);await expect(page.getByTestId("quarter-private-preview")).toHaveAttribute("aria-label", /^(Privado|Private): Purple · /);
   const after=await rawDraftDatabase(page);expect(after).not.toEqual(before);
  }finally{dispatch();release();await newer.close();}
 });

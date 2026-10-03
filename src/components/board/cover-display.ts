@@ -1,6 +1,6 @@
 import { assignedPaint, intersectingPaint } from "@/lib/quarter/client/intervals";
 import { chicagoHourEnd, chicagoHourOf, chicagoHourStart } from "@/lib/hour-grid";
-import type { CoverSegment, CoverTrack } from "@/lib/board/cover-display";
+import { canJoinCoverSegments, type CoverSegment, type CoverTrack } from "@/lib/board/cover-display";
 import type { DayBoardDto } from "./types";
 
 export function clipSegment(segment: CoverSegment, start: number, end: number): CoverSegment | null {
@@ -8,12 +8,28 @@ export function clipSegment(segment: CoverSegment, start: number, end: number): 
   return left < right ? { ...segment, startAt: new Date(left).toISOString(), endAt: new Date(right).toISOString() } : null;
 }
 
+/** Join only visually identical neighbours; saved intervals remain untouched. */
+export function joinedDisplaySegments(segments: readonly CoverSegment[]): CoverSegment[] {
+  const joined: CoverSegment[] = [];
+  for (const segment of segments) {
+    const previous = joined.at(-1);
+    if (previous && canJoinCoverSegments(previous, segment)) previous.endAt = segment.endAt;
+    else joined.push({ ...segment });
+  }
+  return joined;
+}
+
+export function isSplitDisplayHour(segments: readonly CoverSegment[], start: number, end: number): boolean {
+  const joined = joinedDisplaySegments(segments);
+  return joined.length > 1 || Boolean(joined.length && (Date.parse(joined[0].startAt) !== start || Date.parse(joined[0].endAt) !== end));
+}
+
 /** Only marked hours need to split the existing joined schedule blocks. */
-export function savedHourSegments(day: DayBoardDto, shiftId: string, hour: number): CoverSegment[] | null {
+export function savedHourSegments(day: DayBoardDto, shiftId: string, hour: number, merge = false): CoverSegment[] | null {
   const start = +chicagoHourStart(day.date, hour), end = +chicagoHourEnd(day.date, hour);
   const track = day.coverDisplay?.tracks.find(t => t.shiftId === shiftId);
   if (track) {
-    const segments = track.segments.flatMap(s => { const part = clipSegment(s, start, end); return part ? [part] : []; });
+    const segments = (merge ? joinedDisplaySegments(track.segments) : track.segments).flatMap(s => { const part = clipSegment(s, start, end); return part ? [part] : []; });
     return day.quarter || segments.some(s => s.kind !== "work") ? segments : null;
   }
   if (day.quarter) {
@@ -21,7 +37,7 @@ export function savedHourSegments(day: DayBoardDto, shiftId: string, hour: numbe
     if(!source)return null;
     return intersectingPaint(source,start,end).filter(i=>i.state!=="off").map(i=>{
       const station=day.stations.find(s=>s.id===i.stationId);
-      return {startAt:i.startAt,endAt:i.endAt,kind:"work" as const,station:station?{id:station.id,board:day.board,label:station.label,color:station.color}:null,fromStation:null,auto:false};
+      return {startAt:i.startAt,endAt:i.endAt,kind:"work" as const,station:station?{id:station.id,board:day.board,label:station.label,color:station.color,shortCode:station.shortCode}:null,fromStation:null,auto:false};
     });
   }
   if (day.coverDisplay) return null;

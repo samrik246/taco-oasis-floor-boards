@@ -50,7 +50,8 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     await expect(page.getByTestId("manager-color-editor")).toBeVisible();
     await page.getByTestId("compact-view").selectOption("board");
     const occupants = page.getByTestId(`station-${payload!.stations[0].id}`).getByTestId("saved-station-occupants");
-    await expect(occupants).toContainText("Dan Example"); await expect(occupants).toContainText("9:15 AM–9:45 AM");
+    await expect(occupants).toContainText("Dan Example"); await expect(occupants).not.toContainText("9:15 AM–9:45 AM");
+    await expect(occupants.getByTestId("station-interval")).toHaveCount(0);
     await expect(occupants).toContainText("Dylan Example");
     const baseOccupant = occupants.locator('[data-employee="primary"]').first();
     const derivedOccupant = occupants.locator('[data-employee="cover"]');
@@ -78,7 +79,8 @@ for (const board of ["caja", "cocina"] as const) for (const locale of ["es", "en
     await page.screenshot({ path: path.join(screens, `${board}_${locale}_pintar.png`), fullPage: true });
     await page.goto(`/?wall=1&board=${board}`);
     await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).toContainText("Dan Example");
-    await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).toContainText("9:15 AM–9:45 AM");
+    await expect(page.getByTestId(`wall-who-${payload!.stations[0].id}`)).not.toContainText("9:15 AM–9:45 AM");
+    await expect(page.getByTestId("wall-board").getByTestId("station-interval")).toHaveCount(0);
     const wallOccupants = page.getByTestId(`wall-who-${payload!.stations[0].id}`);
     await expect(wallOccupants).not.toContainText("Dylan Example");
     expect(await wallOccupants.getByTestId("saved-station-name").evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(36);

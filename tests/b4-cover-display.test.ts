@@ -4,8 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { projectCoverDisplay, type CoverDisplayShift, type CoverDisplayBooking, type CoverDisplayOverlay } from "@/lib/board/cover-display";
 import { chicagoDateTime } from "@/lib/time";
-import { savedHourSegments, savedStationIntervals, savedStationOccupantsNow } from "@/components/board/cover-display";
-import { SavedCoverPanel, SavedHour } from "@/components/board/SavedCoverDisplay";
+import { joinedDisplaySegments, isSplitDisplayHour, savedHourSegments, savedStationIntervals, savedStationOccupantsNow } from "@/components/board/cover-display";
+import type { CoverSegment } from "@/lib/board/cover-display";
+import { SavedCoverPanel, SavedHour, SavedStationOccupants } from "@/components/board/SavedCoverDisplay";
 import { slicesForDay } from "@/components/board/day-slice-input";
 import { SchedulePanel } from "@/components/board/SchedulePanel";
 import { TimelinePanel } from "@/components/board/TimelinePanel";
@@ -41,6 +42,106 @@ function dayFrom(input: ReturnType<typeof fixture>, board: "caja" | "cocina" = "
     coverDisplay: projectCoverDisplay({ ...input, board }) };
 }
 const moves = (input: ReturnType<typeof fixture>) => projectCoverDisplay(input).tracks.flatMap(t => t.segments.filter(s => s.kind === "cover").map(s => ({ ...s, employeeId: t.employeeId })));
+
+describe("compact saved hour display", () => {
+  const part = (start: string, end: string, extra: Partial<CoverSegment> = {}): CoverSegment => ({
+    startAt: at(start).toISOString(), endAt: at(end).toISOString(), kind: "work", station: stations[0], fromStation: null, auto: false, ...extra,
+  });
+  function render(segments: CoverSegment[], day = dayFrom(fixture()), extra: { minute?: number; minutes?: number; splitHour?: boolean } = {}) {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(SavedHour, { day, hour: 13, locale: "en", segments, compactLabels: true, ...extra }));
+    return host;
+  }
+  it("draws four equal saved quarters as one full-hour box without changing input", () => {
+    const segments = [part("1:00 pm", "1:15 pm"), part("1:15 pm", "1:30 pm"), part("1:30 pm", "1:45 pm"), part("1:45 pm", "2:00 pm")];
+    const original = JSON.stringify(segments), host = render(segments);
+    expect(host.querySelectorAll("[data-kind]")).toHaveLength(1);
+    expect((host.querySelector("[data-kind]") as HTMLElement).style.width).toBe("100%");
+    expect(host.querySelectorAll('[data-testid="saved-box-label"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="saved-box-time"]')).toBeNull();
+    expect(host.querySelector("[data-kind]")?.getAttribute("aria-label")).toContain("1:00 PM–2:00 PM");
+    expect(JSON.stringify(segments)).toBe(original);
+  });
+  it.each(["seat", "kind", "origin", "auto", "gap", "overlap"])("preserves %s distinctions even when colours match", difference => {
+    const a = part("1:00 pm", "1:30 pm"), b = part("1:30 pm", "2:00 pm", { station: { ...stations[0] } });
+    if (difference === "seat") b.station!.id = "different-purple-seat";
+    if (difference === "kind") b.kind = "break";
+    if (difference === "origin") b.fromStation = stations[1];
+    if (difference === "auto") b.auto = true;
+    if (difference === "gap") b.startAt = at("1:35 pm").toISOString();
+    if (difference === "overlap") b.startAt = at("1:25 pm").toISOString();
+    expect(joinedDisplaySegments([a, b])).toHaveLength(2);
+    expect(render([a, b]).querySelectorAll('[data-testid="saved-box-time"]')).toHaveLength(2);
+  });
+  it("keeps a lone partial-shift time and uses its saved station code", () => {
+    const day = dayFrom(fixture()); day.stations[0].shortCode = "P-CUSTOM";
+    const segments = [part("1:20 pm", "2:00 pm")], host = render(segments, day);
+    expect(isSplitDisplayHour(segments, +at("1:00 pm"), +at("2:00 pm"))).toBe(true);
+    expect(host.querySelector('[data-testid="saved-box-time"]')?.textContent).toBe("20–00");
+    expect(host.querySelector('[data-testid="saved-box-label"]')?.textContent).toBe("P-CUSTOM");
+    expect((host.querySelector("[data-kind]") as HTMLElement).style.left).toBe("33.333333333333336%");
+  });
+  it.each([5, 15])("shows only the code on a %i-minute piece, preserving exact detail", duration => {
+    const host = render([part("1:15 pm", `1:${15 + duration} pm`)]);
+    expect(host.querySelector('[data-testid="saved-box-label"]')?.textContent).toBe("P1");
+    expect(host.querySelector('[data-testid="saved-box-time"]')).toBeNull();
+    expect(host.querySelector("[data-kind]")?.getAttribute("aria-label")).toContain(`1:15 PM–1:${15 + duration} PM`);
+  });
+  it("does not invent split-hour times merely because the editor is zoomed", () => {
+    const host = render([part("1:15 pm", "1:30 pm")], dayFrom(fixture()), { minute: 15, minutes: 15, splitHour: false });
+    expect(host.querySelector('[data-testid="saved-box-time"]')).toBeNull();
+    expect(host.querySelector('[data-testid="saved-box-label"]')?.textContent).toBe("P1");
+  });
+  it.each([15, 30, 45])("retains a %i-minute BREAK boundary, code and time", minute => {
+    const split = `1:${minute} pm`, host = render([part("1:00 pm", split, { kind: "break" }), part(split, "2:00 pm")]);
+    expect(host.querySelectorAll("[data-kind]")).toHaveLength(2);
+    expect(host.querySelector('[data-kind="break"] [data-testid="saved-box-label"]')?.textContent).toBe("BREAK");
+    expect(host.querySelector('[data-kind="work"] [data-testid="saved-box-label"]')?.textContent).toBe("P1");
+    expect(host.querySelectorAll('[data-testid="saved-box-time"]')).toHaveLength(minute === 30 ? 2 : 1);
+  });
+  it("keeps the full label when an unknown station has no saved code", () => {
+    const host = render([part("1:00 pm", "1:30 pm", { station: { id: "opaque-id", board: "caja", label: "Runner", color: "blue" } })]);
+    expect(host.querySelector('[data-testid="saved-box-label"]')?.textContent).toBe("Runner");
+  });
+  it.each([["mana", "MANAGER", "MGR"], ["clean", "LIMPIEZA", "LIMP"]])("uses a compact %s fallback while preserving every saved code", (id, label, code) => {
+    const segment = part("1:30 pm", "2:00 pm", { station: { id, board: "caja", label, color: "blue" } });
+    expect(render([segment]).querySelector('[data-testid="saved-box-label"]')?.textContent).toBe(code);
+    for (const shortCode of [label, "CUSTOM"]) {
+      segment.station!.shortCode = shortCode;
+      expect(render([segment]).querySelector('[data-testid="saved-box-label"]')?.textContent).toBe(shortCode);
+      expect(segment.station?.shortCode).toBe(shortCode);
+    }
+  });
+  it("keeps the legacy bottom panel's full times and input partitions", () => {
+    const day = dayFrom(fixture()), segments = [part("1:00 pm", "1:30 pm"), part("1:30 pm", "2:00 pm")];
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(SavedHour, { day, hour: 13, locale: "en", segments }));
+    expect(host.querySelectorAll("[data-kind]")).toHaveLength(2);
+    expect(host.textContent).toContain("1:00 PM–1:30 PM");
+  });
+  it("shows station occupants without the time line or progress bar on both surfaces", () => {
+    const rows = savedStationIntervals(dayFrom(fixture()), "purple1", 13)!;
+    const before = JSON.stringify(rows);
+    for (const wall of [false, true]) {
+      const host = document.createElement("div");
+      host.innerHTML = renderToStaticMarkup(createElement(SavedStationOccupants, { rows, date, hour: 13, locale: "en", wall }));
+      expect(host.textContent).toContain("Dan Example"); expect(host.textContent).toContain("Dylan Example");
+      expect(host.textContent).not.toMatch(/\d:\d{2}/);
+      expect(host.querySelector('[data-testid="station-interval"]')).toBeNull();
+    }
+    expect(JSON.stringify(rows)).toBe(before);
+  });
+  it("retains an away station's saved code through projection and the offline cache", () => {
+    const input = { ...fixture(), stations: stations.map(s => ({ ...s, shortCode: s.id === "purple1" ? "P-SAVED" : "" })) };
+    input.shifts[1].board = "cocina";
+    const day = dayFrom(input, "cocina"), cached = stripSharedTabletDay(day);
+    const segments = savedHourSegments(cached, "Dan-shift", 13)!;
+    const host = render(segments, cached), away = host.querySelector('[data-away="1"]');
+    expect(segments.find(s => s.kind === "cover")?.station?.shortCode).toBe("P-SAVED");
+    expect(away?.querySelector('[data-testid="saved-box-label"]')?.textContent).toBe("→ P-SAVED");
+    expect(away?.getAttribute("aria-label")).toContain("Away → Cashiers");
+  });
+});
 
 describe("persisted cover identity and complete movement", () => {
   it("shows backup name, destination and half-hour without changing saved evidence or scheduled counts", () => {

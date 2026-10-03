@@ -6,8 +6,10 @@ import { scheduledIntervalHeadcounts } from "@/lib/board/headcounts";
 import { hourEditRefusal, quarterEditRefusal } from "@/lib/quarter/client/edit";
 import type { RetainedIntent } from "@/lib/quarter/client/draft-types";
 import type { Locale } from "@/lib/i18n";
-import { displayName } from "./board-helpers";
-import { clipSegment, savedHourSegments } from "./cover-display";
+import { PAINT_FAMILIES, PAINT_FAMILY_LABELS } from "@/lib/assignments/paint-families";
+import { displayStationLabel } from "@/lib/i18n";
+import { displayName, stationColorClass } from "./board-helpers";
+import { clipSegment, isSplitDisplayHour, savedHourSegments } from "./cover-display";
 import { SavedCoverRows, SavedHour, intervalLabel } from "./SavedCoverDisplay";
 import type { DayBoardDto, ShiftDto } from "./types";
 import styles from "./QuarterGrid.module.css";
@@ -48,6 +50,7 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
   const [inspected, setInspected] = useState<GridCell | null>(null);
   const scroller = useRef<HTMLDivElement>(null), centerRequested = useRef(false);
   const drag = useRef<GridCell[]>([]), suppressClick = useRef(false);
+  const pointerInspection = useRef<HTMLButtonElement | null>(null);
   const hourWidth = overviewWidth * (zoom ? 4 : 1);
   const slots = useMemo(() => hours.flatMap(hour => zoom ? quarters.map(minute => ({ hour, minute, minutes: 15 })) : [{ hour, minute: 0, minutes: 60 }]), [zoom]);
   const counts = useMemo(() => scheduledIntervalHeadcounts(day, slots), [day, slots]);
@@ -59,9 +62,18 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
   }, [zoom, selectedHour, hourWidth]);
   // Cancel outside the grid as well; an abandoned gesture never paints later.
   useEffect(() => {
-    const cancel = () => { drag.current = []; };
-    window.addEventListener("pointerup", cancel); window.addEventListener("pointercancel", cancel);
-    return () => { window.removeEventListener("pointerup", cancel); window.removeEventListener("pointercancel", cancel); };
+    const clearInspection = () => { pointerInspection.current = null; };
+    const cancel = () => { drag.current = []; clearInspection(); };
+    const release = (event: PointerEvent) => {
+      drag.current = [];
+      if (!(event.target instanceof Node) || !pointerInspection.current?.contains(event.target)) clearInspection();
+    };
+    window.addEventListener("pointerup", release); window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", cancel); window.addEventListener("keydown", clearInspection, true);
+    return () => {
+      window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel); window.removeEventListener("keydown", clearInspection, true);
+    };
   }, []);
   function select(hour: number) { onSelectHour?.(hour); }
   function openQuarters(hour: number) { select(hour); centerRequested.current = true; setZoom(true); onNotice?.(null); }
@@ -77,9 +89,6 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
     if (errors.length) { onNotice?.({ ...errors[0], errors }); return; }
     if (!hasChoice) return;
     select(cells.at(-1)!.hour); onNotice?.(null); await onPaint(cells);
-  }
-  function preview(rows: RetainedIntent[]) {
-    return rows.map(({intent}) => `${intent.quarter} ${intent.action === "station" ? day.stations.find(s => s.id === intent.stationId)?.label ?? intent.stationId : intent.action === "family" ? intent.family : es ? "Borrar" : "Erase"}`).join(" · ");
   }
   return <><NievesUnassigned day={day} locale={locale}/>
     {notice && <details open className="rounded border-2 border-amber-800 bg-amber-50 p-2 text-sm text-amber-950" data-testid="q1-error-summary">
@@ -113,26 +122,43 @@ export function QuarterGrid({ day, locale, selectedHour, onSelectHour, personCon
               const cell: GridCell = { shiftId: shift.id, hour, minute }, code = refusal(cell);
               const pending = intents.filter(i => i.intent.shiftId === shift.id && Number(i.intent.quarter.slice(0, 2)) === hour && (minute === null || i.intent.granularity === "hour" || Number(i.intent.quarter.slice(3)) === minute));
               const start = +chicagoHourStart(day.date, hour) + (minute ?? 0) * 60_000, end = start + (minute === null ? 60 : 15) * 60_000;
-              const segments = (savedHourSegments(day, shift.id, hour) ?? []).flatMap(s => { const part = clipSegment(s, start, end); return part ? [part] : []; });
-              const content = <><SavedHour day={day} hour={hour} minute={minute ?? 0} minutes={minute === null ? 60 : 15} segments={segments} locale={locale} />
-                <span className={styles.preview} title={preview(pending)}>{pending.length > 0 && <span data-testid="quarter-private-preview">{es ? "Privado" : "Private"}: {preview(pending)}</span>}</span></>;
+              const hourSegments = savedHourSegments(day, shift.id, hour, !zoom) ?? [];
+              const segments = hourSegments.flatMap(s => { const part = clipSegment(s, start, end); return part ? [part] : []; });
+              const hourStart = +chicagoHourStart(day.date, hour);
+              const content = <><SavedHour day={day} hour={hour} minute={minute ?? 0} minutes={minute === null ? 60 : 15} segments={segments} locale={locale} compactLabels splitHour={isSplitDisplayHour(hourSegments, hourStart, hourStart + 3_600_000)} />
+                {pending.map(row => {
+                  const intent = row.intent, offset = intent.granularity === "hour" ? 0 : Number(intent.quarter.slice(3));
+                  const intentStart = hourStart + offset * 60_000, intentEnd = intentStart + (intent.granularity === "hour" ? 60 : 15) * 60_000;
+                  const left = Math.max(start, intentStart, Date.parse(row.source.startAt)), right = Math.min(end, intentEnd, Date.parse(row.source.endAt));
+                  if (left >= right) return null;
+                  const station = intent.action === "station" ? day.stations.find(s => s.id === intent.stationId) : undefined;
+                  const familyStation = intent.action === "family" ? day.stations.find(s => s.id === PAINT_FAMILIES[intent.family][0]) : undefined;
+                  const label = station ? displayStationLabel(locale, station) : intent.action === "family" ? PAINT_FAMILY_LABELS[intent.family] : intent.action === "station" ? intent.stationId : es ? "Borrar" : "Erase";
+                  const description = `${es ? "Privado" : "Private"}: ${label} · ${intervalLabel(new Date(left).toISOString(), new Date(right).toISOString())}`;
+                  return <span key={row.intentId} className={`${styles.preview} ${station || familyStation ? stationColorClass((station ?? familyStation)!.color) : "bg-white text-neutral-950"}`} style={{ left: `${(left - start) / (end - start) * 100}%`, width: `${(right - left) / (end - start) * 100}%` }} data-testid="quarter-private-preview" title={description} aria-label={description}>
+                    <span>{label}</span><span className="text-[9px]">{es ? "Privado" : "Private"}</span>
+                  </span>;
+                })}</>;
+
               return <div key={minute ?? "hour"} className={styles.cell} style={{ width: zoom ? "25%" : "100%" }}>
-                {onPaint ? <button type="button" className={styles.paint} disabled={disabled || code === "SOURCE_NOT_AVAILABLE" || (!hasChoice && !code)}
+                {onPaint ? <button type="button" className={styles.paint} disabled={disabled || code === "SOURCE_NOT_AVAILABLE"}
                   id={cellId(cell)} data-testid={cellId(cell)} data-minute={minute ?? "hour"}
                   aria-describedby={notice?.shiftId === shift.id && notice.hour === hour && notice.minute === minute ? "q1-cell-notice-message" : undefined}
                   aria-label={`${displayName(shift)} ${formatHourLabel(hour)}${minute === null ? "" : ` · :${String(minute).padStart(2, "0")}`}`}
-                  onPointerDown={event => { suppressClick.current = false; if (event.pointerType === "mouse" && event.button === 0) drag.current = [cell]; }}
+                  onPointerDown={event => { pointerInspection.current = event.currentTarget; suppressClick.current = false; if (event.pointerType === "mouse" && event.button === 0) drag.current = [cell]; }}
                   onPointerEnter={event => { if (event.pointerType === "mouse" && event.buttons === 1 && drag.current.length && !drag.current.some(c => c.shiftId === cell.shiftId && c.hour === hour && c.minute === minute)) drag.current.push(cell); }}
                   onPointerUp={() => { const cells = drag.current; drag.current = []; if (cells.length > 1) { suppressClick.current = true; setTimeout(() => { suppressClick.current = false; }, 0); void paint(cells); } }}
-                  onFocus={() => setInspected(cell)}
-                  onClick={() => { setInspected(cell); if (suppressClick.current) { suppressClick.current = false; return; } void paint([cell]); }}>{content}</button> : <button type="button" className={styles.paint} aria-label={`${displayName(shift)} · ${formatHourLabel(hour)}`} onClick={() => setInspected(cell)}>{content}</button>}
+                  // Shrinking detail at pointer focus can clamp page scroll and move the
+                  // button before release. Inspect on click; keyboard focus stays immediate.
+                  onFocus={event => { if (pointerInspection.current !== event.currentTarget) setInspected(cell); }}
+                  onClick={() => { pointerInspection.current = null; setInspected(cell); if (suppressClick.current) { suppressClick.current = false; return; } void paint([cell]); }}>{content}</button> : <button type="button" className={styles.paint} aria-label={`${displayName(shift)} · ${formatHourLabel(hour)}`} onClick={() => setInspected(cell)}>{content}</button>}
 
               </div>;
             })}
             {zoom && <span className={styles.guides} aria-hidden="true">{[25, 50, 75].map(left => <span key={left} style={{ left: `${left}%` }} />)}</span>}
           </div>
         </td>)}
-      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} interactiveDetails /></tbody>
+      </tr>)}<SavedCoverRows day={day} locale={locale} hours={hours} quarterGuides={zoom} nameCellClassName={styles.person} interactiveDetails compactLabels /></tbody>
     </table>
   </div>
     {notice && <CellFeedback anchorId={cellId(notice)} testId="q1-cell-notice">

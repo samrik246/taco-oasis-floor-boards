@@ -2,14 +2,14 @@
 .grid { table-layout: fixed; border-collapse: separate; border-spacing: 0; color: #171717; background: white; font-size: 12px; }
 .grid th, .grid td { position: relative; padding: 0; vertical-align: middle; border-right: 1px dashed #737373; border-bottom: 1px dashed #a3a3a3; }
 .grid thead { background: #fafafa; }
-.grid .person { position: sticky; left: 0; z-index: 10; padding: 4px 8px; background: #fff; text-align: left; overflow-wrap: anywhere; border-right: 2px dashed #737373; }
-.hour { position: relative; display: flex; height: 88px; }
+.grid .person { position: sticky; left: 0; z-index: 10; padding: 4px 8px; height: 44px; background: #fff; text-align: left; overflow-wrap: anywhere; border-right: 2px dashed #737373; }
+.hour { position: absolute; inset: 0; display: flex; }
 .cell { position: relative; min-width: 0; flex-shrink: 0; }
-.paint { display: block; width: 100%; min-height: 88px; padding: 0; text-align: center; touch-action: pan-x pan-y; }
+.paint { display: block; width: 100%; height: 100%; padding: 0; text-align: center; touch-action: pan-x pan-y; }
 .paint:focus-visible { outline: 3px solid #1d4ed8; outline-offset: -3px; }
 .paint:disabled { cursor: default; }
-.preview { display: block; height: 32px; overflow: hidden; padding: 1px 3px; font-size: 10px; line-height: 15px; color: #1e3a8a; background: #eff6ff; }
-.preview:empty { background: white; }
+.paint > [data-testid="saved-hour"] { height: 100%; }
+.preview { position: absolute; top: 2px; bottom: 2px; z-index: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; border: 2px dashed #1e3a8a; outline: 1px solid white; outline-offset: -3px; padding: 1px; font-size: 10px; line-height: 12px; pointer-events: none; }
 .count { display: block; text-align: center; }
 .count + .count { border-left: 1px dashed #c4c4c4; }
 .guides { position: absolute; inset: 0; pointer-events: none; z-index: 2; }

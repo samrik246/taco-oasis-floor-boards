@@ -2,7 +2,7 @@ import { z } from "zod";
 import { familyForStation, PAINT_FAMILIES } from "@/lib/assignments/paint-families";
 import { isDefaultMandatory } from "@/lib/mandatory";
 
-const stationSchema = z.object({ id: z.string(), board: z.string(), label: z.string(), color: z.string() });
+const stationSchema = z.object({ id: z.string(), board: z.string(), label: z.string(), color: z.string(), shortCode: z.string().nullable().optional() });
 const segmentSchema = z.object({
   startAt: z.iso.datetime(), endAt: z.iso.datetime(), kind: z.enum(["work", "break", "cover"]),
   station: stationSchema.nullable(), fromStation: stationSchema.nullable(), auto: z.boolean(),
@@ -19,6 +19,11 @@ export const coverDisplaySchema = z.object({
 export type CoverDisplay = z.infer<typeof coverDisplaySchema>;
 export type CoverTrack = CoverDisplay["tracks"][number];
 export type CoverSegment = CoverTrack["segments"][number];
+/** The same saved identity rule is used by projection and whole-hour display. */
+export function canJoinCoverSegments(previous: CoverSegment, segment: CoverSegment): boolean {
+  return previous.endAt === segment.startAt && previous.kind === segment.kind && previous.station?.id === segment.station?.id
+    && previous.fromStation?.id === segment.fromStation?.id && previous.auto === segment.auto;
+}
 type Station = z.infer<typeof stationSchema>;
 export type CoverDisplayShift = {
   id: string; employeeId: string; date: string; board: string; startAt: Date; endAt: Date;
@@ -124,8 +129,7 @@ export function projectCoverDisplay(input: {
         kind: resting ? "break" : moving ? "cover" : "work", station: resting ? base.station : moving?.station ?? base.station,
         fromStation: moving?.fromStation ?? null, auto: moving?.auto ?? false };
       const previous = segments.at(-1);
-      if (previous && previous.endAt === segment.startAt && previous.kind === segment.kind && previous.station?.id === segment.station?.id
-        && previous.fromStation?.id === segment.fromStation?.id && previous.auto === segment.auto) previous.endAt = segment.endAt;
+      if (previous && canJoinCoverSegments(previous, segment)) previous.endAt = segment.endAt;
       else segments.push(segment);
     }
     return { shiftId: s.id, employeeId: s.employeeId, firstName: s.employee.firstName, lastName: s.employee.lastName,
