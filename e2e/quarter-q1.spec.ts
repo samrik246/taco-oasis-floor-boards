@@ -9,6 +9,7 @@ import { observeCellClick } from "./fixtures/q1-click-evidence";
 import type { DraftGeneration, DraftHead } from "../src/lib/quarter/client/draft-types";
 import type { PublicDayV2 } from "../src/lib/quarter/client/day";
 import { displayStationLabel } from "../src/lib/i18n";
+import preservationColumns from "../src/lib/quarter/preservation-columns.json";
 
 const date = "2041-10-12", origin = "http://floor-boards.test:3100";
 const ids = ["caja", "cocina"].flatMap(board => [`q1-${board}-full`, `q1-${board}-tail`]);
@@ -268,11 +269,25 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
     startAt: at(`12:${String(minute).padStart(2, "0")}`), endAt: at(minute === 45 ? "13:00" : `12:${String(minute + 15).padStart(2, "0")}`),
     kind: "work" as const, station: { ...stationView(longest), shortCode: "P2" }, fromStation: null, auto: false,
   })));
-  const preservedPaint = async () => ({
-    hours: await db.$queryRawUnsafe("SELECT * FROM PaintHour WHERE date=? ORDER BY id", date),
-    segments: await db.$queryRawUnsafe("SELECT * FROM PaintSegment WHERE paintHourId IN (SELECT id FROM PaintHour WHERE date=?) ORDER BY id", date),
-    mutations: await db.$queryRawUnsafe("SELECT * FROM PaintMutation WHERE date=? ORDER BY id", date),
-    receipts: await db.$queryRawUnsafe("SELECT * FROM PaintCommandReceipt ORDER BY requestId"),
+  const preservedPaint = async () => db.$transaction(async tx => {
+    const result: Record<string, unknown> = {}, quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
+    for (const [key, table, where, parameters] of [
+      ["hours", "PaintHour", " WHERE date=?", [date]],
+      ["segments", "PaintSegment", " WHERE paintHourId IN (SELECT id FROM PaintHour WHERE date=?)", [date]],
+      ["mutations", "PaintMutation", " WHERE date=?", [date]],
+      ["receipts", "PaintCommandReceipt", "", []],
+    ] as const) {
+      const columns = preservationColumns[table];
+      const info = await tx.$queryRawUnsafe<{ name: string }[]>(`PRAGMA table_info(${quote(table)})`);
+      expect(info.map(column => column.name).sort()).toEqual([...columns].sort());
+      // Match the established preservation reader: raw INTEGER decoding narrows
+      // epoch milliseconds. Keep every SQL type/value, including exact nulls.
+      const fields = columns.flatMap(c => [`typeof(${quote(c)}) AS ${quote(c + ":type")}`, `CAST(${quote(c)} AS TEXT) AS ${quote(c + ":value")}`]);
+      const rows = await tx.$queryRawUnsafe<Record<string, string | null>[]>(`SELECT ${fields.join(",")} FROM ${quote(table)}${where}`, ...parameters);
+      result[key] = { columns, rows: rows.map(row => columns.map(c => [row[c + ":type"], row[c + ":value"]]))
+        .sort((a, b) => Buffer.compare(Buffer.from(JSON.stringify(a)), Buffer.from(JSON.stringify(b)))) };
+    }
+    return result;
   });
   const savedBeforeDisplay = JSON.stringify(await preservedPaint(), (_key, value) => typeof value === "bigint" ? value.toString() : value);
   let visualWrites = 0;
