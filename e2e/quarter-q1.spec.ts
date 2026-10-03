@@ -433,9 +433,12 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   // call the existing change handler and mount the real loaded TimelinePanel; this
   // is component visual coverage, not evidence of a public staff navigation route.
   const viewer = await page.context().newPage(); await viewer.setViewportSize({ width: 1280, height: 900 });
+  // The synthetic day needs its own date-list fixture; other tests may have
+  // seeded no current-day shifts, so the real staff list can correctly be empty.
+  await viewer.route("**/api/days", route => route.fulfill({ json: { dates: [date] } }));
   await viewer.route(`**/api/v2/boards/${board}/days/*`, route => {
-    const requestedDate = new URL(route.request().url()).pathname.split("/").at(-1)!;
-    return route.fulfill({ json: JSON.parse(JSON.stringify(dense).replaceAll(date, requestedDate)) });
+    expect(new URL(route.request().url()).pathname).toBe(`/api/v2/boards/${board}/days/${date}`);
+    return route.fulfill({ json: dense });
   });
   viewer.on("request", r => { if (r.method() === "PUT" && r.url().endsWith("/api/v2/assignments/paint")) visualWrites++; });
   await viewer.goto(`${origin}/?readonly=1&board=${board}`);
@@ -443,6 +446,9 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
   await viewer.getByTestId("compact-view").evaluate(el => el.append(new Option("Synthetic timeline fixture", "timeline")));
   await viewer.getByTestId("compact-view").selectOption("timeline");
   await expect(viewer.getByTestId("timeline-panel")).toBeVisible();
+  await expect(viewer.getByTestId("compact-date")).toHaveValue(date);
+  await expect(viewer.getByTestId("floor-board")).toHaveAttribute("data-role", "staff");
+  await expect(viewer.getByTestId("q1-headcount-row")).toBeVisible();
   await expect(viewer.getByTestId("quarter-hour-editor")).toHaveCount(0);
   observations.push(...await captureMatrix(viewer, "timeline"));
   const previewDir = join(process.env.FLOOR_BOARDS_TEST_ROOT!, "painter-go-screens"); mkdirSync(previewDir, { recursive: true });
