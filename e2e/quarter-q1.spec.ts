@@ -377,9 +377,21 @@ for (const board of ["caja", "cocina"]) test(`Q1 ${board}: real quarter paint, e
         await belowToolbar(page, coverRow);
         const touch = await page.context().newCDPSession(page);
         for (const duration of [15, 5]) {
+          // Whole-hour headers preserve horizontal scroll. Expose the same
+          // cover hour before dispatch so the sticky name cannot receive its tap.
+          await page.getByTestId(`cover-hour-detail-${coverId}-11`).evaluate(el => el.scrollIntoView({ block: "nearest", inline: "center" }));
+          await belowToolbar(page, coverRow);
           const segment = coverRow.locator('[data-kind="cover"]').nth(duration === 15 ? 0 : 1);
-          const box = (await segment.boundingBox())!;
-          await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
+          const target = await segment.evaluate(el => {
+            const box = el.getBoundingClientRect(), point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+            const hit = document.elementFromPoint(point.x, point.y);
+            return { point, box: { x: box.x, y: box.y, width: box.width, height: box.height },
+              hit: hit?.tagName, button: hit?.closest("button")?.getAttribute("data-testid"),
+              scrollLeft: el.closest('[data-testid="q1-grid-scroll"]')!.scrollLeft };
+          });
+          writeFileSync(join(shots, `${board}-${surface}-${locale}-${theme}-${view}-cover-touch-${duration}-target.json`), JSON.stringify(target, null, 2));
+          expect(target.button).toBe(`cover-hour-detail-${coverId}-11`);
+          await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [target.point] });
           await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
           await expect(detail).toBeVisible();
           await expect(detail).toContainText("Q1 Cover Synthetic");
