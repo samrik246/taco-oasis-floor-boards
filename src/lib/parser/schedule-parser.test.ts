@@ -231,6 +231,7 @@ describe("No Position shifts", () => {
   it("still refuses a No Position row whose date or times do not read", async () => {
     const cases = [
       [{ date: "08/05/2030" }, /Invalid Shift Start Date/],
+      [{ date: "2030-02-30" }, /Invalid Shift Start Date/],
       [{ date: "" }, /Incomplete schedule row/],
       [{ start: "" }, /Incomplete schedule row/],
       [{ end: "" }, /Incomplete schedule row/],

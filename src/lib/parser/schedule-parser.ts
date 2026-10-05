@@ -166,8 +166,11 @@ function parseRow(row: RawRow): ParsedShift | OpenShiftRow | NoPositionRow | nul
     if (!isValidYmd(date)) {
       throw new Error(`Invalid Shift Start Date (expected YYYY-MM-DD): ${date}`);
     }
-    chicagoDateTime(date, startTime);
-    chicagoDateTime(date, endTime);
+    const times = [chicagoDateTime(date, startTime), chicagoDateTime(date, endTime)];
+    // An impossible calendar date (2030-02-30) reads as Invalid Date, not a throw.
+    if (times.some((t) => !Number.isFinite(t.getTime()))) {
+      throw new Error(`Invalid Shift Start Date (expected YYYY-MM-DD): ${date}`);
+    }
     return { noPositionDate: date };
   }
   if (!position || !date || !startTime || !endTime) {
