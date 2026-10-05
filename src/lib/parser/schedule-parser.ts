@@ -29,6 +29,11 @@ export type ParseResult = {
   strippedPayColumns: string[];
   /** Rows with no Employee ID (open shifts), skipped and counted per date. */
   skippedOpenShifts?: Record<string, number>;
+  /**
+   * Rows with a person and a date but no Position ("No Position" in When I
+   * Work, used on purpose for an absence), skipped and counted per date.
+   */
+  skippedNoPosition?: Record<string, number>;
 };
 
 type RawRow = Record<string, string>;
@@ -136,8 +141,10 @@ function findHeader(row: RawRow, name: string): string {
 
 /** A row with a position and date but no Employee ID: an open shift (C1 step 6). */
 type OpenShiftRow = { openShiftDate: string };
+/** A row with a person and a date but no Position: a No Position shift. */
+type NoPositionRow = { noPositionDate: string };
 
-function parseRow(row: RawRow): ParsedShift | OpenShiftRow | null {
+function parseRow(row: RawRow): ParsedShift | OpenShiftRow | NoPositionRow | null {
   const position = findHeader(row, "Position");
   const externalId = findHeader(row, "Employee ID");
   const firstName = findHeader(row, "First Name");
@@ -149,6 +156,20 @@ function parseRow(row: RawRow): ParsedShift | OpenShiftRow | null {
   if (!externalId && !position && !date) return null;
   // Open shifts are skipped and counted, never fatal. No Status filter (I2).
   if (!externalId) return isValidYmd(date) ? { openShiftDate: date } : null;
+  // A No Position shift is skipped and counted, never fatal: its person is not
+  // on the boards that day. Its date and both clock times must still read, so
+  // a broken row refuses the file as before.
+  if (!position) {
+    if (!date || !startTime || !endTime) {
+      throw new Error(`Incomplete schedule row for employee=${externalId} position=?`);
+    }
+    if (!isValidYmd(date)) {
+      throw new Error(`Invalid Shift Start Date (expected YYYY-MM-DD): ${date}`);
+    }
+    chicagoDateTime(date, startTime);
+    chicagoDateTime(date, endTime);
+    return { noPositionDate: date };
+  }
   if (!position || !date || !startTime || !endTime) {
     throw new Error(
       `Incomplete schedule row for employee=${externalId || "?"} position=${position || "?"}`,
@@ -191,11 +212,16 @@ function parseFromWorksheet(ws: ExcelJS.Worksheet): ParseResult {
   const strippedPayColumns = detectStrippedPayColumns(headers);
   const shifts: ParsedShift[] = [];
   const skippedOpenShifts: Record<string, number> = {};
+  const skippedNoPosition: Record<string, number> = {};
   for (const row of rows) {
     const parsed = parseRow(row);
     if (!parsed) continue;
     if ("openShiftDate" in parsed) {
       skippedOpenShifts[parsed.openShiftDate] = (skippedOpenShifts[parsed.openShiftDate] ?? 0) + 1;
+      continue;
+    }
+    if ("noPositionDate" in parsed) {
+      skippedNoPosition[parsed.noPositionDate] = (skippedNoPosition[parsed.noPositionDate] ?? 0) + 1;
       continue;
     }
     shifts.push(parsed);
@@ -207,6 +233,7 @@ function parseFromWorksheet(ws: ExcelJS.Worksheet): ParseResult {
     dates,
     strippedPayColumns,
     skippedOpenShifts,
+    skippedNoPosition,
   };
 }
 

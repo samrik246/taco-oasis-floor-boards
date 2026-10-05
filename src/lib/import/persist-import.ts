@@ -27,8 +27,10 @@ import { endImportedOverlays } from "@/lib/overlays/write";
  *
  * A file whose dates are all new imports in one step. A file that touches an
  * already-imported date goes through preview, then commit (C1 step 5): see
- * `reconcile.ts` for the rules. The exact same file again is refused by
- * fingerprint and changes nothing.
+ * `reconcile.ts` for the rules. A file already imported before is refused by
+ * fingerprint and changes nothing, but only while the board still matches it:
+ * a schedule that goes back to an older version (a No Position mark taken off
+ * again) imports, so nobody stays off the boards because the file is old.
  */
 export function fingerprintFor(parsed: ParseResult): string {
   const rows = parsed.shifts
@@ -105,7 +107,8 @@ async function loadExisting(tx: Tx | typeof prisma, dates: string[]): Promise<Ex
 }
 
 function fileDates(parsed: ParseResult): string[] {
-  return [...new Set([...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {})])].sort();
+  return [...new Set([...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {}),
+    ...Object.keys(parsed.skippedNoPosition ?? {})])].sort();
 }
 
 async function buildPlan(
@@ -120,6 +123,7 @@ async function buildPlan(
     fingerprint,
     shifts: parsed.shifts,
     skippedOpenShifts: parsed.skippedOpenShifts,
+    skippedNoPosition: parsed.skippedNoPosition,
     existing,
     now,
   });
@@ -143,6 +147,12 @@ async function buildPlan(
   return Object.assign(plan, { removalDecisions: identity.decisions });
 }
 
+/** True when committing the plan would change no shift and no removal on the board. */
+function planChangesNothing(plan: { actions: { kind: string }[]; removalDecisions: RemovalDecision[] }): boolean {
+  return plan.actions.every((a) => a.kind === "unchanged") &&
+    plan.removalDecisions.every((d) => d.action === "unchanged");
+}
+
 function assertImportable(parsed: ParseResult) {
   if (parsed.shifts.length === 0) {
     throw new ImportRefusedError("Schedule contains no shifts to import.", "EMPTY");
@@ -156,9 +166,9 @@ export async function previewImport(
 ): Promise<ImportPreview> {
   assertImportable(parsed);
   const fingerprint = fingerprintFor(parsed);
-  const duplicate = await prisma.importBatch.findUnique({ where: { fingerprint } });
-  if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
   const plan = await buildPlan(prisma, parsed, fingerprint, opts.now ?? new Date());
+  const seen = await prisma.importBatch.findUnique({ where: { fingerprint } });
+  if (seen && planChangesNothing(plan)) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
   return {
     fingerprint,
     planDigest: plan.digest,
@@ -197,10 +207,9 @@ export async function commitImport(
   }
 
   const committed = await prisma.$transaction(async (tx) => {
-    const duplicate = await tx.importBatch.findUnique({ where: { fingerprint } });
-    if (duplicate) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
-
     const plan = await buildPlan(tx, parsed, fingerprint, now);
+    const seen = await tx.importBatch.findUnique({ where: { fingerprint } });
+    if (seen && planChangesNothing(plan)) throw new ImportRefusedError(DUPLICATE_MESSAGE, "DUPLICATE");
     if (plan.refusals.length > 0) {
       throw new ImportRefusedError(
         plan.refusals.map((r) => r.message).join(" "),
@@ -221,6 +230,9 @@ export async function commitImport(
       );
     }
 
+    // An older batch with this fingerprint gives it up: the board is going
+    // back to that schedule, and the fingerprint stays unique.
+    if (seen) await tx.importBatch.update({ where: { id: seen.id }, data: { fingerprint: null } });
     const batch = await tx.importBatch.create({
       data: { filename, fingerprint, rowCount: parsed.shifts.length },
     });
