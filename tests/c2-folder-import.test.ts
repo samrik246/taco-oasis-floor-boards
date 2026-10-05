@@ -321,8 +321,24 @@ describe("C2 folder import: No Position shifts", () => {
     // D2's only Caja shift is marked: the file now says D2's Caja board is empty.
     await drop("Schedule_for_marked.csv", syntheticCsv(noPosition(MORNING, "6301", D2)));
     const res = await run(EARLY_RUN, "apply");
-    expect(res).toMatchObject({ outcome: "refused", code: "REFUSED", refusals: { BOARD_WIPE: 1 } });
+    expect(res).toMatchObject({ outcome: "refused", code: "REFUSED", refusals: { BOARD_WIPE: 1 },
+      noPosition: { [D2]: 1 } });
     expect(await dbSnapshot(prisma)).toBe(before);
+    // A refused week still says why in the log.
+    expect(formatSummary(res).join("\n")).toContain(`noPosition date=${D2} count=1`);
+  });
+
+  it("loads a file whose new date holds only No Position rows, and counts them", async () => {
+    const D3 = "2030-06-05";
+    await drop("Schedule_for_new_date.csv", syntheticCsv([
+      ...MORNING,
+      r("6305", "Elena", "9:00 am", "1:00 pm", { position: "", date: D3 }),
+    ]));
+    const res = await run(MORNING_RUN, "apply");
+    expect(res).toMatchObject({ outcome: "imported", rowCount: 5, noPosition: { [D3]: 1 } });
+    expect(await prisma.shift.count({ where: { date: D3 } })).toBe(0);
+    expect(await liveShifts("6301", D2)).toHaveLength(1);
+    expect(formatSummary(res).join("\n")).toContain(`noPosition date=${D3} count=1`);
   });
 
   it("refuses a named week's file when a No Position row falls outside that week", async () => {
@@ -332,7 +348,7 @@ describe("C2 folder import: No Position shifts", () => {
       r("6305", "Elena", "9:00 am", "1:00 pm", { position: "", date: "2030-06-07" }),
     ]));
     const res = await runFolderImport({ dir, mode: "apply" }, { now: MORNING_RUN, file, week });
-    expect(res).toMatchObject({ outcome: "refused", code: "WRONG_WEEK" });
+    expect(res).toMatchObject({ outcome: "refused", code: "WRONG_WEEK", noPosition: { "2030-06-07": 1 } });
     expect(await prisma.shift.count()).toBe(0);
   });
 });
