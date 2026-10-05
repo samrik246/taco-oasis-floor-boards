@@ -53,6 +53,8 @@ export type FolderImportResult = {
   dates: DateCounts[];
   /** Refusal codes and how many of each; never the refusal text (it names Employee IDs). */
   refusals: Record<string, number>;
+  /** No Position shifts skipped, per date. A count only, never a name. */
+  noPosition?: Record<string, number>;
 };
 
 /** Exit code per outcome, for whoever runs the command. */
@@ -110,14 +112,16 @@ export async function newestExport(dir: string): Promise<string | null> {
  * (shifts and open shifts) must bracket the restaurant's date today.
  */
 function coversToday(parsed: ParseResult, today: string): boolean {
-  const dates = [...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {})].sort();
+  const dates = [...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {}),
+    ...Object.keys(parsed.skippedNoPosition ?? {})].sort();
   if (dates.length === 0) return false;
   return dates[0]! <= today && today <= dates[dates.length - 1]!;
 }
 
 /** A named week's file: every date (shifts and open shifts) falls inside that Friday through Thursday. */
 function insideWeek(parsed: ParseResult, week: { friday: string; thursday: string }): boolean {
-  const dates = [...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {})];
+  const dates = [...parsed.dates, ...Object.keys(parsed.skippedOpenShifts ?? {}),
+    ...Object.keys(parsed.skippedNoPosition ?? {})];
   return dates.length > 0 && dates.every((d) => week.friday <= d && d <= week.thursday);
 }
 
@@ -151,7 +155,8 @@ export async function runFolderImport(
   opts: FolderImportOptions = {},
 ): Promise<FolderImportResult> {
   const now = opts.now ?? new Date();
-  const base = { mode: settings.mode, rowCount: 0, dates: [], refusals: {} };
+  const base: Pick<FolderImportResult, "mode" | "rowCount" | "dates" | "refusals" | "noPosition"> =
+    { mode: settings.mode, rowCount: 0, dates: [], refusals: {}, noPosition: {} };
 
   const file = opts.file ?? (await newestExport(settings.dir));
   if (!file || !(await stat(file).then((i) => i.isFile(), () => false))) {
@@ -173,6 +178,7 @@ export async function runFolderImport(
     // Parser messages can quote a cell; report the code only.
     return refused("UNREADABLE");
   }
+  base.noPosition = parsed.skippedNoPosition ?? {};
   if (parsed.shifts.length === 0) return refused("EMPTY");
   if (opts.week ? !insideWeek(parsed, opts.week) : !coversToday(parsed, restaurantDate(now))) {
     return refused("WRONG_WEEK", { rowCount: parsed.shifts.length });
@@ -223,6 +229,9 @@ export function formatSummary(r: FolderImportResult): string[] {
     );
   }
   for (const [code, n] of Object.entries(r.refusals)) lines.push(`refusal=${code} count=${n}`);
+  for (const [date, n] of Object.entries(r.noPosition ?? {}).sort()) {
+    lines.push(`noPosition date=${date} count=${n}`);
+  }
   if (r.outcome === "held") {
     lines.push("A manager must upload this file on the upload screen, check the preview and Confirm.");
   }

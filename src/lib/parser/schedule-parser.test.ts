@@ -198,3 +198,49 @@ describe("open shifts (C1 step 6)", () => {
     );
   });
 });
+
+describe("No Position shifts", () => {
+  const base = {
+    position: "Caja - Regular",
+    firstName: "Jaime",
+    lastName: "Demo",
+    employeeId: "5501",
+    date: "2030-08-05",
+    start: "9:00 am",
+    end: "1:00 pm",
+  };
+
+  it("skips a person's shift with no Position and counts it per date, xlsx and CSV", async () => {
+    const rows = [
+      base,
+      { ...base, employeeId: "5502", position: "" },
+      { ...base, employeeId: "5503", position: "", date: "2030-08-06" },
+      { ...base, employeeId: "5504", position: "Cocina", date: "2030-08-06" },
+    ];
+    for (const [buf, filename] of [
+      [syntheticCsv(rows), "nopos.csv"],
+      [await syntheticXlsx(rows), "nopos.xlsx"],
+    ] as const) {
+      const result = await parseScheduleWorkbook(buf, { filename });
+      expect(result.shifts.map((s) => s.externalId)).toEqual(["5501", "5504"]);
+      expect(result.skippedNoPosition).toEqual({ "2030-08-05": 1, "2030-08-06": 1 });
+      expect(result.dates).toEqual(["2030-08-05", "2030-08-06"]);
+    }
+  });
+
+  it("still refuses a No Position row whose date or times do not read", async () => {
+    const cases = [
+      [{ date: "08/05/2030" }, /Invalid Shift Start Date/],
+      [{ date: "2030-02-30" }, /Invalid Shift Start Date/],
+      [{ date: "" }, /Incomplete schedule row/],
+      [{ start: "" }, /Incomplete schedule row/],
+      [{ end: "" }, /Incomplete schedule row/],
+      [{ start: "9am" }, /Unrecognized shift time/],
+      [{ end: "13:00 pm" }, /Invalid clock time/],
+    ] as const;
+    for (const [change, error] of cases) {
+      const csv = syntheticCsv([base, { ...base, employeeId: "5502", position: "", ...change }]);
+      await expect(parseScheduleWorkbook(csv, { filename: "broken.csv" })).rejects.toThrow(error);
+    }
+  });
+});

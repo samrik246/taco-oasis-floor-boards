@@ -272,6 +272,87 @@ describe("C2 import from folder", () => {
   });
 });
 
+describe("C2 folder import: No Position shifts", () => {
+  /** 8:30 in Chicago on D: only the 8:00 hour has started. */
+  const EARLY_RUN = chicagoDateTime(D, "8:30 am");
+  const noPosition = (rows: SyntheticRow[], externalId: string, date = D) =>
+    rows.map((row) => (row.employeeId === externalId && row.date === date ? { ...row, position: "" } : row));
+
+  it("skips the No Position shift, loads everyone else, and logs the date and count only", async () => {
+    await drop("Schedule_for_morning.csv", syntheticCsv(MORNING));
+    expect((await run(MORNING_RUN, "apply")).outcome).toBe("imported");
+
+    await drop("Schedule_for_marked.csv", syntheticCsv(noPosition(MORNING, "6302")));
+    const res = await run(EARLY_RUN, "apply");
+    expect(res).toMatchObject({ outcome: "imported", rowCount: 4, noPosition: { [D]: 1 } });
+    expect(await liveShifts("6302")).toHaveLength(0);
+    for (const id of ["6301", "6303", "6304"]) expect(await liveShifts(id)).toHaveLength(1);
+    expect(await liveShifts("6301", D2)).toHaveLength(1);
+
+    const text = formatSummary(res).join("\n");
+    expect(text).toContain(`noPosition date=${D} count=1`);
+    for (const token of ["Bruno", "Ejemplo", "6302"]) expect(text).not.toContain(token);
+  });
+
+  it("takes the mark off again: the older schedule imports, then the same file is DUPLICATE", async () => {
+    await drop("Schedule_for_morning.csv", syntheticCsv(MORNING));
+    await run(MORNING_RUN, "apply");
+    await drop("Schedule_for_marked.csv", syntheticCsv(noPosition(MORNING, "6302")));
+    expect((await run(EARLY_RUN, "apply")).outcome).toBe("imported");
+    expect(await liveShifts("6302")).toHaveLength(0);
+
+    // The same rows as the first import: its fingerprint is already on file.
+    await drop("Schedule_for_unmarked.csv", syntheticCsv(MORNING));
+    expect(await run(EARLY_RUN, "apply")).toMatchObject({ outcome: "imported", rowCount: 5 });
+    expect(await liveShifts("6302")).toHaveLength(1);
+    expect(await prisma.importBatch.count()).toBe(3);
+
+    const before = await dbSnapshot(prisma);
+    await drop("Schedule_for_unmarked_again.csv", syntheticCsv(MORNING));
+    expect(await run(EARLY_RUN, "apply")).toMatchObject({ outcome: "refused", code: "DUPLICATE" });
+    expect(await dbSnapshot(prisma)).toBe(before);
+  });
+
+  it("examines a date that holds only No Position rows", async () => {
+    await drop("Schedule_for_morning.csv", syntheticCsv(MORNING));
+    await run(MORNING_RUN, "apply");
+    const before = await dbSnapshot(prisma);
+
+    // D2's only Caja shift is marked: the file now says D2's Caja board is empty.
+    await drop("Schedule_for_marked.csv", syntheticCsv(noPosition(MORNING, "6301", D2)));
+    const res = await run(EARLY_RUN, "apply");
+    expect(res).toMatchObject({ outcome: "refused", code: "REFUSED", refusals: { BOARD_WIPE: 1 },
+      noPosition: { [D2]: 1 } });
+    expect(await dbSnapshot(prisma)).toBe(before);
+    // A refused week still says why in the log.
+    expect(formatSummary(res).join("\n")).toContain(`noPosition date=${D2} count=1`);
+  });
+
+  it("loads a file whose new date holds only No Position rows, and counts them", async () => {
+    const D3 = "2030-06-05";
+    await drop("Schedule_for_new_date.csv", syntheticCsv([
+      ...MORNING,
+      r("6305", "Elena", "9:00 am", "1:00 pm", { position: "", date: D3 }),
+    ]));
+    const res = await run(MORNING_RUN, "apply");
+    expect(res).toMatchObject({ outcome: "imported", rowCount: 5, noPosition: { [D3]: 1 } });
+    expect(await prisma.shift.count({ where: { date: D3 } })).toBe(0);
+    expect(await liveShifts("6301", D2)).toHaveLength(1);
+    expect(formatSummary(res).join("\n")).toContain(`noPosition date=${D3} count=1`);
+  });
+
+  it("refuses a named week's file when a No Position row falls outside that week", async () => {
+    const week = { friday: "2030-05-31", thursday: "2030-06-06" };
+    const file = await drop("Schedule_for_week.csv", syntheticCsv([
+      ...MORNING,
+      r("6305", "Elena", "9:00 am", "1:00 pm", { position: "", date: "2030-06-07" }),
+    ]));
+    const res = await runFolderImport({ dir, mode: "apply" }, { now: MORNING_RUN, file, week });
+    expect(res).toMatchObject({ outcome: "refused", code: "WRONG_WEEK", noPosition: { "2030-06-07": 1 } });
+    expect(await prisma.shift.count()).toBe(0);
+  });
+});
+
 describe("C2 folder import settings", () => {
   it("defaults to hold and needs an absolute folder", () => {
     expect(settingsFromEnv({ FLOOR_BOARDS_IMPORT_DIR: "/tmp/x" })).toEqual({ dir: "/tmp/x", mode: "hold" });
