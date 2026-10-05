@@ -231,12 +231,15 @@ export function planReconcile(opts: {
   shifts: ParsedShift[];
   /** Open-shift rows skipped by the parser, per date. */
   skippedOpenShifts?: Record<string, number>;
+  /** No Position rows skipped by the parser, per date: the file still owns that date. */
+  skippedNoPosition?: Record<string, number>;
   /** Existing, non-superseded shifts on the file's dates. */
   existing: ExistingShift[];
   now: Date;
 }): ReconcilePlan {
   const dates = [
-    ...new Set([...opts.shifts.map((s) => s.date), ...Object.keys(opts.skippedOpenShifts ?? {})]),
+    ...new Set([...opts.shifts.map((s) => s.date), ...Object.keys(opts.skippedOpenShifts ?? {}),
+      ...Object.keys(opts.skippedNoPosition ?? {})]),
   ].sort();
   const refusals: Refusal[] = personOverlaps(opts.shifts);
   const actions: PlanAction[] = [];
